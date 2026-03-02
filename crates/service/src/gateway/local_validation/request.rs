@@ -1,4 +1,4 @@
-use crate::apikey_profile::{PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_OPENAI_COMPAT};
+use crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE;
 use bytes::Bytes;
 use codexmanager_core::storage::ApiKey;
 use reqwest::Method;
@@ -22,24 +22,6 @@ fn resolve_effective_request_overrides(api_key: &ApiKey) -> (Option<String>, Opt
     (normalized_model, normalized_reasoning)
 }
 
-fn is_supported_gateway_protocol(protocol_type: &str) -> bool {
-    matches!(
-        protocol_type,
-        PROTOCOL_OPENAI_COMPAT | PROTOCOL_ANTHROPIC_NATIVE
-    )
-}
-
-fn is_supported_gateway_path(path: &str) -> bool {
-    let path_no_query = path.split('?').next().unwrap_or(path);
-    matches!(
-        path_no_query,
-        "/v1/chat/completions"
-            | "/v1/chat/completions/"
-            | "/v1/responses"
-            | "/v1/responses/"
-    )
-}
-
 pub(super) fn build_local_validation_result(
     request: &Request,
     trace_id: String,
@@ -50,21 +32,6 @@ pub(super) fn build_local_validation_result(
 ) -> Result<LocalValidationResult, LocalValidationError> {
     // 按当前策略取消每次请求都更新 api_keys.last_used_at，减少并发写入冲突。
     let normalized_path = super::super::normalize_models_path(request.url());
-    if !is_supported_gateway_protocol(api_key.protocol_type.as_str()) {
-        return Err(LocalValidationError::new(
-            400,
-            format!(
-                "unsupported protocol type: {} (only openai_compat and anthropic_native are enabled)",
-                api_key.protocol_type
-            ),
-        ));
-    }
-    if !is_supported_gateway_path(normalized_path.as_str()) {
-        return Err(LocalValidationError::new(
-            404,
-            "unsupported endpoint: only /v1/chat/completions and /v1/responses are enabled",
-        ));
-    }
     let original_body = body.clone();
     let adapted = super::super::adapt_request_for_protocol(
         api_key.protocol_type.as_str(),

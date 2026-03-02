@@ -49,30 +49,3 @@ fn openai_key_keeps_empty_overrides() {
     assert_eq!(model, None);
     assert_eq!(reasoning, None);
 }
-
-#[test]
-fn gateway_protocol_is_restricted_to_openai_and_anthropic() {
-    assert!(is_supported_gateway_protocol("openai_compat"));
-    assert!(is_supported_gateway_protocol(
-        crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE
-    ));
-    assert!(!is_supported_gateway_protocol(
-        crate::apikey_profile::PROTOCOL_AZURE_OPENAI
-    ));
-}
-
-#[test]
-fn gateway_path_is_restricted_to_chat_completions_and_responses() {
-    assert!(is_supported_gateway_path("/v1/chat/completions"));
-    assert!(is_supported_gateway_path("/v1/chat/completions/"));
-    assert!(is_supported_gateway_path("/v1/chat/completions?stream=true"));
-    assert!(is_supported_gateway_path("/v1/responses"));
-    assert!(is_supported_gateway_path("/v1/responses/"));
-    assert!(is_supported_gateway_path("/v1/responses?stream=true"));
-
-    assert!(!is_supported_gateway_path("/v1/models"));
-    assert!(!is_supported_gateway_path("/v1/messages"));
-    assert!(!is_supported_gateway_path("/v1/embeddings"));
-    assert!(!is_supported_gateway_path("/v1/chat/completions-extra"));
-    assert!(!is_supported_gateway_path("/v1/responses123"));
-}
