@@ -1,4 +1,5 @@
 use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
+use codexmanager_core::storage::{now_ts, Storage};
 use std::io::{self, Write};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -80,6 +81,7 @@ mod usage_snapshot_store;
 mod usage_token_refresh;
 
 pub const DEFAULT_ADDR: &str = "localhost:48760";
+pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:48760";
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static RPC_AUTH_TOKEN: OnceLock<String> = OnceLock::new();
@@ -92,6 +94,101 @@ pub mod portable {
         // 提前生成并落库 token，便于 web 进程/外部工具复用同一 token。
         let _ = crate::rpc_auth_token();
     }
+}
+
+pub const SERVICE_BIND_MODE_SETTING_KEY: &str = "service.bind_mode";
+pub const SERVICE_BIND_MODE_LOOPBACK: &str = "loopback";
+pub const SERVICE_BIND_MODE_ALL_INTERFACES: &str = "all_interfaces";
+
+fn normalize_service_bind_mode(raw: Option<&str>) -> &'static str {
+    let Some(value) = raw else {
+        return SERVICE_BIND_MODE_LOOPBACK;
+    };
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "all_interfaces" | "all-interfaces" | "all" | "0.0.0.0" => SERVICE_BIND_MODE_ALL_INTERFACES,
+        _ => SERVICE_BIND_MODE_LOOPBACK,
+    }
+}
+
+fn open_bind_mode_storage() -> Option<Storage> {
+    crate::process_env::ensure_default_db_path();
+    let path = std::env::var("CODEXMANAGER_DB_PATH").ok()?;
+    let storage = Storage::open(&path).ok()?;
+    let _ = storage.init();
+    Some(storage)
+}
+
+pub fn current_service_bind_mode() -> String {
+    let persisted = open_bind_mode_storage().and_then(|storage| {
+        storage
+            .get_app_setting(SERVICE_BIND_MODE_SETTING_KEY)
+            .ok()
+            .flatten()
+    });
+    normalize_service_bind_mode(persisted.as_deref()).to_string()
+}
+
+pub fn set_service_bind_mode(mode: &str) -> Result<String, String> {
+    let normalized = normalize_service_bind_mode(Some(mode)).to_string();
+    let storage = open_bind_mode_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    storage
+        .set_app_setting(SERVICE_BIND_MODE_SETTING_KEY, &normalized, now_ts())
+        .map_err(|err| format!("save service bind mode failed: {err}"))?;
+    Ok(normalized)
+}
+
+pub fn bind_all_interfaces_enabled() -> bool {
+    current_service_bind_mode() == SERVICE_BIND_MODE_ALL_INTERFACES
+}
+
+pub fn default_listener_bind_addr() -> String {
+    if bind_all_interfaces_enabled() {
+        DEFAULT_BIND_ADDR.to_string()
+    } else {
+        DEFAULT_ADDR.to_string()
+    }
+}
+
+// 中文注释：客户端本地探活/调用继续走 localhost；真正监听地址是否放开到 0.0.0.0 由配置控制。
+pub fn listener_bind_addr(addr: &str) -> String {
+    let trimmed = addr.trim();
+    if trimmed.is_empty() {
+        return default_listener_bind_addr();
+    }
+
+    let addr = trimmed.strip_prefix("http://").unwrap_or(trimmed);
+    let addr = addr.strip_prefix("https://").unwrap_or(addr);
+    let addr = addr.split('/').next().unwrap_or(addr);
+    let bind_all = bind_all_interfaces_enabled();
+
+    if !addr.contains(':') {
+        return if bind_all {
+            format!("0.0.0.0:{addr}")
+        } else {
+            format!("localhost:{addr}")
+        };
+    }
+
+    let Some((host, port)) = addr.rsplit_once(':') else {
+        return addr.to_string();
+    };
+    if host == "0.0.0.0" {
+        return format!("0.0.0.0:{port}");
+    }
+    if host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "[::1]"
+    {
+        return if bind_all {
+            format!("0.0.0.0:{port}")
+        } else {
+            format!("localhost:{port}")
+        };
+    }
+
+    addr.to_string()
 }
 
 pub struct ServerHandle {

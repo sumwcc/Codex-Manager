@@ -7,6 +7,8 @@ import "./styles/performance.css";
 import {
   appCloseToTrayOnCloseGet,
   appCloseToTrayOnCloseSet,
+  serviceListenConfigGet,
+  serviceListenConfigSet,
   serviceGatewayBackgroundTasksGet,
   serviceGatewayBackgroundTasksSet,
   serviceGatewayHeaderPolicyGet,
@@ -131,6 +133,8 @@ const UI_LOW_TRANSPARENCY_CARD_ID = "settingsLowTransparencyCard";
 const ROUTE_STRATEGY_STORAGE_KEY = "codexmanager.gateway.route_strategy";
 const ROUTE_STRATEGY_ORDERED = "ordered";
 const ROUTE_STRATEGY_BALANCED = "balanced";
+const SERVICE_LISTEN_MODE_LOOPBACK = "loopback";
+const SERVICE_LISTEN_MODE_ALL_INTERFACES = "all_interfaces";
 const CPA_NO_COOKIE_HEADER_MODE_STORAGE_KEY = "codexmanager.gateway.cpa_no_cookie_header_mode";
 const UPSTREAM_PROXY_URL_STORAGE_KEY = "codexmanager.gateway.upstream_proxy_url";
 const BACKGROUND_TASKS_SETTINGS_STORAGE_KEY = "codexmanager.gateway.background_tasks";
@@ -168,6 +172,7 @@ let refreshAllInFlight = null;
 let refreshAllProgressClearTimer = null;
 let updateCheckInFlight = null;
 let pendingUpdateCandidate = null;
+let serviceListenModeSyncInFlight = null;
 let routeStrategySyncInFlight = null;
 let routeStrategySyncedProbeId = -1;
 let cpaNoCookieHeaderModeSyncInFlight = null;
@@ -410,6 +415,109 @@ function initLowTransparencySetting() {
   const toggle = ensureLowTransparencySettingCard();
   if (toggle) {
     toggle.checked = enabled;
+  }
+}
+
+function normalizeServiceListenMode(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (["all_interfaces", "all-interfaces", "all", "0.0.0.0"].includes(raw)) {
+    return SERVICE_LISTEN_MODE_ALL_INTERFACES;
+  }
+  return SERVICE_LISTEN_MODE_LOOPBACK;
+}
+
+function serviceListenModeLabel(mode) {
+  return normalizeServiceListenMode(mode) === SERVICE_LISTEN_MODE_ALL_INTERFACES
+    ? "全部网卡（0.0.0.0）"
+    : "仅本机（localhost / 127.0.0.1）";
+}
+
+function buildServiceListenModeHint(mode, requiresRestart = true) {
+  const normalized = normalizeServiceListenMode(mode);
+  const suffix = normalized === SERVICE_LISTEN_MODE_ALL_INTERFACES
+    ? "局域网访问请使用本机实际 IP。"
+    : "外部设备将无法直接访问。";
+  if (requiresRestart) {
+    return `已保存为${serviceListenModeLabel(normalized)}，重启服务后生效；${suffix}`;
+  }
+  return `当前为${serviceListenModeLabel(normalized)}；${suffix}`;
+}
+
+function setServiceListenModeSelect(mode) {
+  if (!dom.serviceListenModeSelect) {
+    return;
+  }
+  dom.serviceListenModeSelect.value = normalizeServiceListenMode(mode);
+}
+
+function setServiceListenModeHint(message) {
+  if (!dom.serviceListenModeHint) {
+    return;
+  }
+  dom.serviceListenModeHint.textContent = String(message || "").trim()
+    || "保存后重启服务生效；局域网访问请使用本机实际 IP。";
+}
+
+function initServiceListenModeSetting() {
+  const mode = normalizeServiceListenMode(null);
+  setServiceListenModeSelect(mode);
+  setServiceListenModeHint("保存后重启服务生效；局域网访问请使用本机实际 IP。");
+}
+
+function resolveServiceListenConfigFromPayload(payload) {
+  const mode = normalizeServiceListenMode(pickFirstValue(payload, [
+    "mode",
+    "result.mode",
+    "bindMode",
+    "result.bindMode",
+  ]));
+  const requiresRestart = pickBooleanValue(payload, [
+    "requiresRestart",
+    "result.requiresRestart",
+  ]);
+  return {
+    mode,
+    requiresRestart: requiresRestart == null ? true : requiresRestart,
+  };
+}
+
+async function applyServiceListenModeToService(mode, { silent = true } = {}) {
+  const normalized = normalizeServiceListenMode(mode);
+  if (serviceListenModeSyncInFlight) {
+    return serviceListenModeSyncInFlight;
+  }
+  serviceListenModeSyncInFlight = (async () => {
+    const response = await serviceListenConfigSet(normalized);
+    const resolved = resolveServiceListenConfigFromPayload(response);
+    setServiceListenModeSelect(resolved.mode);
+    setServiceListenModeHint(buildServiceListenModeHint(resolved.mode, resolved.requiresRestart));
+    if (!silent) {
+      showToast(`监听模式已保存为${serviceListenModeLabel(resolved.mode)}，重启服务后生效`);
+    }
+    return true;
+  })();
+
+  try {
+    return await serviceListenModeSyncInFlight;
+  } catch (err) {
+    if (!silent) {
+      showToast(`保存失败：${normalizeErrorMessage(err)}`, "error");
+      setServiceListenModeHint(`保存失败：${normalizeErrorMessage(err)}`);
+    }
+    return false;
+  } finally {
+    serviceListenModeSyncInFlight = null;
+  }
+}
+
+async function syncServiceListenModeOnStartup() {
+  try {
+    const response = await serviceListenConfigGet();
+    const resolved = resolveServiceListenConfigFromPayload(response);
+    setServiceListenModeSelect(resolved.mode);
+    setServiceListenModeHint(buildServiceListenModeHint(resolved.mode, resolved.requiresRestart));
+  } catch {
+    initServiceListenModeSetting();
   }
 }
 
@@ -1935,6 +2043,14 @@ function bindEvents() {
       void applyRouteStrategyToService(selected, { silent: false });
     });
   }
+  if (dom.serviceListenModeSelect && dom.serviceListenModeSelect.dataset.bound !== "1") {
+    dom.serviceListenModeSelect.dataset.bound = "1";
+    dom.serviceListenModeSelect.addEventListener("change", () => {
+      const selected = normalizeServiceListenMode(dom.serviceListenModeSelect.value);
+      setServiceListenModeSelect(selected);
+      void applyServiceListenModeToService(selected, { silent: false });
+    });
+  }
   if (dom.cpaNoCookieHeaderMode && dom.cpaNoCookieHeaderMode.dataset.bound !== "1") {
     dom.cpaNoCookieHeaderMode.dataset.bound = "1";
     dom.cpaNoCookieHeaderMode.addEventListener("change", () => {
@@ -1992,6 +2108,7 @@ function bootstrap() {
   initLowTransparencySetting();
   initUpdateAutoCheckSetting();
   void initCloseToTrayOnCloseSetting();
+  initServiceListenModeSetting();
   initRouteStrategySetting();
   initCpaNoCookieHeaderModeSetting();
   initUpstreamProxySetting();
@@ -2004,6 +2121,7 @@ function bootstrap() {
   updateRequestLogFilterButtons();
   scheduleStartupUpdateCheck();
   void serviceLifecycle.autoStartService().finally(() => {
+    void syncServiceListenModeOnStartup();
     void syncRouteStrategyOnStartup();
     void syncCpaNoCookieHeaderModeOnStartup();
     void syncUpstreamProxyOnStartup();

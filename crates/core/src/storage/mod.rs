@@ -10,6 +10,7 @@ mod model_options;
 mod request_log_query;
 mod request_logs;
 mod request_token_stats;
+mod settings;
 mod tokens;
 mod usage;
 
@@ -297,9 +298,12 @@ impl Storage {
         // 中文注释：旧版 request_logs 里遗留的 token 字段，需要先回填到 request_token_stats，
         // 再做表瘦身；否则压缩后会丢失历史 token 统计。
         self.ensure_request_token_stats_table()?;
-        self.apply_compat_migration(
-            "028_request_logs_drop_legacy_usage_columns",
-            |s| s.compact_request_logs_legacy_usage_columns(),
+        self.apply_compat_migration("028_request_logs_drop_legacy_usage_columns", |s| {
+            s.compact_request_logs_legacy_usage_columns()
+        })?;
+        self.apply_sql_migration(
+            "029_app_settings",
+            include_str!("../../migrations/029_app_settings.sql"),
         )?;
         self.ensure_request_token_stats_table()?;
         Ok(())

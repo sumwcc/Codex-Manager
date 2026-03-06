@@ -187,8 +187,12 @@ fn bin_path(dir: &Path, name: &str) -> PathBuf {
     }
 }
 
-fn spawn_child(bin: &Path) -> std::io::Result<Child> {
-    Command::new(bin).spawn()
+fn spawn_child(bin: &Path, service_bind_addr: Option<&str>) -> std::io::Result<Child> {
+    let mut cmd = Command::new(bin);
+    if let Some(bind_addr) = service_bind_addr {
+        cmd.env("CODEXMANAGER_SERVICE_ADDR", bind_addr);
+    }
+    cmd.spawn()
 }
 
 fn main() {
@@ -197,13 +201,14 @@ fn main() {
 
     let dir = exe_dir();
     let service_addr = resolve_addr("CODEXMANAGER_SERVICE_ADDR", DEFAULT_SERVICE_ADDR);
+    let service_bind_addr = codexmanager_service::listener_bind_addr(&service_addr);
     let web_addr = resolve_addr("CODEXMANAGER_WEB_ADDR", DEFAULT_WEB_ADDR);
 
     let service_bin = bin_path(&dir, "codexmanager-service");
     let web_bin = bin_path(&dir, "codexmanager-web");
 
     println!("CodexManager 启动器");
-    println!("- service: {service_addr}");
+    println!("- service: {service_addr} (bind {service_bind_addr})");
     println!("- web:     http://{web_addr}/");
     println!("按 Ctrl+C 退出");
 
@@ -221,7 +226,7 @@ fn main() {
         std::process::exit(1);
     } else {
         println!("正在启动 service...");
-        match spawn_child(&service_bin) {
+        match spawn_child(&service_bin, Some(&service_bind_addr)) {
             Ok(child) => {
                 service_child = Some(child);
                 spawned_service = true;

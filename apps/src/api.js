@@ -274,6 +274,21 @@ export async function serviceInitialize() {
   return invoke("service_initialize", withAddr());
 }
 
+export async function serviceListenConfigGet() {
+  if (!isTauriRuntime()) {
+    return rpcInvoke("service/listenConfig/get");
+  }
+  return invoke("service_listen_config_get", {});
+}
+
+export async function serviceListenConfigSet(mode) {
+  const normalized = mode == null ? "" : String(mode);
+  if (!isTauriRuntime()) {
+    return rpcInvoke("service/listenConfig/set", { mode: normalized });
+  }
+  return invoke("service_listen_config_set", { mode: normalized });
+}
+
 // 账号
 function normalizeAccountListOptions(options = {}) {
   const source = options && typeof options === "object" ? options : {};

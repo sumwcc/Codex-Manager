@@ -636,6 +636,51 @@
                                 </div>
                             </div>
 
+                            <div class="settings-proxy-strip">
+                                <div
+                                    class="settings-top-item settings-top-item-proxy"
+                                >
+                                    <label
+                                        class="hint settings-field-label settings-field-label-with-tip settings-top-label"
+                                        for="serviceListenModeSelect"
+                                    >
+                                        <span>服务监听地址</span>
+                                        <span
+                                            class="settings-inline-tip"
+                                            tabindex="0"
+                                            role="note"
+                                            title="切到 0.0.0.0 后，局域网设备可通过本机实际 IP 访问；仅本机模式更安全。"
+                                            aria-label="服务监听地址说明：可切换为仅本机或全部网卡，保存后需重启服务生效。"
+                                            >?</span
+                                        >
+                                    </label>
+                                    <div class="settings-top-main">
+                                        <select
+                                            id="serviceListenModeSelect"
+                                            class="inline-select settings-inline-select"
+                                        >
+                                            <option value="loopback">
+                                                仅本机（localhost / 127.0.0.1）
+                                            </option>
+                                            <option value="all_interfaces">
+                                                全部网卡（0.0.0.0）
+                                            </option>
+                                        </select>
+                                    </div>
+                                    <div
+                                        class="settings-top-aside settings-row-actions"
+                                    >
+                                        <div
+                                            id="serviceListenModeHint"
+                                            class="hint"
+                                        >
+                                            保存后重启服务生效；局域网访问请使用本机实际
+                                            IP。
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div
                                 class="panel settings-card settings-card-background settings-card-background-modern"
                             >

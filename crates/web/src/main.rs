@@ -175,9 +175,11 @@ fn service_bin_path(dir: &Path) -> PathBuf {
     }
 }
 
-fn spawn_service_detached(dir: &Path) -> std::io::Result<()> {
+fn spawn_service_detached(dir: &Path, service_addr: &str) -> std::io::Result<()> {
     let bin = service_bin_path(dir);
     let mut cmd = Command::new(bin);
+    let bind_addr = codexmanager_service::listener_bind_addr(service_addr);
+    cmd.env("CODEXMANAGER_SERVICE_ADDR", bind_addr);
 
     #[cfg(target_os = "windows")]
     {
@@ -213,7 +215,7 @@ async fn ensure_service_running(
         ));
     }
 
-    if let Err(err) = spawn_service_detached(dir) {
+    if let Err(err) = spawn_service_detached(dir, service_addr) {
         return Some(format!("failed to spawn service: {err}"));
     }
     *spawned_service.lock().await = true;

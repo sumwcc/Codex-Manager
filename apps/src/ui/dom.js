@@ -17,6 +17,8 @@ export const dom = {
   updateStatusText: byId("updateStatusText"),
   routeStrategySelect: byId("routeStrategySelect"),
   routeStrategyHint: byId("routeStrategyHint"),
+  serviceListenModeSelect: byId("serviceListenModeSelect"),
+  serviceListenModeHint: byId("serviceListenModeHint"),
   upstreamProxyUrlInput: byId("upstreamProxyUrlInput"),
   upstreamProxyHint: byId("upstreamProxyHint"),
   upstreamProxySave: byId("upstreamProxySave"),

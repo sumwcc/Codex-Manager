@@ -9,6 +9,7 @@ mod account;
 mod apikey;
 mod gateway;
 mod requestlog;
+mod service_config;
 mod usage;
 
 pub(super) fn response(req: &JsonRpcRequest, result: Value) -> JsonRpcResponse {
@@ -87,6 +88,9 @@ pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcResponse {
         return resp;
     }
     if let Some(resp) = usage::try_handle(&req) {
+        return resp;
+    }
+    if let Some(resp) = service_config::try_handle(&req) {
         return resp;
     }
     if let Some(resp) = gateway::try_handle(&req) {

@@ -147,6 +147,15 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 028 migration");
     assert_eq!(applied_028, 1);
+    let applied_029: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '029_app_settings'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 029 migration");
+    assert_eq!(applied_029, 1);
 
     assert!(!storage
         .has_column("accounts", "note")
@@ -175,6 +184,9 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert!(storage
         .has_column("request_logs", "response_adapter")
         .expect("check request_logs.response_adapter"));
+    assert!(storage
+        .has_column("app_settings", "value")
+        .expect("check app_settings.value"));
     assert!(!storage
         .has_column("request_logs", "input_tokens")
         .expect("check request_logs.input_tokens"));
@@ -520,7 +532,10 @@ fn request_logs_compact_migration_drops_legacy_usage_columns_and_preserves_rows(
         .expect("load compacted request log row");
     assert_eq!(request_log_row.0, 7);
     assert_eq!(request_log_row.1, "/v1/responses");
-    assert_eq!(request_log_row.2.as_deref(), Some("OpenAIChatCompletionsJson"));
+    assert_eq!(
+        request_log_row.2.as_deref(),
+        Some("OpenAIChatCompletionsJson")
+    );
 
     let token_row: (Option<i64>, Option<i64>, Option<f64>, Option<i64>, Option<i64>) = storage
         .conn
