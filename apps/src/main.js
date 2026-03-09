@@ -59,7 +59,6 @@ import {
 } from "./services/refresh";
 import { createServiceLifecycle } from "./services/service-lifecycle";
 import { createLoginFlow } from "./services/login-flow";
-import { createManagementActions } from "./services/management-actions";
 import { createUpdateController } from "./services/update-controller.js";
 import { openAccountModal, closeAccountModal } from "./views/accounts";
 import { renderAccountsRefreshProgress } from "./views/accounts/render";
@@ -70,8 +69,6 @@ import {
 import { renderApiKeys, openApiKeyModal, closeApiKeyModal, populateApiKeyModelSelect } from "./views/apikeys";
 import { openUsageModal, closeUsageModal, renderUsageSnapshot } from "./views/usage";
 import { renderRequestLogs } from "./views/requestlogs";
-import { renderAccountsOnly, renderCurrentView } from "./views/renderers";
-import { buildRenderActions } from "./views/render-actions";
 import { createNavigationHandlers } from "./views/navigation";
 import { bindMainEvents } from "./views/event-bindings";
 import { bindSettingsEvents } from "./settings/bind-settings-events.js";
@@ -79,10 +76,13 @@ import { createSettingsController } from "./settings/controller.js";
 import { createSettingsServiceSync } from "./settings/service-sync.js";
 import { createAppRuntime } from "./runtime/app-runtime.js";
 import { createBootstrapRunner } from "./runtime/app-bootstrap.js";
+import { createAccountsPageCoordinator } from "./runtime/accounts-page-coordinator.js";
+import { createManagementRuntime } from "./runtime/management-runtime.js";
 
 const { showToast, showConfirmDialog } = createFeedbackHandlers({ dom });
 let settingsController = null;
 let settingsServiceSync = null;
+let serviceLifecycle = null;
 
 function saveAppSettingsPatch(patch = {}) {
   if (!settingsController) {
@@ -101,38 +101,6 @@ const {
   dom,
   onThemeChange: (theme) => saveAppSettingsPatch({ theme }),
 });
-
-function renderCurrentPageView(page = state.currentPage) {
-  renderCurrentView(page, buildMainRenderActions());
-}
-
-async function reloadAccountsPage(options = {}) {
-  const silent = options.silent === true;
-  const render = options.render !== false;
-  const ensureConnection = options.ensureConnection !== false;
-
-  if (ensureConnection) {
-    const ok = await ensureConnected();
-    serviceLifecycle.updateServiceToggle();
-    if (!ok) {
-      return false;
-    }
-  }
-
-  try {
-    const applied = await refreshAccountsPage({ latestOnly: options.latestOnly !== false });
-    if (applied !== false && render) {
-      renderAccountsView();
-    }
-    return applied !== false;
-  } catch (err) {
-    console.error("[accounts] page refresh failed", err);
-    if (!silent) {
-      showToast(`账号分页刷新失败：${normalizeErrorMessage(err)}`, "error");
-    }
-    return false;
-  }
-}
 
 const { switchPage, updateRequestLogFilterButtons } = createNavigationHandlers({
   state,
@@ -254,7 +222,7 @@ const {
   backgroundTasksRestartKeysDefault,
 } = settingsController;
 
-const serviceLifecycle = createServiceLifecycle({
+serviceLifecycle = createServiceLifecycle({
   state,
   dom,
   setServiceHint,
@@ -267,6 +235,31 @@ const serviceLifecycle = createServiceLifecycle({
   ensureAutoRefreshTimer,
   stopAutoRefreshTimer,
   onStartupState: (loading, message) => setStartupMask(loading, message),
+});
+
+const {
+  buildMainRenderActions,
+  reloadAccountsPage,
+  renderAccountsView,
+  renderCurrentPageView,
+} = createAccountsPageCoordinator({
+  state,
+  ensureConnected,
+  refreshAccountsPage,
+  renderAccountsRefreshProgress,
+  setRefreshAllProgress,
+  clearRefreshAllProgress,
+  showToast,
+  normalizeErrorMessage,
+  updateServiceToggle: () => serviceLifecycle?.updateServiceToggle(),
+  updateAccountSort: (...args) => updateAccountSort(...args),
+  handleOpenUsageModal: (...args) => handleOpenUsageModal(...args),
+  setManualPreferredAccount: (...args) => setManualPreferredAccount(...args),
+  deleteAccount: (...args) => deleteAccount(...args),
+  toggleApiKeyStatus: (...args) => toggleApiKeyStatus(...args),
+  deleteApiKey: (...args) => deleteApiKey(...args),
+  updateApiKeyModel: (...args) => updateApiKeyModel(...args),
+  copyApiKey: (...args) => copyApiKey(...args),
 });
 
 const {
@@ -393,7 +386,25 @@ const loginFlow = createLoginFlow({
   closeAccountModal,
 });
 
-const managementActions = createManagementActions({
+const {
+  handleClearRequestLogs,
+  updateAccountSort,
+  setManualPreferredAccount,
+  deleteAccount,
+  importAccountsFromFiles,
+  importAccountsFromDirectory,
+  deleteSelectedAccounts,
+  deleteUnavailableFreeAccounts,
+  exportAccountsByFile,
+  handleOpenUsageModal,
+  refreshUsageForAccount,
+  createApiKey,
+  deleteApiKey,
+  toggleApiKeyStatus,
+  updateApiKeyModel,
+  copyApiKey,
+  refreshApiModelsNow,
+} = createManagementRuntime({
   dom,
   state,
   ensureConnected,
@@ -413,44 +424,6 @@ const managementActions = createManagementActions({
   populateApiKeyModelSelect,
   renderApiKeys,
 });
-
-const {
-  handleClearRequestLogs,
-  updateAccountSort,
-  setManualPreferredAccount,
-  deleteAccount,
-  importAccountsFromFiles,
-  importAccountsFromDirectory,
-  deleteSelectedAccounts,
-  deleteUnavailableFreeAccounts,
-  exportAccountsByFile,
-  handleOpenUsageModal,
-  refreshUsageForAccount,
-  createApiKey,
-  deleteApiKey,
-  toggleApiKeyStatus,
-  updateApiKeyModel,
-  copyApiKey,
-  refreshApiModelsNow,
-} = managementActions;
-
-function buildMainRenderActions() {
-  return buildRenderActions({
-    updateAccountSort,
-    handleOpenUsageModal,
-    setManualPreferredAccount,
-    deleteAccount,
-    refreshAccountsPage: () => reloadAccountsPage({ latestOnly: true, silent: false }),
-    toggleApiKeyStatus,
-    deleteApiKey,
-    updateApiKeyModel,
-    copyApiKey,
-  });
-}
-
-function renderAccountsView() {
-  renderAccountsOnly(buildMainRenderActions());
-}
 
 function bindEvents() {
   bindMainEvents({
