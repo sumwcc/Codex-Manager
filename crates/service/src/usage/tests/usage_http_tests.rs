@@ -147,6 +147,56 @@ fn refresh_token_status_error_uses_auth_error_header_when_body_lacks_code() {
 }
 
 #[test]
+fn refresh_token_status_error_stabilizes_html_and_debug_headers_for_non_401() {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-request-id", HeaderValue::from_static("req_refresh_123"));
+    headers.insert("cf-ray", HeaderValue::from_static("cf_refresh_123"));
+    headers.insert(
+        "x-openai-authorization-error",
+        HeaderValue::from_static("missing_authorization_header"),
+    );
+    headers.insert(
+        "x-error-json",
+        HeaderValue::from_static("{\"identity_error_code\":\"token_expired\"}"),
+    );
+
+    let message = super::format_refresh_token_status_error_with_headers(
+        StatusCode::FORBIDDEN,
+        Some(&headers),
+        "<html><head><title>Just a moment...</title></head><body>challenge</body></html>",
+    );
+
+    assert!(message.contains("refresh token failed with status 403 Forbidden"));
+    assert!(message.contains("Cloudflare 安全验证页"));
+    assert!(message.contains("kind=cloudflare_challenge"));
+    assert!(message.contains("request_id=req_refresh_123"));
+    assert!(message.contains("cf_ray=cf_refresh_123"));
+    assert!(message.contains("auth_error=missing_authorization_header"));
+    assert!(message.contains("identity_error_code=token_expired"));
+}
+
+#[test]
+fn refresh_token_status_error_uses_header_only_debug_suffix_for_empty_body() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("req_refresh_empty"),
+    );
+    headers.insert("cf-ray", HeaderValue::from_static("cf_refresh_empty"));
+
+    let message = super::format_refresh_token_status_error_with_headers(
+        StatusCode::BAD_GATEWAY,
+        Some(&headers),
+        "",
+    );
+
+    assert!(message.contains("refresh token failed with status 502 Bad Gateway"));
+    assert!(message.contains("kind=cloudflare_edge"));
+    assert!(message.contains("request_id=req_refresh_empty"));
+    assert!(message.contains("cf_ray=cf_refresh_empty"));
+}
+
+#[test]
 fn refresh_token_auth_error_reason_from_message_tracks_canonical_messages() {
     let invalidated = super::format_refresh_token_status_error(
         StatusCode::UNAUTHORIZED,

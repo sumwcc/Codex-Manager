@@ -105,6 +105,64 @@ fn extract_refresh_token_error_code_from_headers(headers: &HeaderMap) -> Option<
     })
 }
 
+fn looks_like_refresh_token_blocked_marker(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    normalized.contains("blocked")
+        || normalized.contains("unsupported_country_region_territory")
+        || normalized.contains("unsupported_country")
+        || normalized.contains("region_restricted")
+}
+
+fn classify_refresh_token_status_error_kind_with_headers(
+    headers: Option<&HeaderMap>,
+    body: &str,
+) -> &'static str {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        if let Some(headers) = headers {
+            if extract_response_header(headers, AUTH_ERROR_HEADER)
+                .as_deref()
+                .is_some_and(looks_like_refresh_token_blocked_marker)
+                || crate::gateway::extract_identity_error_code_from_headers(headers)
+                    .as_deref()
+                    .is_some_and(looks_like_refresh_token_blocked_marker)
+            {
+                return "cloudflare_blocked";
+            }
+            if crate::gateway::extract_identity_error_code_from_headers(headers).is_some() {
+                return "identity_error";
+            }
+            if extract_response_header(headers, AUTH_ERROR_HEADER).is_some() {
+                return "auth_error";
+            }
+            if extract_response_header(headers, CF_RAY_HEADER).is_some() {
+                return "cloudflare_edge";
+            }
+        }
+        return "empty";
+    }
+
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        return "json";
+    }
+
+    let normalized = trimmed.to_ascii_lowercase();
+    if normalized.contains("<html") || normalized.contains("<!doctype html") {
+        if normalized.contains("cloudflare") && normalized.contains("blocked") {
+            return "cloudflare_blocked";
+        }
+        if normalized.contains("cloudflare")
+            || normalized.contains("just a moment")
+            || normalized.contains("attention required")
+        {
+            return "cloudflare_challenge";
+        }
+        return "html";
+    }
+
+    "non_json"
+}
+
 fn classify_refresh_token_auth_error_reason_from_code(
     code: Option<&str>,
 ) -> RefreshTokenAuthErrorReason {
@@ -176,17 +234,54 @@ fn format_refresh_token_status_error_with_headers(
         return format!("refresh token failed with status {status}: {message}");
     }
 
-    let snippet = body
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(256)
-        .collect::<String>();
-    if snippet.is_empty() {
+    let body_hint =
+        crate::gateway::summarize_upstream_error_hint_from_body(status.as_u16(), body.as_bytes())
+            .or_else(|| {
+                let snippet = body
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(256)
+                    .collect::<String>();
+                (!snippet.is_empty()).then_some(snippet)
+            });
+    let debug_suffix = headers
+        .map(|headers| {
+            let mut details = Vec::new();
+            let kind = classify_refresh_token_status_error_kind_with_headers(Some(headers), body);
+            if kind != "json" {
+                details.push(format!("kind={kind}"));
+            }
+            if let Some(request_id) = extract_response_header(headers, REQUEST_ID_HEADER)
+                .or_else(|| extract_response_header(headers, OAI_REQUEST_ID_HEADER))
+            {
+                details.push(format!("request_id={request_id}"));
+            }
+            if let Some(cf_ray) = extract_response_header(headers, CF_RAY_HEADER) {
+                details.push(format!("cf_ray={cf_ray}"));
+            }
+            if let Some(auth_error) = extract_response_header(headers, AUTH_ERROR_HEADER) {
+                details.push(format!("auth_error={auth_error}"));
+            }
+            if let Some(identity_error_code) =
+                crate::gateway::extract_identity_error_code_from_headers(headers)
+            {
+                details.push(format!("identity_error_code={identity_error_code}"));
+            }
+            if details.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", details.join(", "))
+            }
+        })
+        .unwrap_or_default();
+    if let Some(body_hint) = body_hint {
+        format!("refresh token failed with status {status}: {body_hint}{debug_suffix}")
+    } else if debug_suffix.is_empty() {
         format!("refresh token failed with status {status}")
     } else {
-        format!("refresh token failed with status {status}: {snippet}")
+        format!("refresh token failed with status {status}{debug_suffix}")
     }
 }
 

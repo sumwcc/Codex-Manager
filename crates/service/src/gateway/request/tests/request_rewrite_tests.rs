@@ -411,6 +411,8 @@ fn responses_retains_service_tier_for_codex_supported_fields() {
     assert!(value.get("model").is_some());
     assert!(value.get("instructions").is_some());
     assert!(value.get("input").is_some());
+    assert!(value.get("max_output_tokens").is_none());
+    assert!(value.get("previous_response_id").is_none());
     assert!(value.get("tools").is_some());
     assert!(value.get("tool_choice").is_some());
     assert!(value.get("parallel_tool_calls").is_some());

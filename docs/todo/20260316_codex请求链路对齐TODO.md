@@ -79,6 +79,7 @@
 - [x] 当 refresh `401` 的 body 缺少错误码时，继续从 `x-error-json / x-openai-authorization-error` 头部兜底判定 canonical 原因
 - [x] 继续复核登录回调与 token 链的剩余请求头使用点；`/oauth/token` 与 token exchange 仅保留 form-urlencoded `Content-Type`，refresh 继续走共享 client 默认头
 - [x] 对齐 token endpoint 错误解析，继续细化 challenge / HTML / 非 JSON 子类，并让空 body 场景继续从 `auth_error / identity_error_code` 头部推断 `blocked / identity_error / auth_error / cloudflare_edge` 类型
+- [x] refresh 非 401 失败摘要继续收口到稳定 `kind + request_id + cf-ray + auth_error + identity_error_code` 诊断
 - [x] 复核 refresh token 失败后的账号状态迁移，继续避免误摘号
 - [x] 收紧 refresh 失效判定：仅 401 视为 refresh 认证失败，403/挑战页/代理异常不再摘号
 
@@ -100,7 +101,7 @@
 - [x] 模型列表 `/models` 请求头收回到与官方默认客户端一致的 `originator / User-Agent / ChatGPT-Account-ID / residency` 语义，并移除历史 `Version` 头
 - [x] 模型列表 `/models` 失败诊断收口到稳定 challenge / HTML / auth / `identity_error_code` 摘要，并保持 OpenAI fallback 触发条件兼容
 - [x] 模型列表 `/models` 不再显式发送上游 `Cookie`
-- [ ] 继续核对请求体字段白名单和默认值的剩余边角（当前已补齐 `tools=[] / include=[]`，并已收紧为“仅在无工具时默认补 `parallel_tool_calls=false`”；已确认当前仓库没有可靠模型能力源可自动推断该字段，后续若继续推进只能新增显式能力表或继续保持保守策略）
+- [ ] 继续核对请求体字段白名单和默认值的剩余边角（当前已补齐 `tools=[] / include=[]`，并已收紧为“仅在无工具时默认补 `parallel_tool_calls=false`”；已确认官方 Codex HTTP `ResponsesApiRequest` 不带 `previous_response_id / max_output_tokens`，当前 Codex backend allowlist 已按官方移除；也已确认当前仓库没有可靠模型能力源可自动推断 `parallel_tool_calls`，后续若继续推进只能新增显式能力表或继续保持保守策略）
 - [x] 对齐流式与非流式的 header profile 分支
 - [x] 收掉 HTTP `/responses` 上不该显式发送的 `Conversation_id / OpenAI-Beta / Connection / Version`
 - [x] 当上游目标是 `api.openai.com/v1` 时，`/responses` 不再透传 ChatGPT 侧 `Cookie / ChatGPT-Account-ID`
