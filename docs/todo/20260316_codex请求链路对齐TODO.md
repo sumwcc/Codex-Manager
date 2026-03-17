@@ -67,7 +67,9 @@
 - [x] refresh `401` 内部原因收口到稳定枚举，避免后续只靠散乱字符串匹配
 - [x] token endpoint 错误解析贴近官方优先级，并对 transport error 做敏感 URL 脱敏
 - [x] token endpoint 遇到 challenge / HTML 页面时输出稳定摘要，不再原样透传整页 HTML
-- [ ] 对齐登录回调请求头、`Originator`、`User-Agent` 使用点
+- [x] `/oauth/token` 登录链路已挂上 `Accept / Originator / User-Agent / Residency`
+- [x] token endpoint / api key exchange 失败摘要补齐 `request_id / cf-ray / auth_error` 调试头
+- [ ] 继续复核登录回调与 token 链的剩余请求头使用点
 - [ ] 对齐 token endpoint 错误解析，补齐更完整的失效/挑战区分
 - [x] 复核 refresh token 失败后的账号状态迁移，继续避免误摘号
 - [x] 收紧 refresh 失效判定：仅 401 视为 refresh 认证失败，403/挑战页/代理异常不再摘号
@@ -91,6 +93,8 @@
 - [ ] 继续核对请求体字段白名单和默认值的剩余边角
 - [x] 对齐流式与非流式的 header profile 分支
 - [x] 收掉 HTTP `/responses` 上不该显式发送的 `Conversation_id / OpenAI-Beta / Connection / Version`
+- [x] 透传官方 `x-codex-beta-features`
+- [x] 透传官方 `x-codex-turn-metadata`（仅 ASCII 安全值）
 - [ ] 继续核对 cookie、turn state、conversation 相关头在不同链路上的带法
 - [ ] 复核失败重试、failover、日志落盘时机，避免多账号切换误导
 
@@ -147,6 +151,9 @@
 
 待做：
 
+- [x] `gateway-trace.log` 已对失败请求补齐 `REQUEST_START / CANDIDATE_* / ATTEMPT_* / BRIDGE_RESULT / FAILED_REQUEST` 上下文缓冲，成功请求仍不落 trace 文件
+- [x] `BRIDGE_RESULT` 与失败日志已补充 `request_id / cf-ray / content-type` 诊断摘要
+- [x] `/responses` 与 `compact` 的 challenge / HTML 失败摘要补齐 `auth_error`
 - [ ] 继续增强 `gateway-trace.log` 对最后一帧、最后一跳、响应头、body 摘要的记录
 - [ ] 对 403/502/503 建立更稳定的错误分类
 - [ ] 让桌面端 toast 和请求日志错误文案尽量使用同一错误源

@@ -133,6 +133,8 @@ pub(super) fn try_openai_fallback(
             incoming_session_id: incoming_headers.session_id(),
             incoming_client_request_id: incoming_headers.client_request_id(),
             incoming_subagent: incoming_headers.subagent(),
+            incoming_beta_features: incoming_headers.beta_features(),
+            incoming_turn_metadata: incoming_headers.turn_metadata(),
             fallback_session_id: None,
             incoming_turn_state: incoming_headers.turn_state(),
             include_turn_state: !compact_headers_mode && !is_openai_api_target,

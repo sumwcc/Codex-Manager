@@ -10,6 +10,8 @@ pub(crate) struct CodexUpstreamHeaderInput<'a> {
     pub(crate) incoming_session_id: Option<&'a str>,
     pub(crate) incoming_client_request_id: Option<&'a str>,
     pub(crate) incoming_subagent: Option<&'a str>,
+    pub(crate) incoming_beta_features: Option<&'a str>,
+    pub(crate) incoming_turn_metadata: Option<&'a str>,
     pub(crate) fallback_session_id: Option<&'a str>,
     pub(crate) incoming_turn_state: Option<&'a str>,
     pub(crate) include_turn_state: bool,
@@ -80,6 +82,26 @@ pub(crate) fn build_codex_upstream_headers(
         .filter(|value| !value.is_empty())
     {
         headers.push(("x-openai-subagent".to_string(), subagent.to_string()));
+    }
+    if let Some(beta_features) = input
+        .incoming_beta_features
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        headers.push((
+            "x-codex-beta-features".to_string(),
+            beta_features.to_string(),
+        ));
+    }
+    if let Some(turn_metadata) = input
+        .incoming_turn_metadata
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        headers.push((
+            "x-codex-turn-metadata".to_string(),
+            turn_metadata.to_string(),
+        ));
     }
     headers.push((
         "session_id".to_string(),

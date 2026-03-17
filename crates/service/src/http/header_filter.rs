@@ -16,13 +16,11 @@ pub(crate) fn should_skip_request_header(name: &HeaderName, value: &HeaderValue)
     if is_hop_by_hop_header(lower)
         || lower.eq_ignore_ascii_case("host")
         || lower.eq_ignore_ascii_case("content-length")
-        // 中文注释：该头由 Codex 自动注入，值里可能包含中文路径；若直传给 tiny_http 会在解析阶段断流。
-        // 在前置代理层剔除该头，可避免“请求没进业务层就断开”。
-        || lower.eq_ignore_ascii_case("x-codex-turn-metadata")
     {
         return true;
     }
-    // 中文注释：tiny_http 仅支持 ASCII 头值；非 ASCII 统一在入口层过滤，避免污染后端业务处理。
+    // 中文注释：tiny_http 仅支持 ASCII 头值；像 x-codex-turn-metadata 这类可能携带中文路径的头，
+    // 只在值可安全转成 ASCII 时透传，非 ASCII 一律在入口层过滤，避免请求还没进业务层就断流。
     value.to_str().is_err()
 }
 

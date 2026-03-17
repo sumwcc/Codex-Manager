@@ -27,6 +27,9 @@ pub(crate) struct UpstreamResponseBridgeResult {
     pub delivery_error: Option<String>,
     pub upstream_error_hint: Option<String>,
     pub delivered_status_code: Option<u16>,
+    pub upstream_request_id: Option<String>,
+    pub upstream_cf_ray: Option<String>,
+    pub upstream_content_type: Option<String>,
 }
 
 impl UpstreamResponseBridgeResult {

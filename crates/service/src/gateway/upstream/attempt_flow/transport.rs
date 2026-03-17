@@ -221,6 +221,8 @@ pub(in super::super) fn send_upstream_request(
             incoming_session_id,
             incoming_client_request_id: incoming_headers.client_request_id(),
             incoming_subagent: incoming_headers.subagent(),
+            incoming_beta_features: incoming_headers.beta_features(),
+            incoming_turn_metadata: incoming_headers.turn_metadata(),
             fallback_session_id: derived_session_id.as_deref(),
             incoming_turn_state: incoming_headers.turn_state(),
             include_turn_state: !compact_headers_mode,

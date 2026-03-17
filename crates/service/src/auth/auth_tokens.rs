@@ -5,6 +5,7 @@ use codexmanager_core::auth::{
 };
 use codexmanager_core::storage::{now_ts, Account, Token};
 use reqwest::blocking::Client;
+use reqwest::header::HeaderMap;
 use reqwest::Error as ReqwestError;
 use serde::de::DeserializeOwned;
 use std::sync::mpsc;
@@ -22,6 +23,11 @@ const OPENAI_AUTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const OPENAI_AUTH_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const OPENAI_AUTH_TOTAL_TIMEOUT: Duration = Duration::from_secs(60);
 const ACCOUNT_SORT_STEP: i64 = 5;
+const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
+const REQUEST_ID_HEADER: &str = "x-request-id";
+const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";
+const CF_RAY_HEADER: &str = "cf-ray";
+const AUTH_ERROR_HEADER: &str = "x-openai-authorization-error";
 
 fn read_json_with_timeout<T>(
     resp: reqwest::blocking::Response,
@@ -68,6 +74,39 @@ fn read_text_with_timeout(
 
 fn summarize_token_endpoint_error_body(body: &str) -> String {
     parse_token_endpoint_error(body).to_string()
+}
+
+fn extract_response_header(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn build_token_endpoint_debug_suffix(headers: &HeaderMap) -> String {
+    let request_id = extract_response_header(headers, REQUEST_ID_HEADER)
+        .or_else(|| extract_response_header(headers, OAI_REQUEST_ID_HEADER));
+    let cf_ray = extract_response_header(headers, CF_RAY_HEADER);
+    let auth_error = extract_response_header(headers, AUTH_ERROR_HEADER);
+
+    let mut details = Vec::new();
+    if let Some(request_id) = request_id {
+        details.push(format!("request_id={request_id}"));
+    }
+    if let Some(cf_ray) = cf_ray {
+        details.push(format!("cf_ray={cf_ray}"));
+    }
+    if let Some(auth_error) = auth_error {
+        details.push(format!("auth_error={auth_error}"));
+    }
+
+    if details.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", details.join(", "))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,6 +302,26 @@ pub(crate) fn parse_token_endpoint_error(body: &str) -> TokenEndpointErrorDetail
     }
 }
 
+fn format_token_endpoint_status_error(
+    status: reqwest::StatusCode,
+    headers: &HeaderMap,
+    body: &str,
+) -> String {
+    let detail = parse_token_endpoint_error(body);
+    let suffix = build_token_endpoint_debug_suffix(headers);
+    format!("token endpoint returned status {status}: {detail}{suffix}")
+}
+
+fn format_api_key_exchange_status_error(
+    status: reqwest::StatusCode,
+    headers: &HeaderMap,
+    body: &str,
+) -> String {
+    let detail = summarize_token_endpoint_error_body(body);
+    let suffix = build_token_endpoint_debug_suffix(headers);
+    format!("api key exchange failed with status {status}: {detail}{suffix}")
+}
+
 pub(crate) fn next_account_sort(storage: &codexmanager_core::storage::Storage) -> i64 {
     storage
         .list_accounts()
@@ -280,6 +339,19 @@ fn openai_auth_http_client() -> &'static Client {
             .build()
             .unwrap_or_else(|_| Client::new())
     })
+}
+
+fn apply_token_endpoint_headers(
+    builder: reqwest::blocking::RequestBuilder,
+) -> reqwest::blocking::RequestBuilder {
+    let mut builder = builder
+        .header("Accept", "application/json")
+        .header("User-Agent", crate::gateway::current_codex_user_agent())
+        .header("Originator", crate::gateway::current_originator());
+    if let Some(residency_requirement) = crate::gateway::current_residency_requirement() {
+        builder = builder.header(RESIDENCY_HEADER_NAME, residency_requirement);
+    }
+    builder
 }
 
 pub(crate) fn complete_login(state: &str, code: &str) -> Result<(), String> {
@@ -438,8 +510,7 @@ fn exchange_code_for_tokens(
 ) -> Result<TokenResponse, String> {
     // 请求 token 接口
     let client = openai_auth_http_client();
-    let resp = client
-        .post(format!("{issuer}/oauth/token"))
+    let resp = apply_token_endpoint_headers(client.post(format!("{issuer}/oauth/token")))
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(token_exchange_body_authorization_code(
             code,
@@ -451,14 +522,14 @@ fn exchange_code_for_tokens(
         .map_err(|e| redact_sensitive_error_url(e).to_string())?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let detail = read_text_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)
-            .map(|body| parse_token_endpoint_error(&body))
-            .unwrap_or(TokenEndpointErrorDetail {
-                error_code: None,
-                error_message: None,
-                display_message: "unknown error".to_string(),
+        let headers = resp.headers().clone();
+        let message = read_text_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)
+            .map(|body| format_token_endpoint_status_error(status, &headers, &body))
+            .unwrap_or_else(|_| {
+                let suffix = build_token_endpoint_debug_suffix(&headers);
+                format!("token endpoint returned status {status}: unknown error{suffix}")
             });
-        return Err(format!("token endpoint returned status {status}: {detail}"));
+        return Err(message);
     }
     read_json_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)
 }
@@ -475,21 +546,21 @@ pub(crate) fn obtain_api_key(
 
     // 兑换平台 API Key
     let client = openai_auth_http_client();
-    let resp = client
-        .post(format!("{issuer}/oauth/token"))
+    let resp = apply_token_endpoint_headers(client.post(format!("{issuer}/oauth/token")))
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(token_exchange_body_token_exchange(id_token, client_id))
         .send()
         .map_err(|e| redact_sensitive_error_url(e).to_string())?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = read_text_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)
-            .map(|body| summarize_token_endpoint_error_body(&body))
-            .unwrap_or_else(|_| "unknown error".to_string());
-        return Err(format!(
-            "api key exchange failed with status {}: {}",
-            status, body
-        ));
+        let headers = resp.headers().clone();
+        let message = read_text_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)
+            .map(|body| format_api_key_exchange_status_error(status, &headers, &body))
+            .unwrap_or_else(|_| {
+                let suffix = build_token_endpoint_debug_suffix(&headers);
+                format!("api key exchange failed with status {status}: unknown error{suffix}")
+            });
+        return Err(message);
     }
     let body: ExchangeResp = read_json_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)?;
     Ok(body.access_token)

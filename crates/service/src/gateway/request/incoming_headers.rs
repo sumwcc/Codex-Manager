@@ -10,6 +10,8 @@ pub(crate) struct IncomingHeaderSnapshot {
     session_id: Option<String>,
     client_request_id: Option<String>,
     subagent: Option<String>,
+    beta_features: Option<String>,
+    turn_metadata: Option<String>,
     turn_state: Option<String>,
     conversation_id: Option<String>,
 }
@@ -61,6 +63,20 @@ impl IncomingHeaderSnapshot {
                 }
                 continue;
             }
+            if snapshot.beta_features.is_none() && header.field.equiv("x-codex-beta-features") {
+                let value = header.value.as_str().trim();
+                if !value.is_empty() {
+                    snapshot.beta_features = Some(value.to_string());
+                }
+                continue;
+            }
+            if snapshot.turn_metadata.is_none() && header.field.equiv("x-codex-turn-metadata") {
+                let value = header.value.as_str().trim();
+                if !value.is_empty() {
+                    snapshot.turn_metadata = Some(value.to_string());
+                }
+                continue;
+            }
             if snapshot.turn_state.is_none() && header.field.equiv("x-codex-turn-state") {
                 let value = header.value.as_str().trim();
                 if !value.is_empty() {
@@ -108,6 +124,14 @@ impl IncomingHeaderSnapshot {
 
     pub(crate) fn subagent(&self) -> Option<&str> {
         self.subagent.as_deref()
+    }
+
+    pub(crate) fn beta_features(&self) -> Option<&str> {
+        self.beta_features.as_deref()
+    }
+
+    pub(crate) fn turn_metadata(&self) -> Option<&str> {
+        self.turn_metadata.as_deref()
     }
 
     pub(crate) fn turn_state(&self) -> Option<&str> {

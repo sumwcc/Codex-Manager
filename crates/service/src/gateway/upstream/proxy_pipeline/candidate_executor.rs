@@ -17,6 +17,19 @@ use super::response_finalize::{
     finalize_terminal_candidate, finalize_upstream_response, respond_total_timeout,
 };
 
+fn extract_prompt_cache_key_for_trace(body: &[u8]) -> Option<String> {
+    if body.is_empty() || body.len() > 64 * 1024 {
+        return None;
+    }
+    let value = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    value
+        .get("prompt_cache_key")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 pub(in super::super) enum CandidateExecutionResult {
     Handled,
     Exhausted(Request),
@@ -114,6 +127,8 @@ pub(in super::super) fn execute_candidate_sequence(
         let incoming_session_id = incoming_headers.session_id();
         let incoming_turn_state = incoming_headers.turn_state();
         let incoming_conversation_id = incoming_headers.conversation_id();
+        let prompt_cache_key_for_trace =
+            extract_prompt_cache_key_for_trace(body_for_attempt.as_ref());
         super::super::super::trace_log::log_attempt_profile(
             trace_id,
             &account.id,
@@ -123,7 +138,7 @@ pub(in super::super) fn execute_candidate_sequence(
             incoming_session_id.is_some() || setup.has_sticky_fallback_session,
             incoming_turn_state.is_some(),
             incoming_conversation_id.is_some() || setup.has_sticky_fallback_conversation,
-            None,
+            prompt_cache_key_for_trace.as_deref(),
             request_shape,
             body_for_attempt.len(),
             attempt_model_for_log,

@@ -13,6 +13,15 @@ fn request_header_filters_hop_by_hop_and_non_ascii() {
 }
 
 #[test]
+fn request_header_keeps_ascii_turn_metadata() {
+    let metadata = HeaderName::from_static("x-codex-turn-metadata");
+    let ascii_value = HeaderValue::from_static(
+        "{\"workspaces\":{\"D:/repo\":{\"latest_git_commit_hash\":\"abc123\"}}}",
+    );
+    assert!(!should_skip_request_header(&metadata, &ascii_value));
+}
+
+#[test]
 fn request_header_keeps_normal_content_type() {
     let content_type = HeaderName::from_static("content-type");
     let json = HeaderValue::from_static("application/json");

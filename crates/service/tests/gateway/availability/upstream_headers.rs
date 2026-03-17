@@ -48,6 +48,8 @@ fn codex_header_profile_sets_required_headers_for_stream() {
         incoming_session_id: None,
         incoming_client_request_id: Some("client-req-1"),
         incoming_subagent: Some("review"),
+        incoming_beta_features: Some("reasoning_summaries"),
+        incoming_turn_metadata: Some("{\"workspace\":\"repo\"}"),
         fallback_session_id: None,
         incoming_turn_state: Some("turn-state"),
         include_turn_state: true,
@@ -84,6 +86,14 @@ fn codex_header_profile_sets_required_headers_for_stream() {
         Some("review")
     );
     assert_eq!(
+        find_header(&headers, "x-codex-beta-features").as_deref(),
+        Some("reasoning_summaries")
+    );
+    assert_eq!(
+        find_header(&headers, "x-codex-turn-metadata").as_deref(),
+        Some("{\"workspace\":\"repo\"}")
+    );
+    assert_eq!(
         find_header(&headers, "ChatGPT-Account-ID").as_deref(),
         Some("acc-1")
     );
@@ -109,6 +119,8 @@ fn codex_header_profile_uses_json_accept_for_non_stream() {
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
+        incoming_beta_features: None,
+        incoming_turn_metadata: None,
         fallback_session_id: None,
         incoming_turn_state: None,
         include_turn_state: true,
@@ -195,6 +207,8 @@ fn codex_header_profile_uses_dynamic_originator_and_residency_requirement() {
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
+        incoming_beta_features: None,
+        incoming_turn_metadata: None,
         fallback_session_id: None,
         incoming_turn_state: None,
         include_turn_state: true,
@@ -226,6 +240,8 @@ fn codex_header_profile_regenerates_session_on_failover() {
         incoming_session_id: Some("sticky-session"),
         incoming_client_request_id: None,
         incoming_subagent: None,
+        incoming_beta_features: None,
+        incoming_turn_metadata: None,
         fallback_session_id: Some("fallback-session"),
         incoming_turn_state: Some("sticky-turn"),
         include_turn_state: true,
@@ -252,6 +268,8 @@ fn codex_header_profile_uses_fallback_session_when_incoming_missing() {
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
+        incoming_beta_features: None,
+        incoming_turn_metadata: None,
         fallback_session_id: Some("fallback-session"),
         incoming_turn_state: None,
         include_turn_state: true,
@@ -276,6 +294,8 @@ fn codex_header_profile_does_not_forward_conversation_header_even_with_fallback(
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
+        incoming_beta_features: None,
+        incoming_turn_metadata: None,
         fallback_session_id: Some("fallback-session"),
         incoming_turn_state: None,
         include_turn_state: true,
@@ -297,6 +317,8 @@ fn codex_header_profile_skips_account_header_when_disabled() {
         incoming_session_id: None,
         incoming_client_request_id: None,
         incoming_subagent: None,
+        incoming_beta_features: None,
+        incoming_turn_metadata: None,
         fallback_session_id: None,
         incoming_turn_state: None,
         include_turn_state: true,
@@ -318,6 +340,8 @@ fn codex_header_profile_can_disable_affinity_headers() {
         incoming_session_id: Some("sticky-session"),
         incoming_client_request_id: None,
         incoming_subagent: None,
+        incoming_beta_features: None,
+        incoming_turn_metadata: None,
         fallback_session_id: None,
         incoming_turn_state: Some("sticky-turn"),
         include_turn_state: false,

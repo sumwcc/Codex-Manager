@@ -355,10 +355,11 @@ pub(super) fn start_mock_upstream_once_with_content_type(
     (addr.to_string(), rx, join)
 }
 
-pub(super) fn start_mock_upstream_once_with_status_content_type(
+pub(super) fn start_mock_upstream_once_with_status_content_type_and_headers(
     status: u16,
     response_body: &str,
     content_type: &str,
+    extra_headers: &[(&str, &str)],
 ) -> (
     String,
     Receiver<CapturedUpstreamRequest>,
@@ -368,6 +369,10 @@ pub(super) fn start_mock_upstream_once_with_status_content_type(
     let addr = listener.local_addr().expect("mock upstream addr");
     let response = response_body.as_bytes().to_vec();
     let content_type = content_type.to_string();
+    let extra_headers = extra_headers
+        .iter()
+        .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
+        .collect::<Vec<_>>();
     let (tx, rx) = mpsc::channel();
 
     let join = thread::spawn(move || {
@@ -375,10 +380,14 @@ pub(super) fn start_mock_upstream_once_with_status_content_type(
             .expect("accept upstream http request");
         let _ = tx.send(captured);
 
-        let header = format!(
-            "HTTP/1.1 {status} OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        let mut header = format!(
+            "HTTP/1.1 {status} OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n",
             response.len()
         );
+        for (name, value) in extra_headers {
+            header.push_str(&format!("{name}: {value}\r\n"));
+        }
+        header.push_str("\r\n");
         stream
             .write_all(header.as_bytes())
             .expect("write upstream status");

@@ -14,8 +14,60 @@ use super::{
     SseKeepAliveFrame, UpstreamResponseBridgeResult, UpstreamResponseUsage,
 };
 
+const REQUEST_ID_HEADER_CANDIDATES: &[&str] = &["x-request-id", "x-oai-request-id"];
+const CF_RAY_HEADER_NAME: &str = "cf-ray";
+const AUTH_ERROR_HEADER_NAME: &str = "x-openai-authorization-error";
+
 fn is_compact_request_path(path: &str) -> bool {
     path == "/v1/responses/compact" || path.starts_with("/v1/responses/compact?")
+}
+
+fn first_upstream_header(headers: &reqwest::header::HeaderMap, names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| {
+        headers
+            .get(*name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn compact_debug_suffix(
+    request_id: Option<&str>,
+    cf_ray: Option<&str>,
+    auth_error: Option<&str>,
+) -> String {
+    let mut details = Vec::new();
+    if let Some(request_id) = request_id.map(str::trim).filter(|value| !value.is_empty()) {
+        details.push(format!("request_id={request_id}"));
+    }
+    if let Some(cf_ray) = cf_ray.map(str::trim).filter(|value| !value.is_empty()) {
+        details.push(format!("cf_ray={cf_ray}"));
+    }
+    if let Some(auth_error) = auth_error.map(str::trim).filter(|value| !value.is_empty()) {
+        details.push(format!("auth_error={auth_error}"));
+    }
+    if details.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", details.join(", "))
+    }
+}
+
+fn with_upstream_debug_suffix(
+    message: Option<String>,
+    request_id: Option<&str>,
+    cf_ray: Option<&str>,
+    auth_error: Option<&str>,
+) -> Option<String> {
+    let message = message?;
+    let suffix = compact_debug_suffix(request_id, cf_ray, auth_error);
+    if suffix.is_empty() {
+        Some(message)
+    } else {
+        Some(format!("{message}{suffix}"))
+    }
 }
 
 fn compact_success_body_is_valid(body: &[u8]) -> bool {
@@ -25,16 +77,30 @@ fn compact_success_body_is_valid(body: &[u8]) -> bool {
         .is_some_and(|output| output.is_array())
 }
 
-fn build_invalid_compact_success_message(body: &[u8]) -> String {
+fn build_invalid_compact_success_message(
+    body: &[u8],
+    request_id: Option<&str>,
+    cf_ray: Option<&str>,
+    auth_error: Option<&str>,
+) -> String {
     if let Ok(value) = serde_json::from_slice::<Value>(body) {
         if let Some(message) = extract_error_message_from_json(&value) {
-            return format!("上游 compact 响应格式异常：{message}");
+            return format!(
+                "上游 compact 响应格式异常：{message}{}",
+                compact_debug_suffix(request_id, cf_ray, auth_error)
+            );
         }
     }
     if let Some(hint) = extract_error_hint_from_body(502, body) {
-        return format!("上游 compact 响应格式异常：{hint}");
+        return format!(
+            "上游 compact 响应格式异常：{hint}{}",
+            compact_debug_suffix(request_id, cf_ray, auth_error)
+        );
     }
-    "上游 compact 响应格式异常（未返回 output 数组）".to_string()
+    format!(
+        "上游 compact 响应格式异常（未返回 output 数组）{}",
+        compact_debug_suffix(request_id, cf_ray, auth_error)
+    )
 }
 
 fn compact_non_success_body_should_be_normalized(
@@ -55,16 +121,31 @@ fn compact_non_success_body_should_be_normalized(
         .is_some_and(|hint| hint.contains("Cloudflare") || hint.contains("HTML 错误页"))
 }
 
-fn build_compact_non_success_message(status_code: u16, body: &[u8]) -> String {
+fn build_compact_non_success_message(
+    status_code: u16,
+    body: &[u8],
+    request_id: Option<&str>,
+    cf_ray: Option<&str>,
+    auth_error: Option<&str>,
+) -> String {
     if let Ok(value) = serde_json::from_slice::<Value>(body) {
         if let Some(message) = extract_error_message_from_json(&value) {
-            return format!("上游 compact 请求失败：{message}");
+            return format!(
+                "上游 compact 请求失败：{message}{}",
+                compact_debug_suffix(request_id, cf_ray, auth_error)
+            );
         }
     }
     if let Some(hint) = extract_error_hint_from_body(status_code, body) {
-        return format!("上游 compact 请求失败：{hint}");
+        return format!(
+            "上游 compact 请求失败：{hint}{}",
+            compact_debug_suffix(request_id, cf_ray, auth_error)
+        );
     }
-    format!("上游 compact 请求失败：status={status_code}")
+    format!(
+        "上游 compact 请求失败：status={status_code}{}",
+        compact_debug_suffix(request_id, cf_ray, auth_error)
+    )
 }
 
 fn respond_synthesized_compact_error_body(
@@ -72,6 +153,8 @@ fn respond_synthesized_compact_error_body(
     status_code: u16,
     usage: UpstreamResponseUsage,
     message: String,
+    request_id: Option<&str>,
+    cf_ray: Option<&str>,
     trace_id: Option<&str>,
 ) -> UpstreamResponseBridgeResult {
     let response = crate::gateway::error_response::terminal_text_response(
@@ -87,6 +170,9 @@ fn respond_synthesized_compact_error_body(
         delivery_error,
         upstream_error_hint: Some(message),
         delivered_status_code: Some(status_code),
+        upstream_request_id: request_id.map(str::to_string),
+        upstream_cf_ray: cf_ray.map(str::to_string),
+        upstream_content_type: Some("application/json".to_string()),
     }
 }
 
@@ -94,13 +180,18 @@ fn respond_invalid_compact_success_body(
     request: Request,
     usage: UpstreamResponseUsage,
     body: &[u8],
+    request_id: Option<&str>,
+    cf_ray: Option<&str>,
+    auth_error: Option<&str>,
     trace_id: Option<&str>,
 ) -> UpstreamResponseBridgeResult {
     respond_synthesized_compact_error_body(
         request,
         502,
         usage,
-        build_invalid_compact_success_message(body),
+        build_invalid_compact_success_message(body, request_id, cf_ray, auth_error),
+        request_id,
+        cf_ray,
         trace_id,
     )
 }
@@ -110,13 +201,18 @@ fn respond_invalid_compact_non_success_body(
     status_code: u16,
     usage: UpstreamResponseUsage,
     body: &[u8],
+    request_id: Option<&str>,
+    cf_ray: Option<&str>,
+    auth_error: Option<&str>,
     trace_id: Option<&str>,
 ) -> UpstreamResponseBridgeResult {
     respond_synthesized_compact_error_body(
         request,
         status_code,
         usage,
-        build_compact_non_success_message(status_code, body),
+        build_compact_non_success_message(status_code, body, request_id, cf_ray, auth_error),
+        request_id,
+        cf_ray,
         trace_id,
     )
 }
@@ -132,13 +228,17 @@ pub(crate) fn respond_with_upstream(
     trace_id: Option<&str>,
 ) -> Result<UpstreamResponseBridgeResult, String> {
     let keepalive_frame = resolve_stream_keepalive_frame(response_adapter, request_path);
+    let upstream_request_id =
+        first_upstream_header(upstream.headers(), REQUEST_ID_HEADER_CANDIDATES);
+    let upstream_cf_ray = first_upstream_header(upstream.headers(), &[CF_RAY_HEADER_NAME]);
+    let upstream_auth_error = first_upstream_header(upstream.headers(), &[AUTH_ERROR_HEADER_NAME]);
+    let upstream_content_type = upstream
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_string());
     match response_adapter {
         ResponseAdapter::Passthrough => {
-            let upstream_content_type = upstream
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.to_string());
             let status = StatusCode(upstream.status().as_u16());
             let mut headers = Vec::new();
             for (name, value) in upstream.headers().iter() {
@@ -179,7 +279,12 @@ pub(crate) fn respond_with_upstream(
                     if let Ok(value) = serde_json::from_slice::<Value>(&body) {
                         merge_usage(&mut usage, parse_usage_from_json(&value));
                     }
-                    let upstream_error_hint = extract_error_hint_from_body(status.0, &body);
+                    let upstream_error_hint = with_upstream_debug_suffix(
+                        extract_error_hint_from_body(status.0, &body),
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
+                    );
                     if synthesized_response {
                         headers.retain(|header| {
                             !header
@@ -203,6 +308,9 @@ pub(crate) fn respond_with_upstream(
                             request,
                             usage,
                             body.as_ref(),
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
                             trace_id,
                         ));
                     }
@@ -218,6 +326,9 @@ pub(crate) fn respond_with_upstream(
                             status.0,
                             usage,
                             body.as_ref(),
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
                             trace_id,
                         ));
                     }
@@ -232,6 +343,9 @@ pub(crate) fn respond_with_upstream(
                         delivery_error,
                         upstream_error_hint,
                         delivered_status_code: None,
+                        upstream_request_id: upstream_request_id.clone(),
+                        upstream_cf_ray: upstream_cf_ray.clone(),
+                        upstream_content_type: upstream_content_type.clone(),
                     });
                 }
 
@@ -254,6 +368,9 @@ pub(crate) fn respond_with_upstream(
                         request,
                         usage,
                         upstream_body.as_ref(),
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
                         trace_id,
                     ));
                 }
@@ -269,11 +386,18 @@ pub(crate) fn respond_with_upstream(
                         status.0,
                         usage,
                         upstream_body.as_ref(),
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
                         trace_id,
                     ));
                 }
-                let upstream_error_hint =
-                    extract_error_hint_from_body(status.0, upstream_body.as_ref());
+                let upstream_error_hint = with_upstream_debug_suffix(
+                    extract_error_hint_from_body(status.0, upstream_body.as_ref()),
+                    upstream_request_id.as_deref(),
+                    upstream_cf_ray.as_deref(),
+                    upstream_auth_error.as_deref(),
+                );
                 let len = Some(upstream_body.len());
                 let response = Response::new(
                     status,
@@ -290,6 +414,9 @@ pub(crate) fn respond_with_upstream(
                     delivery_error,
                     upstream_error_hint,
                     delivered_status_code: None,
+                    upstream_request_id: upstream_request_id.clone(),
+                    upstream_cf_ray: upstream_cf_ray.clone(),
+                    upstream_content_type: upstream_content_type.clone(),
                 });
             }
             if is_stream && !is_sse && status.0 >= 400 {
@@ -304,8 +431,12 @@ pub(crate) fn respond_with_upstream(
                 } else {
                     UpstreamResponseUsage::default()
                 };
-                let upstream_error_hint =
-                    extract_error_hint_from_body(status.0, upstream_body.as_ref());
+                let upstream_error_hint = with_upstream_debug_suffix(
+                    extract_error_hint_from_body(status.0, upstream_body.as_ref()),
+                    upstream_request_id.as_deref(),
+                    upstream_cf_ray.as_deref(),
+                    upstream_auth_error.as_deref(),
+                );
                 let len = Some(upstream_body.len());
                 let response = Response::new(
                     status,
@@ -322,6 +453,9 @@ pub(crate) fn respond_with_upstream(
                     delivery_error,
                     upstream_error_hint,
                     delivered_status_code: None,
+                    upstream_request_id: upstream_request_id.clone(),
+                    upstream_cf_ray: upstream_cf_ray.clone(),
+                    upstream_content_type: upstream_content_type.clone(),
                 });
             }
             if is_sse || is_stream {
@@ -347,8 +481,16 @@ pub(crate) fn respond_with_upstream(
                     stream_terminal_seen: collector.saw_terminal,
                     stream_terminal_error: collector.terminal_error,
                     delivery_error,
-                    upstream_error_hint: collector.upstream_error_hint,
+                    upstream_error_hint: with_upstream_debug_suffix(
+                        collector.upstream_error_hint,
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
+                    ),
                     delivered_status_code: None,
+                    upstream_request_id: upstream_request_id.clone(),
+                    upstream_cf_ray: upstream_cf_ray.clone(),
+                    upstream_content_type: upstream_content_type.clone(),
                 });
             }
             let len = upstream.content_length().map(|v| v as usize);
@@ -361,6 +503,9 @@ pub(crate) fn respond_with_upstream(
                 delivery_error,
                 upstream_error_hint: None,
                 delivered_status_code: None,
+                upstream_request_id,
+                upstream_cf_ray,
+                upstream_content_type,
             })
         }
         ResponseAdapter::OpenAIChatCompletionsJson
@@ -385,11 +530,6 @@ pub(crate) fn respond_with_upstream(
             if let Some(trace_id) = trace_id {
                 push_trace_id_header(&mut headers, trace_id);
             }
-            let upstream_content_type = upstream
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.to_string());
             let is_sse = upstream_content_type
                 .as_deref()
                 .map(|value| value.to_ascii_lowercase().starts_with("text/event-stream"))
@@ -467,6 +607,9 @@ pub(crate) fn respond_with_upstream(
                     delivery_error,
                     upstream_error_hint: None,
                     delivered_status_code: None,
+                    upstream_request_id: upstream_request_id.clone(),
+                    upstream_cf_ray: upstream_cf_ray.clone(),
+                    upstream_content_type: upstream_content_type.clone(),
                 });
             }
 
@@ -536,8 +679,12 @@ pub(crate) fn respond_with_upstream(
             let len = Some(body.len());
             let response = Response::new(status, headers, std::io::Cursor::new(body), len, None);
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
-            let upstream_error_hint =
-                extract_error_hint_from_body(status.0, upstream_body.as_ref());
+            let upstream_error_hint = with_upstream_debug_suffix(
+                extract_error_hint_from_body(status.0, upstream_body.as_ref()),
+                upstream_request_id.as_deref(),
+                upstream_cf_ray.as_deref(),
+                upstream_auth_error.as_deref(),
+            );
             Ok(UpstreamResponseBridgeResult {
                 usage,
                 stream_terminal_seen: true,
@@ -545,6 +692,9 @@ pub(crate) fn respond_with_upstream(
                 delivery_error,
                 upstream_error_hint,
                 delivered_status_code: None,
+                upstream_request_id,
+                upstream_cf_ray,
+                upstream_content_type,
             })
         }
         ResponseAdapter::AnthropicJson | ResponseAdapter::AnthropicSse => {
@@ -566,12 +716,6 @@ pub(crate) fn respond_with_upstream(
             if let Some(trace_id) = trace_id {
                 push_trace_id_header(&mut headers, trace_id);
             }
-            let upstream_content_type = upstream
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.to_string());
-
             if response_adapter == ResponseAdapter::AnthropicSse
                 && (is_stream
                     || upstream_content_type
@@ -604,6 +748,9 @@ pub(crate) fn respond_with_upstream(
                     delivery_error,
                     upstream_error_hint: None,
                     delivered_status_code: None,
+                    upstream_request_id: upstream_request_id.clone(),
+                    upstream_cf_ray: upstream_cf_ray.clone(),
+                    upstream_content_type: upstream_content_type.clone(),
                 });
             }
 
@@ -635,8 +782,12 @@ pub(crate) fn respond_with_upstream(
             let len = Some(body.len());
             let response = Response::new(status, headers, std::io::Cursor::new(body), len, None);
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
-            let upstream_error_hint =
-                extract_error_hint_from_body(status.0, upstream_body.as_ref());
+            let upstream_error_hint = with_upstream_debug_suffix(
+                extract_error_hint_from_body(status.0, upstream_body.as_ref()),
+                upstream_request_id.as_deref(),
+                upstream_cf_ray.as_deref(),
+                upstream_auth_error.as_deref(),
+            );
             Ok(UpstreamResponseBridgeResult {
                 usage,
                 stream_terminal_seen: true,
@@ -644,6 +795,9 @@ pub(crate) fn respond_with_upstream(
                 delivery_error,
                 upstream_error_hint,
                 delivered_status_code: None,
+                upstream_request_id,
+                upstream_cf_ray,
+                upstream_content_type,
             })
         }
     }

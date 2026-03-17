@@ -121,6 +121,11 @@ pub(super) fn finalize_upstream_response(
         bridge.delivery_error.as_deref(),
         bridge_output_text_len,
         bridge.usage.output_tokens,
+        bridge.delivered_status_code,
+        bridge.upstream_error_hint.as_deref(),
+        bridge.upstream_request_id.as_deref(),
+        bridge.upstream_cf_ray.as_deref(),
+        bridge.upstream_content_type.as_deref(),
     );
 
     if let Some(upstream_hint) = bridge.upstream_error_hint.as_deref() {
