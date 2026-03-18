@@ -144,13 +144,29 @@ export function useAccounts() {
 
   const updateAccountSortMutation = useMutation({
     mutationFn: ({ accountId, sort }: { accountId: string; sort: number }) =>
-      accountClient.update(accountId, sort),
+      accountClient.updateSort(accountId, sort),
     onSuccess: async () => {
       await invalidateAll();
       toast.success("账号顺序已更新");
     },
     onError: (error: unknown) => {
       toast.error(`更新顺序失败: ${getAppErrorMessage(error)}`);
+    },
+  });
+
+  const toggleAccountStatusMutation = useMutation({
+    mutationFn: ({ accountId, enabled }: { accountId: string; enabled: boolean }) =>
+      enabled
+        ? accountClient.enableAccount(accountId)
+        : accountClient.disableAccount(accountId),
+    onSuccess: async (_result, variables) => {
+      await invalidateAll();
+      toast.success(variables.enabled ? "账号已启用" : "账号已禁用");
+    },
+    onError: (error: unknown, variables) => {
+      toast.error(
+        `${variables.enabled ? "启用" : "禁用"}账号失败: ${getAppErrorMessage(error)}`
+      );
     },
   });
 
@@ -243,7 +259,9 @@ export function useAccounts() {
     setPreferredAccount: (accountId: string) => setManualPreferredMutation.mutate(accountId),
     clearPreferredAccount: () => clearManualPreferredMutation.mutate(),
     updateAccountSort: (accountId: string, sort: number) =>
-      updateAccountSortMutation.mutate({ accountId, sort }),
+      updateAccountSortMutation.mutateAsync({ accountId, sort }),
+    toggleAccountStatus: (accountId: string, enabled: boolean) =>
+      toggleAccountStatusMutation.mutate({ accountId, enabled }),
     isRefreshingAccountId:
       refreshAccountMutation.isPending && typeof refreshAccountMutation.variables === "string"
         ? refreshAccountMutation.variables
@@ -260,6 +278,15 @@ export function useAccounts() {
       "accountId" in updateAccountSortMutation.variables
         ? String(
             (updateAccountSortMutation.variables as { accountId?: unknown }).accountId || ""
+          )
+        : "",
+    isUpdatingStatusAccountId:
+      toggleAccountStatusMutation.isPending &&
+      toggleAccountStatusMutation.variables &&
+      typeof toggleAccountStatusMutation.variables === "object" &&
+      "accountId" in toggleAccountStatusMutation.variables
+        ? String(
+            (toggleAccountStatusMutation.variables as { accountId?: unknown }).accountId || ""
           )
         : "",
   };

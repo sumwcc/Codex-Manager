@@ -50,8 +50,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         }
         "account/update" => {
             let account_id = super::str_param(req, "accountId").unwrap_or("");
-            let sort = super::i64_param(req, "sort").unwrap_or(0);
-            super::ok_or_error(account_update::update_account_sort(account_id, sort))
+            let sort = super::i64_param(req, "sort");
+            let status = super::string_param(req, "status");
+            super::ok_or_error(account_update::update_account(account_id, sort, status.as_deref()))
         }
         "account/import" => {
             let mut contents = req

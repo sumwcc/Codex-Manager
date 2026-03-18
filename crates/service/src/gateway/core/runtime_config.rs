@@ -44,7 +44,7 @@ const DEFAULT_ENABLE_REQUEST_COMPRESSION: bool = true;
 const DEFAULT_REQUEST_GATE_WAIT_TIMEOUT_MS: u64 = 300;
 const DEFAULT_TRACE_BODY_PREVIEW_MAX_BYTES: usize = 0;
 const DEFAULT_FRONT_PROXY_MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
-const DEFAULT_FREE_ACCOUNT_MAX_MODEL: &str = "gpt-5.2";
+const DEFAULT_FREE_ACCOUNT_MAX_MODEL: &str = "auto";
 const MAX_UPSTREAM_PROXY_POOL_SIZE: usize = 5;
 
 const ENV_REQUEST_GATE_WAIT_TIMEOUT_MS: &str = "CODEXMANAGER_REQUEST_GATE_WAIT_TIMEOUT_MS";
@@ -598,6 +598,9 @@ fn normalize_model_slug(raw: &str) -> Result<String, String> {
     let normalized = raw.trim().to_ascii_lowercase();
     if normalized.is_empty() {
         return Err("freeAccountMaxModel is required".to_string());
+    }
+    if normalized == "auto" {
+        return Ok(normalized);
     }
     if normalized == "gpt-5.4-pro" {
         return Ok("gpt-5.4".to_string());

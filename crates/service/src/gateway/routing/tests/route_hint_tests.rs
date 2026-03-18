@@ -79,7 +79,7 @@ fn account_ids(candidates: &[(Account, Token)]) -> Vec<String> {
 }
 
 #[test]
-fn defaults_to_balanced_strategy() {
+fn defaults_to_ordered_strategy() {
     let _guard = route_strategy_test_guard();
     let previous = std::env::var(ROUTE_STRATEGY_ENV).ok();
     std::env::remove_var(ROUTE_STRATEGY_ENV);
@@ -102,9 +102,9 @@ fn defaults_to_balanced_strategy() {
     assert_eq!(
         account_ids(&second),
         vec![
+            "acc-a".to_string(),
             "acc-b".to_string(),
-            "acc-c".to_string(),
-            "acc-a".to_string()
+            "acc-c".to_string()
         ]
     );
 
@@ -367,7 +367,7 @@ fn balanced_mode_keeps_strict_round_robin_by_default() {
 
     std::env::set_var(ROUTE_HEALTH_P2C_ENABLED_ENV, "1");
     std::env::remove_var(ROUTE_HEALTH_P2C_BALANCED_WINDOW_ENV);
-    std::env::remove_var(ROUTE_STRATEGY_ENV);
+    std::env::set_var(ROUTE_STRATEGY_ENV, "balanced");
     reload_from_env();
     clear_route_state_for_tests();
 

@@ -526,6 +526,59 @@ fn rpc_account_delete_many_deletes_requested_accounts() {
 }
 
 #[test]
+fn rpc_account_update_status_toggles_manual_enable_disable() {
+    let ctx = RpcTestContext::new("rpc-account-update-status");
+    ctx.seed_accounts(1);
+
+    let disable_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let disable_req = JsonRpcRequest {
+        id: 12,
+        method: "account/update".to_string(),
+        params: Some(serde_json::json!({
+            "accountId": "acc-0",
+            "status": "inactive"
+        })),
+    };
+    let disable_json = serde_json::to_string(&disable_req).expect("serialize");
+    let disable_resp = post_rpc(&disable_server.addr, &disable_json);
+    let disable_result = disable_resp.get("result").expect("result");
+    assert_eq!(
+        disable_result.get("ok").and_then(|value| value.as_bool()),
+        Some(true)
+    );
+
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    let inactive = storage
+        .find_account_by_id("acc-0")
+        .expect("find account")
+        .expect("account exists");
+    assert_eq!(inactive.status, "inactive");
+
+    let enable_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let enable_req = JsonRpcRequest {
+        id: 13,
+        method: "account/update".to_string(),
+        params: Some(serde_json::json!({
+            "accountId": "acc-0",
+            "status": "active"
+        })),
+    };
+    let enable_json = serde_json::to_string(&enable_req).expect("serialize");
+    let enable_resp = post_rpc(&enable_server.addr, &enable_json);
+    let enable_result = enable_resp.get("result").expect("result");
+    assert_eq!(
+        enable_result.get("ok").and_then(|value| value.as_bool()),
+        Some(true)
+    );
+
+    let active = storage
+        .find_account_by_id("acc-0")
+        .expect("find account")
+        .expect("account exists");
+    assert_eq!(active.status, "active");
+}
+
+#[test]
 fn rpc_login_start_returns_url() {
     let _ctx = RpcTestContext::new("rpc-login-start");
     let server = codexmanager_service::start_one_shot_server().expect("start server");

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -508,12 +508,6 @@ function LogsPageContent() {
     },
   });
 
-  useEffect(() => {
-    if (logsResult && logsResult.page !== page) {
-      setPage(logsResult.page);
-    }
-  }, [logsResult, page]);
-
   const accountNameMap = useMemo(() => {
     return new Map(
       (accountsResult?.items || []).map((account) => [
@@ -524,6 +518,7 @@ function LogsPageContent() {
   }, [accountsResult?.items]);
 
   const logs = logsResult?.items || [];
+  const currentPage = logsResult?.page || page;
   const summary = summaryResult || {
     totalCount: logsResult?.total || 0,
     filteredCount: logsResult?.total || 0,
@@ -815,22 +810,20 @@ function LogsPageContent() {
               variant="outline"
               size="sm"
               className="h-8 px-3 text-xs"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={currentPage <= 1}
+              onClick={() => setPage(Math.max(1, currentPage - 1))}
             >
               上一页
             </Button>
             <div className="min-w-[68px] text-center text-xs font-medium">
-              第 {logsResult?.page || page} / {totalPages} 页
+              第 {currentPage} / {totalPages} 页
             </div>
             <Button
               variant="outline"
               size="sm"
               className="h-8 px-3 text-xs"
-              disabled={page >= totalPages}
-              onClick={() =>
-                setPage((current) => Math.min(totalPages, current + 1))
-              }
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
             >
               下一页
             </Button>

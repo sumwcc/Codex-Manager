@@ -22,7 +22,12 @@ pub(in super::super) fn free_account_model_override(
     if !crate::account_plan::is_free_or_single_window_account(storage, account.id.as_str(), token) {
         return None;
     }
-    Some(super::super::super::current_free_account_max_model())
+    let configured = super::super::super::current_free_account_max_model();
+    if configured.eq_ignore_ascii_case("auto") {
+        None
+    } else {
+        Some(configured)
+    }
 }
 
 pub(in super::super) fn candidate_skip_reason_for_proxy(
@@ -189,5 +194,69 @@ mod tests {
         let _ = crate::gateway::set_free_account_max_model(&original);
 
         assert_eq!(actual.as_deref(), Some("gpt-5.2"));
+    }
+
+    #[test]
+    fn free_account_model_override_skips_rewrite_when_configured_auto() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+        storage
+            .insert_account(&Account {
+                id: "acc-auto".to_string(),
+                label: "acc-auto".to_string(),
+                issuer: "issuer".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort: 0,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert account");
+        let token = Token {
+            account_id: "acc-auto".to_string(),
+            id_token: "header.payload.sig".to_string(),
+            access_token: "header.payload.sig".to_string(),
+            refresh_token: "refresh".to_string(),
+            api_key_access_token: None,
+            last_refresh: now,
+        };
+        storage.insert_token(&token).expect("insert token");
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: "acc-auto".to_string(),
+                used_percent: Some(10.0),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: Some(20.0),
+                secondary_window_minutes: Some(10_080),
+                secondary_resets_at: None,
+                credits_json: Some(r#"{"planType":"free"}"#.to_string()),
+                captured_at: now,
+            })
+            .expect("insert usage");
+
+        let original = crate::gateway::current_free_account_max_model();
+        crate::gateway::set_free_account_max_model("auto").expect("set free model");
+
+        let account = Account {
+            id: "acc-auto".to_string(),
+            label: "acc-auto".to_string(),
+            issuer: "issuer".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        };
+        let actual = free_account_model_override(&storage, &account, &token);
+
+        let _ = crate::gateway::set_free_account_max_model(&original);
+
+        assert_eq!(actual, None);
     }
 }

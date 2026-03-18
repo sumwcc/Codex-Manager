@@ -31,8 +31,9 @@ export const useAppStore = create<AppState>((set) => ({
     serviceListenModeOptions: ["loopback", "all_interfaces"],
     routeStrategy: "ordered",
     routeStrategyOptions: ["ordered", "balanced"],
-    freeAccountMaxModel: "gpt-5.2",
+    freeAccountMaxModel: "auto",
     freeAccountMaxModelOptions: [
+      "auto",
       "gpt-5",
       "gpt-5-codex",
       "gpt-5-codex-mini",

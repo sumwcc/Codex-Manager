@@ -6,14 +6,33 @@ use std::time::Duration;
 use super::address::{resolve_service_addr, resolve_socket_addrs};
 use super::http::parse_http_body;
 
+const RPC_CONNECT_TIMEOUT: Duration = Duration::from_millis(400);
+const RPC_DEFAULT_IO_TIMEOUT: Duration = Duration::from_secs(10);
+const RPC_BULK_USAGE_REFRESH_IO_TIMEOUT: Duration = Duration::from_secs(600);
+
+fn rpc_io_timeout(method: &str, params: Option<&serde_json::Value>) -> Duration {
+    if method == "account/usage/refresh"
+        && params
+            .and_then(|value| value.get("accountId"))
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+    {
+        return RPC_BULK_USAGE_REFRESH_IO_TIMEOUT;
+    }
+
+    RPC_DEFAULT_IO_TIMEOUT
+}
+
 fn rpc_call_on_socket(
     method: &str,
     addr: &str,
     sock: SocketAddr,
     params: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
-    let mut stream =
-        TcpStream::connect_timeout(&sock, Duration::from_millis(400)).map_err(|e| {
+    let io_timeout = rpc_io_timeout(method, params.as_ref());
+    let mut stream = TcpStream::connect_timeout(&sock, RPC_CONNECT_TIMEOUT).map_err(|e| {
             let msg = format!("Failed to connect to service at {addr}: {e}");
             log::warn!(
                 "rpc connect failed ({} -> {} via {}): {}",
@@ -24,8 +43,8 @@ fn rpc_call_on_socket(
             );
             msg
         })?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
+    let _ = stream.set_read_timeout(Some(io_timeout));
+    let _ = stream.set_write_timeout(Some(io_timeout));
 
     let req = JsonRpcRequest {
         id: 1,
@@ -132,4 +151,30 @@ pub(crate) fn rpc_call(
     let addr = resolve_service_addr(addr)?;
     let socket_addrs = resolve_socket_addrs(&addr)?;
     rpc_call_with_sockets(method, &addr, &socket_addrs, params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rpc_io_timeout, RPC_BULK_USAGE_REFRESH_IO_TIMEOUT, RPC_DEFAULT_IO_TIMEOUT};
+
+    #[test]
+    fn bulk_usage_refresh_uses_extended_timeout() {
+        let timeout = rpc_io_timeout("account/usage/refresh", None);
+        assert_eq!(timeout, RPC_BULK_USAGE_REFRESH_IO_TIMEOUT);
+    }
+
+    #[test]
+    fn single_usage_refresh_keeps_default_timeout() {
+        let timeout = rpc_io_timeout(
+            "account/usage/refresh",
+            Some(&serde_json::json!({ "accountId": "acc-1" })),
+        );
+        assert_eq!(timeout, RPC_DEFAULT_IO_TIMEOUT);
+    }
+
+    #[test]
+    fn unrelated_rpc_keeps_default_timeout() {
+        let timeout = rpc_io_timeout("account/list", None);
+        assert_eq!(timeout, RPC_DEFAULT_IO_TIMEOUT);
+    }
 }

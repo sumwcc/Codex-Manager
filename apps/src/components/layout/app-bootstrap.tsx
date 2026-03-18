@@ -42,7 +42,12 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const hasWarmedDevRoutes = useRef(false);
   const recoveryTimerRef = useRef<number | null>(null);
   const retryInitRef = useRef<(() => Promise<void>) | null>(null);
+  const serviceStatusRef = useRef(serviceStatus);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    serviceStatusRef.current = serviceStatus;
+  }, [serviceStatus]);
 
   const applyLowTransparency = (enabled: boolean) => {
     if (enabled) {
@@ -337,6 +342,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     try {
       const settings = await appClient.getSettings();
       const addr = normalizeServiceAddr(settings.serviceAddr || DEFAULT_SERVICE_ADDR);
+      const currentServiceStatus = serviceStatusRef.current;
       
       const currentAppliedTheme = typeof document !== 'undefined' ? document.documentElement.getAttribute('data-theme') : null;
       if (settings.theme && settings.theme !== currentAppliedTheme) {
@@ -347,7 +353,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       
       // CRITICAL: Do not reset status to connected: false if we are already connected
       // This prevents the Header badge from flashing
-      if (!serviceStatus.connected || serviceStatus.addr !== addr) {
+      if (!currentServiceStatus.connected || currentServiceStatus.addr !== addr) {
         setServiceStatus({ addr, connected: false, version: "" });
       }
 
@@ -381,8 +387,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
       }
       setIsInitializing(false);
     }
-    // We remove serviceStatus from dependencies to avoid infinite loop
-    // and use hasInitializedOnce ref for stability
+    // 使用 ref 读取最新 serviceStatus，避免把初始化流程绑定到状态抖动上
   }, [
     applyConnectedServiceState,
     initializeService,

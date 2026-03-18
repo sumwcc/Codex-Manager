@@ -5,12 +5,15 @@ import { useRouter } from "next/navigation";
 import {
   BarChart3,
   Download,
+  PencilLine,
   ExternalLink,
   FileUp,
   FolderOpen,
   MoreVertical,
   Pin,
   Plus,
+  Power,
+  PowerOff,
   RefreshCw,
   Search,
   Trash2,
@@ -25,6 +28,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -35,6 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -100,6 +112,10 @@ function QuotaProgress({
   );
 }
 
+function isAccountInactive(account: Account): boolean {
+  return String(account.status || "").trim().toLowerCase() === "inactive";
+}
+
 export default function AccountsPage() {
   const router = useRouter();
   const {
@@ -124,6 +140,8 @@ export default function AccountsPage() {
     isUpdatingPreferred,
     updateAccountSort,
     isUpdatingSortAccountId,
+    toggleAccountStatus,
+    isUpdatingStatusAccountId,
   } = useAccounts();
 
   const [search, setSearch] = useState("");
@@ -135,6 +153,12 @@ export default function AccountsPage() {
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [usageModalOpen, setUsageModalOpen] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [sortDraft, setSortDraft] = useState("");
+  const [sortDialogState, setSortDialogState] = useState<{
+    accountId: string;
+    accountName: string;
+    currentSort: number;
+  } | null>(null);
   const [deleteDialogState, setDeleteDialogState] = useState<
     | { kind: "single"; account: Account }
     | { kind: "selected"; ids: string[]; count: number }
@@ -231,6 +255,44 @@ export default function AccountsPage() {
 
   const handleDeleteSingle = (account: Account) => {
     setDeleteDialogState({ kind: "single", account });
+  };
+
+  const openSortEditor = (account: Account) => {
+    setSortDialogState({
+      accountId: account.id,
+      accountName: account.name,
+      currentSort: account.priority,
+    });
+    setSortDraft(String(account.priority));
+  };
+
+  const handleConfirmSort = async () => {
+    if (!sortDialogState) return;
+
+    const raw = sortDraft.trim();
+    if (!raw) {
+      toast.error("请输入顺序值");
+      return;
+    }
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      toast.error("顺序必须是数字");
+      return;
+    }
+
+    const nextSort = Math.max(0, Math.trunc(parsed));
+    if (nextSort === sortDialogState.currentSort) {
+      setSortDialogState(null);
+      return;
+    }
+
+    try {
+      await updateAccountSort(sortDialogState.accountId, nextSort);
+      setSortDialogState(null);
+    } catch {
+      // mutation 已统一处理 toast，这里保持弹窗不关闭
+    }
   };
 
   const handleConfirmDelete = () => {
@@ -442,6 +504,7 @@ export default function AccountsPage() {
                 visibleAccounts.map((account) => {
                   const primaryWindowOnly = isPrimaryWindowOnlyUsage(account.usage);
                   const secondaryWindowOnly = isSecondaryWindowOnlyUsage(account.usage);
+                  const accountInactive = isAccountInactive(account);
                   return (
                     <TableRow key={account.id} className="group transition-colors hover:bg-muted/30">
                     <TableCell className="text-center">
@@ -496,46 +559,21 @@ export default function AccountsPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
-                        key={`${account.id}:${account.priority}`}
-                        type="number"
-                        min={0}
-                        step={1}
-                        defaultValue={account.priority}
-                        disabled={isUpdatingSortAccountId === account.id}
-                        className="h-8 w-16 bg-muted/30 px-2 text-center font-mono text-xs tabular-nums"
-                        title="顺序越小越靠前"
-                        onBlur={(event) => {
-                          if (isUpdatingSortAccountId === account.id) return;
-
-                          const raw = event.currentTarget.value.trim();
-                          if (!raw) {
-                            event.currentTarget.value = String(account.priority);
-                            return;
-                          }
-
-                          const parsed = Number(raw);
-                          if (!Number.isFinite(parsed)) {
-                            toast.error("顺序必须是数字");
-                            event.currentTarget.value = String(account.priority);
-                            return;
-                          }
-
-                          const nextSort = Math.max(0, Math.trunc(parsed));
-                          if (nextSort === account.priority) return;
-                          updateAccountSort(account.id, nextSort);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.currentTarget.blur();
-                            return;
-                          }
-                          if (event.key === "Escape") {
-                            event.currentTarget.value = String(account.priority);
-                            event.currentTarget.blur();
-                          }
-                        }}
-                      />
+                      <div className="flex items-center gap-1">
+                        <span className="rounded bg-muted/50 px-2 py-0.5 font-mono text-xs">
+                          {account.priority}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground transition-colors hover:text-primary"
+                          disabled={isUpdatingSortAccountId === account.id}
+                          onClick={() => openSortEditor(account)}
+                          title="编辑顺序"
+                        >
+                          <PencilLine className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
@@ -592,6 +630,20 @@ export default function AccountsPage() {
                             >
                               <Pin className="h-4 w-4" />
                               {manualPreferredAccountId === account.id ? "取消优先" : "设为优先"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="gap-2"
+                              disabled={isUpdatingStatusAccountId === account.id}
+                              onClick={() =>
+                                toggleAccountStatus(account.id, accountInactive)
+                              }
+                            >
+                              {accountInactive ? (
+                                <Power className="h-4 w-4" />
+                              ) : (
+                                <PowerOff className="h-4 w-4" />
+                              )}
+                              {accountInactive ? "启用账号" : "禁用账号"}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="gap-2"
@@ -709,6 +761,61 @@ export default function AccountsPage() {
         confirmVariant="destructive"
         onConfirm={handleConfirmDelete}
       />
+      <Dialog
+        open={Boolean(sortDialogState)}
+        onOpenChange={(open) => {
+          if (!open && !isUpdatingSortAccountId) {
+            setSortDialogState(null);
+          }
+        }}
+      >
+        <DialogContent className="glass-card border-none sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>编辑账号顺序</DialogTitle>
+            <DialogDescription>
+              {sortDialogState
+                ? `修改 ${sortDialogState.accountName} 的排序值。值越小越靠前。`
+                : "修改账号的排序值。"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 py-2">
+            <Label htmlFor="account-sort-input">顺序值</Label>
+            <Input
+              id="account-sort-input"
+              type="number"
+              min={0}
+              step={1}
+              value={sortDraft}
+              disabled={Boolean(isUpdatingSortAccountId)}
+              onChange={(event) => setSortDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleConfirmSort();
+                }
+              }}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              仅修改当前账号的排序值，不会自动重排其它账号。
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              disabled={Boolean(isUpdatingSortAccountId)}
+              onClick={() => setSortDialogState(null)}
+            >
+              取消
+            </Button>
+            <Button
+              disabled={Boolean(isUpdatingSortAccountId)}
+              onClick={() => void handleConfirmSort()}
+            >
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

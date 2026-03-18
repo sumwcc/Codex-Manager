@@ -76,7 +76,8 @@ export function formatCompactNumber(
 }
 
 function isInactiveAccount(account?: { status?: string } | null): boolean {
-  return String(account?.status || "").trim().toLowerCase() === "inactive";
+  const normalized = String(account?.status || "").trim().toLowerCase();
+  return normalized === "inactive" || normalized === "disabled";
 }
 
 export function remainingPercent(value: number | null | undefined): number | null {
@@ -204,7 +205,7 @@ export function calcAvailability(
   account?: { status?: string } | null
 ): { text: string; level: AvailabilityLevel } {
   if (isInactiveAccount(account)) {
-    return { text: "不可用", level: "bad" };
+    return { text: "已禁用", level: "bad" };
   }
   if (!usage) {
     return { text: "未知", level: "unknown" };

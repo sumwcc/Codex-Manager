@@ -25,7 +25,7 @@ const DEFAULT_ROUTE_STATE_TTL_SECS: u64 = 6 * 60 * 60;
 const DEFAULT_ROUTE_STATE_CAPACITY: usize = 4096;
 const ROUTE_STATE_MAINTENANCE_EVERY: u64 = 64;
 
-static ROUTE_MODE: AtomicU8 = AtomicU8::new(ROUTE_MODE_BALANCED_ROUND_ROBIN);
+static ROUTE_MODE: AtomicU8 = AtomicU8::new(ROUTE_MODE_ORDERED);
 static ROUTE_HEALTH_P2C_ENABLED: AtomicBool = AtomicBool::new(DEFAULT_ROUTE_HEALTH_P2C_ENABLED);
 static ROUTE_HEALTH_P2C_ORDERED_WINDOW: AtomicUsize =
     AtomicUsize::new(DEFAULT_ROUTE_HEALTH_P2C_ORDERED_WINDOW);
@@ -384,7 +384,7 @@ fn key_model_key(key_id: &str, model: Option<&str>) -> String {
 
 pub(super) fn reload_from_env() {
     let raw = std::env::var(ROUTE_STRATEGY_ENV).unwrap_or_default();
-    let mode = parse_route_mode(raw.as_str()).unwrap_or(ROUTE_MODE_BALANCED_ROUND_ROBIN);
+    let mode = parse_route_mode(raw.as_str()).unwrap_or(ROUTE_MODE_ORDERED);
     ROUTE_MODE.store(mode, Ordering::Relaxed);
     ROUTE_HEALTH_P2C_ENABLED.store(
         env_bool_or(
@@ -492,10 +492,10 @@ fn clear_route_state_for_tests() {
 #[cfg(test)]
 fn route_strategy_test_guard() -> std::sync::MutexGuard<'static, ()> {
     static ROUTE_STRATEGY_TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
-    ROUTE_STRATEGY_TEST_MUTEX
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("route strategy test mutex")
+    crate::lock_utils::lock_recover(
+        ROUTE_STRATEGY_TEST_MUTEX.get_or_init(|| Mutex::new(())),
+        "route strategy test mutex",
+    )
 }
 
 #[cfg(test)]

@@ -76,6 +76,7 @@ const RESIDENCY_REQUIREMENT_LABELS: Record<string, string> = {
 const EMPTY_RESIDENCY_OPTION = "__none__";
 
 const DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS = [
+  "auto",
   "gpt-5",
   "gpt-5-codex",
   "gpt-5-codex-mini",
@@ -88,6 +89,14 @@ const DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS = [
   "gpt-5.3-codex",
   "gpt-5.4",
 ] as const;
+
+function formatFreeAccountModelLabel(value: string | null | undefined): string {
+  const normalized = String(value || "").trim();
+  if (!normalized || normalized === "auto") {
+    return "跟随请求";
+  }
+  return normalized;
+}
 
 const SETTINGS_TABS = ["general", "appearance", "gateway", "tasks", "env"] as const;
 type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -137,7 +146,8 @@ export default function SettingsPage() {
 
   const updateSettings = useMutation({
     mutationFn: (patch: Partial<AppSettings> & { _silent?: boolean }) => {
-      const { _silent, ...actualPatch } = patch;
+      const actualPatch = { ...patch };
+      delete actualPatch._silent;
       return appClient.setSettings(actualPatch);
     },
     onSuccess: (nextSnapshot, variables) => {
@@ -533,13 +543,15 @@ export default function SettingsPage() {
               <div className="grid gap-2">
                 <Label>Free 账号使用模型</Label>
                 <Select
-                  value={snapshot.freeAccountMaxModel || "gpt-5.2"}
+                  value={snapshot.freeAccountMaxModel || "auto"}
                   onValueChange={(value) =>
-                    updateSettings.mutate({ freeAccountMaxModel: value || "gpt-5.2" })
+                    updateSettings.mutate({ freeAccountMaxModel: value || "auto" })
                   }
                 >
                   <SelectTrigger className="w-full md:w-[300px]">
-                    <SelectValue placeholder="选择 free 账号使用模型" />
+                    <SelectValue placeholder="选择 free 账号使用模型">
+                      {(value) => formatFreeAccountModelLabel(String(value || ""))}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {(snapshot.freeAccountMaxModelOptions?.length
@@ -547,14 +559,14 @@ export default function SettingsPage() {
                       : DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS
                     ).map((model) => (
                       <SelectItem key={model} value={model}>
-                        {model}
+                        {formatFreeAccountModelLabel(model)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
-                  所有 free / 7天单窗口账号命中候选时，都会按这里的模型发给上游；
-                  即使原始请求模型更高，也会统一改写成这里配置的模型，避免在 free 账号上继续带着高模型失败。
+                  设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；
+                  只有你选了具体模型后，命中这些账号时才会统一改写为该模型。
                 </p>
               </div>
 

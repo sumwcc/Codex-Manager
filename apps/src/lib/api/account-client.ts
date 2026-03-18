@@ -84,8 +84,12 @@ export const accountClient = {
     invoke("service_account_delete_many", withAddr({ accountIds })),
   deleteUnavailableFree: () =>
     invoke<DeleteUnavailableFreeResult>("service_account_delete_unavailable_free", withAddr()),
-  update: (accountId: string, sort: number) =>
+  updateSort: (accountId: string, sort: number) =>
     invoke("service_account_update", withAddr({ accountId, sort })),
+  disableAccount: (accountId: string) =>
+    invoke("service_account_update", withAddr({ accountId, status: "inactive" })),
+  enableAccount: (accountId: string) =>
+    invoke("service_account_update", withAddr({ accountId, status: "active" })),
   import: (contents: string[]) =>
     invoke<AccountImportResult>("service_account_import", withAddr({ contents })),
   async importByDirectory(): Promise<AccountImportResult> {

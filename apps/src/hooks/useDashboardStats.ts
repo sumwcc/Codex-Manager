@@ -44,6 +44,7 @@ export function useDashboardStats() {
       const startedAt = warmupStartedAtRef.current;
       if (startedAt == null) return false;
       if (Date.now() - startedAt >= STARTUP_SNAPSHOT_WARMUP_TIMEOUT_MS) {
+        warmupStartedAtRef.current = null;
         return false;
       }
 
@@ -61,12 +62,12 @@ export function useDashboardStats() {
 
   const data = snapshotQuery.data;
   const accounts = data?.accounts || [];
+  const hasStartupSignal = hasStartupSnapshotSignal(data);
   const shouldWarmupPoll =
     isServiceReady &&
     accounts.length > 0 &&
-    !hasStartupSnapshotSignal(data) &&
-    warmupStartedAtRef.current != null &&
-    Date.now() - warmupStartedAtRef.current < STARTUP_SNAPSHOT_WARMUP_TIMEOUT_MS;
+    !hasStartupSignal &&
+    snapshotQuery.isFetching;
   const totalAccounts = accounts.length;
   const availableAccounts = accounts.filter((item) => item.isAvailable).length;
   const unavailableAccounts = totalAccounts - availableAccounts;

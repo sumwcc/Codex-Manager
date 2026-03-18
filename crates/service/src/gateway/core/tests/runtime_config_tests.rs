@@ -186,6 +186,15 @@ fn normalize_model_slug_maps_legacy_gpt_5_4_pro_to_gpt_5_4() {
 }
 
 #[test]
+fn normalize_model_slug_accepts_auto() {
+    let _guard = test_guard();
+
+    let actual = normalize_model_slug("auto").expect("normalize model");
+
+    assert_eq!(actual, "auto");
+}
+
+#[test]
 fn set_originator_updates_env_and_dynamic_user_agent() {
     let _guard = test_guard();
     let _guard = EnvGuard::set(ENV_ORIGINATOR, "codex_cli_rs");

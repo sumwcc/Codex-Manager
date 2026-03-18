@@ -28,6 +28,7 @@ use super::{
 };
 
 const DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS: &[&str] = &[
+    "auto",
     "gpt-5",
     "gpt-5-codex",
     "gpt-5-codex-mini",
@@ -134,18 +135,18 @@ fn load_free_account_max_model_options(current: &str) -> Vec<String> {
 }
 
 fn collect_free_account_max_model_options(current: &str, cached: &[ModelOption]) -> Vec<String> {
-    let mut items = cached
+    let mut items = vec!["auto".to_string()];
+    for slug in cached
         .iter()
         .map(|item| item.slug.trim().to_ascii_lowercase())
         .filter(|slug| is_free_account_max_model_option(slug))
-        .fold(Vec::<String>::new(), |mut acc, slug| {
-            if !acc.iter().any(|item| item == &slug) {
-                acc.push(slug);
-            }
-            acc
-        });
+    {
+        if !items.iter().any(|item| item == &slug) {
+            items.push(slug);
+        }
+    }
 
-    if items.is_empty() {
+    if items.len() == 1 {
         items = DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS
             .iter()
             .map(|item| (*item).to_string())
@@ -153,7 +154,7 @@ fn collect_free_account_max_model_options(current: &str, cached: &[ModelOption])
     }
 
     let normalized_current = current.trim().to_ascii_lowercase();
-    if is_free_account_max_model_option(&normalized_current)
+    if (normalized_current == "auto" || is_free_account_max_model_option(&normalized_current))
         && !items.iter().any(|item| item == &normalized_current)
     {
         items.push(normalized_current);
@@ -250,7 +251,7 @@ mod tests {
 
     #[test]
     fn free_account_max_model_options_fallback_to_curated_defaults() {
-        let actual = collect_free_account_max_model_options("gpt-5.2", &[]);
+        let actual = collect_free_account_max_model_options("auto", &[]);
         let expected = DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS
             .iter()
             .map(|item| (*item).to_string())
@@ -289,6 +290,7 @@ mod tests {
         assert_eq!(
             actual,
             vec![
+                "auto".to_string(),
                 "gpt-5".to_string(),
                 "gpt-5.1-codex".to_string(),
                 "gpt-5.2".to_string()
