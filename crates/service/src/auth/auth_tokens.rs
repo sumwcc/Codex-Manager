@@ -4,12 +4,14 @@ use codexmanager_core::auth::{
     DEFAULT_CLIENT_ID, DEFAULT_ISSUER,
 };
 use codexmanager_core::storage::{now_ts, Account, Token};
-use reqwest::blocking::Client;
+use reqwest::Client;
 use reqwest::header::HeaderMap;
 use reqwest::Error as ReqwestError;
 use serde::de::DeserializeOwned;
-use std::sync::mpsc;
+use std::future::Future;
+use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::runtime::{Builder, Runtime};
 
 use crate::account_identity::{
     build_account_storage_id, build_fallback_subject_key, clean_value,
@@ -18,7 +20,8 @@ use crate::account_identity::{
 use crate::auth_callback::resolve_redirect_uri;
 use crate::storage_helpers::open_storage;
 
-static OPENAI_AUTH_HTTP_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+static OPENAI_AUTH_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
+static OPENAI_AUTH_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 const OPENAI_AUTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const OPENAI_AUTH_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const OPENAI_AUTH_TOTAL_TIMEOUT: Duration = Duration::from_secs(60);
@@ -30,46 +33,46 @@ const AUTH_ERROR_HEADER: &str = "x-openai-authorization-error";
 const CLOUDFLARE_BLOCKED_MESSAGE: &str =
     "Access blocked by Cloudflare. This usually happens when connecting from a restricted region";
 
-fn read_json_with_timeout<T>(
-    resp: reqwest::blocking::Response,
-    read_timeout: Duration,
-) -> Result<T, String>
+fn auth_runtime() -> &'static Runtime {
+    OPENAI_AUTH_RUNTIME.get_or_init(|| {
+        Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .thread_name("auth-http")
+            .build()
+            .unwrap_or_else(|err| panic!("build auth runtime failed: {err}"))
+    })
+}
+
+fn run_auth_future<F>(future: F) -> F::Output
+where
+    F: Future,
+{
+    auth_runtime().block_on(future)
+}
+
+async fn read_json_with_timeout<T>(resp: reqwest::Response, read_timeout: Duration) -> Result<T, String>
 where
     T: DeserializeOwned + Send + 'static,
 {
-    let (tx, rx) = mpsc::sync_channel(1);
-    std::thread::spawn(move || {
-        let _ = tx.send(resp.json::<T>().map_err(|e| e.to_string()));
-    });
-    match rx.recv_timeout(read_timeout) {
-        Ok(result) => result,
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
+    match tokio::time::timeout(read_timeout, resp.json::<T>()).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(_) => Err(format!(
             "response read timed out after {}ms",
             read_timeout.as_millis()
         )),
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            Err("response read failed: worker disconnected".to_string())
-        }
     }
 }
 
-fn read_text_with_timeout(
-    resp: reqwest::blocking::Response,
-    read_timeout: Duration,
-) -> Result<String, String> {
-    let (tx, rx) = mpsc::sync_channel(1);
-    std::thread::spawn(move || {
-        let _ = tx.send(resp.text().map_err(|e| e.to_string()));
-    });
-    match rx.recv_timeout(read_timeout) {
-        Ok(result) => result,
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
+async fn read_text_with_timeout(resp: reqwest::Response, read_timeout: Duration) -> Result<String, String> {
+    match tokio::time::timeout(read_timeout, resp.text()).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(_) => Err(format!(
             "response read timed out after {}ms",
             read_timeout.as_millis()
         )),
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            Err("response read failed: worker disconnected".to_string())
-        }
     }
 }
 
@@ -523,13 +526,7 @@ pub(crate) fn complete_login_with_redirect(
         .unwrap_or_else(|| "http://localhost:1455/auth/callback".to_string());
 
     // 交换授权码获取 token
-    let tokens = exchange_code_for_tokens(
-        &issuer,
-        &client_id,
-        &redirect_uri,
-        &session.code_verifier,
-        code,
-    )
+    let tokens = exchange_code_for_tokens(&issuer, &client_id, &redirect_uri, &session.code_verifier, code)
     .map_err(|e| {
         let _ = storage.update_login_session_status(state, "failed", Some(&e));
         e
@@ -651,7 +648,7 @@ pub(crate) fn build_exchange_code_request(
     redirect_uri: &str,
     code_verifier: &str,
     code: &str,
-) -> Result<reqwest::blocking::Request, String> {
+) -> Result<reqwest::Request, String> {
     client
         .post(format!("{issuer}/oauth/token"))
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -679,6 +676,22 @@ fn exchange_code_for_tokens(
     code_verifier: &str,
     code: &str,
 ) -> Result<TokenResponse, String> {
+    run_auth_future(exchange_code_for_tokens_async(
+        issuer,
+        client_id,
+        redirect_uri,
+        code_verifier,
+        code,
+    ))
+}
+
+async fn exchange_code_for_tokens_async(
+    issuer: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    code_verifier: &str,
+    code: &str,
+) -> Result<TokenResponse, String> {
     // 请求 token 接口
     let client = auth_http_client_for_issuer(issuer);
     let request = build_exchange_code_request(
@@ -691,11 +704,13 @@ fn exchange_code_for_tokens(
     )?;
     let resp = client
         .execute(request)
+        .await
         .map_err(|e| redact_sensitive_error_url(e).to_string())?;
     if !resp.status().is_success() {
         let status = resp.status();
         let headers = resp.headers().clone();
         let message = read_text_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)
+            .await
             .map(|body| format_token_endpoint_status_error(status, &headers, &body))
             .unwrap_or_else(|_| {
                 let suffix = build_token_endpoint_debug_suffix(&headers);
@@ -703,10 +718,18 @@ fn exchange_code_for_tokens(
             });
         return Err(message);
     }
-    read_json_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)
+    read_json_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT).await
 }
 
 pub(crate) fn obtain_api_key(
+    issuer: &str,
+    client_id: &str,
+    id_token: &str,
+) -> Result<String, String> {
+    run_auth_future(obtain_api_key_async(issuer, client_id, id_token))
+}
+
+async fn obtain_api_key_async(
     issuer: &str,
     client_id: &str,
     id_token: &str,
@@ -721,11 +744,13 @@ pub(crate) fn obtain_api_key(
     let request = build_api_key_exchange_request(&client, issuer, client_id, id_token)?;
     let resp = client
         .execute(request)
+        .await
         .map_err(|e| redact_sensitive_error_url(e).to_string())?;
     if !resp.status().is_success() {
         let status = resp.status();
         let headers = resp.headers().clone();
         let message = read_text_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)
+            .await
             .map(|body| format_api_key_exchange_status_error(status, &headers, &body))
             .unwrap_or_else(|_| {
                 let suffix = build_token_endpoint_debug_suffix(&headers);
@@ -733,7 +758,7 @@ pub(crate) fn obtain_api_key(
             });
         return Err(message);
     }
-    let body: ExchangeResp = read_json_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT)?;
+    let body: ExchangeResp = read_json_with_timeout(resp, OPENAI_AUTH_READ_TIMEOUT).await?;
     Ok(body.access_token)
 }
 
@@ -742,7 +767,7 @@ pub(crate) fn build_api_key_exchange_request(
     issuer: &str,
     client_id: &str,
     id_token: &str,
-) -> Result<reqwest::blocking::Request, String> {
+) -> Result<reqwest::Request, String> {
     client
         .post(format!("{issuer}/oauth/token"))
         .header("Content-Type", "application/x-www-form-urlencoded")

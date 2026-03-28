@@ -2,25 +2,13 @@ use super::{
     build_usage_request_headers, summarize_usage_error_response, usage_http_client,
     CHATGPT_ACCOUNT_ID_HEADER_NAME,
 };
+use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::StatusCode;
-use std::sync::{Mutex, MutexGuard};
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn lock_env() -> MutexGuard<'static, ()> {
-    // 中文注释：单进程并行跑测试时，环境变量是全局共享的；这里串行化避免用例互相污染导致偶发失败。
-    ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn usage_header_runtime_guard() -> MutexGuard<'static, ()> {
-    crate::gateway::gateway_runtime_test_guard()
-}
+use std::sync::MutexGuard;
 
 fn usage_header_runtime_scope() -> (MutexGuard<'static, ()>, UsageHeaderRuntimeRestore) {
-    let guard = usage_header_runtime_guard();
+    let guard = crate::test_env_guard();
     let restore = UsageHeaderRuntimeRestore::capture();
     let _ = crate::gateway::set_originator("codex_cli_rs");
     let _ = crate::gateway::set_residency_requirement(None);
@@ -52,8 +40,8 @@ impl Drop for UsageHeaderRuntimeRestore {
 fn usage_http_client_is_cloneable() {
     let first = usage_http_client();
     let second = usage_http_client();
-    let first_ptr = &first as *const reqwest::blocking::Client;
-    let second_ptr = &second as *const reqwest::blocking::Client;
+    let first_ptr = &first as *const Client;
+    let second_ptr = &second as *const Client;
     assert_ne!(first_ptr, second_ptr);
 }
 
@@ -254,7 +242,7 @@ fn usage_request_headers_use_official_chatgpt_account_header_name() {
 
 #[test]
 fn refresh_token_url_uses_official_default_for_openai_issuer() {
-    let _lock = lock_env();
+    let _lock = crate::test_env_guard();
     std::env::remove_var("CODEX_REFRESH_TOKEN_URL_OVERRIDE");
 
     assert_eq!(
@@ -269,7 +257,7 @@ fn refresh_token_url_uses_official_default_for_openai_issuer() {
 
 #[test]
 fn refresh_token_url_preserves_custom_issuer_and_override() {
-    let _lock = lock_env();
+    let _lock = crate::test_env_guard();
     let previous = std::env::var("CODEX_REFRESH_TOKEN_URL_OVERRIDE").ok();
 
     std::env::remove_var("CODEX_REFRESH_TOKEN_URL_OVERRIDE");

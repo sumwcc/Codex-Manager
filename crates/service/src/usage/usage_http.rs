@@ -1,15 +1,16 @@
 use codexmanager_core::usage::usage_endpoint;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
 use reqwest::Proxy;
+use std::future::Future;
 use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
+use tokio::runtime::{Builder, Runtime};
 
 static USAGE_HTTP_CLIENT: OnceLock<RwLock<Client>> = OnceLock::new();
+static USAGE_HTTP_RUNTIME: OnceLock<Runtime> = OnceLock::new();
 const USAGE_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const ENV_UPSTREAM_PROXY_URL: &str = "CODEXMANAGER_UPSTREAM_PROXY_URL";
-// NOTE: rely on reqwest built-in timeout (covers the full request including response body read).
-// Avoid background worker threads + recv_timeout which cannot cancel the underlying read.
 const USAGE_HTTP_TOTAL_TIMEOUT: Duration = Duration::from_secs(60);
 const REFRESH_TOKEN_EXPIRED_MESSAGE: &str =
     "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.";
@@ -63,6 +64,24 @@ pub(crate) struct RefreshTokenResponse {
     pub(crate) refresh_token: Option<String>,
     #[serde(default)]
     pub(crate) id_token: Option<String>,
+}
+
+fn usage_http_runtime() -> &'static Runtime {
+    USAGE_HTTP_RUNTIME.get_or_init(|| {
+        Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .thread_name("usage-http")
+            .build()
+            .unwrap_or_else(|err| panic!("build usage http runtime failed: {err}"))
+    })
+}
+
+fn run_usage_future<F>(future: F) -> F::Output
+where
+    F: Future,
+{
+    usage_http_runtime().block_on(future)
 }
 
 fn extract_refresh_token_error_code(body: &str) -> Option<String> {
@@ -424,6 +443,14 @@ pub(crate) fn fetch_usage_snapshot(
     bearer: &str,
     workspace_id: Option<&str>,
 ) -> Result<serde_json::Value, String> {
+    run_usage_future(fetch_usage_snapshot_async(base_url, bearer, workspace_id))
+}
+
+async fn fetch_usage_snapshot_async(
+    base_url: &str,
+    bearer: &str,
+    workspace_id: Option<&str>,
+) -> Result<serde_json::Value, String> {
     // 调用上游用量接口
     let url = usage_endpoint(base_url);
     let build_request = || {
@@ -437,12 +464,12 @@ pub(crate) fn fetch_usage_snapshot(
         }
         req
     };
-    let resp = match build_request().send() {
+    let resp = match build_request().send().await {
         Ok(resp) => resp,
         Err(first_err) => {
             // 中文注释：代理在程序启动后才开启时，旧 client 可能沿用旧网络状态；这里自动重建并重试一次。
             rebuild_usage_http_client();
-            let retried = build_request().send();
+            let retried = build_request().send().await;
             match retried {
                 Ok(resp) => resp,
                 Err(second_err) => {
@@ -457,7 +484,7 @@ pub(crate) fn fetch_usage_snapshot(
     if !resp.status().is_success() {
         let status = resp.status();
         let headers = resp.headers().clone();
-        let body = resp.text().unwrap_or_default();
+        let body = read_response_text(resp, USAGE_HTTP_TOTAL_TIMEOUT).await?;
         return Err(summarize_usage_error_response(
             status, &headers, &body, false,
         ));
@@ -470,16 +497,25 @@ pub(crate) fn fetch_usage_snapshot(
     if crate::gateway::is_html_content_type(content_type) {
         let status = resp.status();
         let headers = resp.headers().clone();
-        let body = resp.text().unwrap_or_default();
+        let body = read_response_text(resp, USAGE_HTTP_TOTAL_TIMEOUT).await?;
         return Err(summarize_usage_error_response(
             status, &headers, &body, true,
         ));
     }
-    resp.json::<serde_json::Value>()
+    read_response_json(resp, USAGE_HTTP_TOTAL_TIMEOUT)
+        .await
         .map_err(|e| format!("read usage endpoint json failed: {e}"))
 }
 
 pub(crate) fn refresh_access_token(
+    issuer: &str,
+    client_id: &str,
+    refresh_token: &str,
+) -> Result<RefreshTokenResponse, String> {
+    run_usage_future(refresh_access_token_async(issuer, client_id, refresh_token))
+}
+
+async fn refresh_access_token_async(
     issuer: &str,
     client_id: &str,
     refresh_token: &str,
@@ -493,11 +529,11 @@ pub(crate) fn refresh_access_token(
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body.clone())
     };
-    let resp = match build_request().send() {
+    let resp = match build_request().send().await {
         Ok(resp) => resp,
         Err(first_err) => {
             rebuild_usage_http_client();
-            let retried = build_request().send();
+            let retried = build_request().send().await;
             match retried {
                 Ok(resp) => resp,
                 Err(second_err) => {
@@ -512,15 +548,41 @@ pub(crate) fn refresh_access_token(
     if !resp.status().is_success() {
         let status = resp.status();
         let headers = resp.headers().clone();
-        let body = resp.text().unwrap_or_default();
+        let body = read_response_text(resp, USAGE_HTTP_TOTAL_TIMEOUT).await?;
         return Err(format_refresh_token_status_error_with_headers(
             status,
             Some(&headers),
             body.as_str(),
         ));
     }
-    resp.json::<RefreshTokenResponse>()
+    read_response_json(resp, USAGE_HTTP_TOTAL_TIMEOUT)
+        .await
         .map_err(|e| format!("read refresh token response json failed: {e}"))
+}
+
+async fn read_response_text(resp: reqwest::Response, timeout: Duration) -> Result<String, String> {
+    match tokio::time::timeout(timeout, resp.text()).await {
+        Ok(Ok(body)) => Ok(body),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(_) => Err(format!(
+            "response read timed out after {}ms",
+            timeout.as_millis()
+        )),
+    }
+}
+
+async fn read_response_json<T>(resp: reqwest::Response, timeout: Duration) -> Result<T, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    match tokio::time::timeout(timeout, resp.json::<T>()).await {
+        Ok(Ok(body)) => Ok(body),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(_) => Err(format!(
+            "response read timed out after {}ms",
+            timeout.as_millis()
+        )),
+    }
 }
 
 fn build_refresh_token_body(client_id: &str, refresh_token: &str) -> String {

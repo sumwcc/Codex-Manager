@@ -33,9 +33,7 @@ pub(crate) fn fetch_models_for_picker() -> Result<Vec<ModelOption>, String> {
     sort_model_picker_candidates(&storage, &mut candidates);
     let mut last_error = "models request failed".to_string();
     for (account, mut token) in candidates {
-        let client = super::upstream_client_for_account(account.id.as_str());
         match send_models_request(
-            &client,
             &storage,
             &method,
             &upstream_base,
@@ -49,7 +47,6 @@ pub(crate) fn fetch_models_for_picker() -> Result<Vec<ModelOption>, String> {
                 if should_retry_models_with_openai_fallback(&err) {
                     if let Some(fallback_base) = upstream_fallback_base.as_deref() {
                         if let Ok(response_body) = send_models_request(
-                            &client,
                             &storage,
                             &method,
                             fallback_base,

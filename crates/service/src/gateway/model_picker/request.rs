@@ -1,13 +1,22 @@
 use codexmanager_core::storage::{Account, Storage, Token};
-use reqwest::blocking::Client;
+use reqwest::Client;
 use reqwest::header::HeaderMap;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::Method;
 use reqwest::StatusCode;
+use std::future::Future;
+use std::sync::OnceLock;
+use std::time::Duration;
+use tokio::runtime::{Builder, Runtime};
+
 const REQUEST_ID_HEADER: &str = "x-request-id";
 const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";
 const CF_RAY_HEADER: &str = "cf-ray";
 const AUTH_ERROR_HEADER: &str = "x-openai-authorization-error";
+static MODEL_PICKER_RUNTIME: OnceLock<Runtime> = OnceLock::new();
+const MODEL_PICKER_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const MODEL_PICKER_TOTAL_TIMEOUT: Duration = Duration::from_secs(120);
+const MODEL_PICKER_RESPONSE_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn append_client_version_query(url: &str) -> String {
     if url.contains("client_version=") {
@@ -112,8 +121,83 @@ fn summarize_models_error_response(
     }
 }
 
+fn model_picker_runtime() -> &'static Runtime {
+    MODEL_PICKER_RUNTIME.get_or_init(|| {
+        Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .thread_name("model-picker-http")
+            .build()
+            .unwrap_or_else(|err| panic!("build model picker runtime failed: {err}"))
+    })
+}
+
+fn run_model_picker_future<F>(future: F) -> F::Output
+where
+    F: Future,
+{
+    model_picker_runtime().block_on(future)
+}
+
+fn build_model_picker_client() -> Client {
+    let mut builder = Client::builder()
+        .connect_timeout(MODEL_PICKER_CONNECT_TIMEOUT)
+        .timeout(MODEL_PICKER_TOTAL_TIMEOUT)
+        .pool_max_idle_per_host(8)
+        .pool_idle_timeout(Some(Duration::from_secs(60)))
+        .user_agent(crate::gateway::current_codex_user_agent());
+    if let Some(proxy_url) = crate::gateway::current_upstream_proxy_url() {
+        if let Ok(proxy) = reqwest::Proxy::all(proxy_url.as_str()) {
+            builder = builder.proxy(proxy);
+        }
+    }
+    builder.build().unwrap_or_else(|err| {
+        log::warn!("event=model_picker_client_build_failed err={}", err);
+        Client::new()
+    })
+}
+
+async fn read_response_text(resp: reqwest::Response, timeout: Duration) -> Result<String, String> {
+    match tokio::time::timeout(timeout, resp.text()).await {
+        Ok(Ok(body)) => Ok(body),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(_) => Err(format!(
+            "response read timed out after {}ms",
+            timeout.as_millis()
+        )),
+    }
+}
+
+async fn read_response_bytes(resp: reqwest::Response, timeout: Duration) -> Result<Vec<u8>, String> {
+    match tokio::time::timeout(timeout, resp.bytes()).await {
+        Ok(Ok(body)) => Ok(body.to_vec()),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(_) => Err(format!(
+            "response read timed out after {}ms",
+            timeout.as_millis()
+        )),
+    }
+}
+
 pub(super) fn send_models_request(
-    client: &Client,
+    storage: &Storage,
+    method: &Method,
+    upstream_base: &str,
+    path: &str,
+    account: &Account,
+    token: &mut Token,
+) -> Result<Vec<u8>, String> {
+    run_model_picker_future(send_models_request_async(
+        storage,
+        method,
+        upstream_base,
+        path,
+        account,
+        token,
+    ))
+}
+
+async fn send_models_request_async(
     storage: &Storage,
     method: &Method,
     upstream_base: &str,
@@ -136,6 +220,7 @@ pub(super) fn send_models_request(
         .or_else(|| account.workspace_id.as_deref())
         .map(str::to_string);
     let include_account_header = !super::super::is_openai_api_base(upstream_base);
+    let client = build_model_picker_client();
     let build_request = |http: &Client| {
         let mut builder = http.request(method.clone(), &url);
         for (name, value) in build_models_request_headers(
@@ -151,11 +236,11 @@ pub(super) fn send_models_request(
         builder
     };
 
-    let response = match build_request(client).send() {
+    let response = match build_request(&client).send().await {
         Ok(resp) => resp,
         Err(first_err) => {
-            let fresh = super::super::fresh_upstream_client_for_account(account.id.as_str());
-            match build_request(&fresh).send() {
+            let fresh = build_model_picker_client();
+            match build_request(&fresh).send().await {
                 Ok(resp) => resp,
                 Err(second_err) => {
                     return Err(format!(
@@ -169,7 +254,7 @@ pub(super) fn send_models_request(
     if !response.status().is_success() {
         let status = response.status();
         let headers = response.headers().clone();
-        let body = response.text().unwrap_or_default();
+        let body = read_response_text(response, MODEL_PICKER_RESPONSE_READ_TIMEOUT).await?;
         return Err(summarize_models_error_response(
             status, &headers, &body, false,
         ));
@@ -182,16 +267,13 @@ pub(super) fn send_models_request(
     if super::super::is_html_content_type(content_type) {
         let status = response.status();
         let headers = response.headers().clone();
-        let body = response.text().unwrap_or_default();
+        let body = read_response_text(response, MODEL_PICKER_RESPONSE_READ_TIMEOUT).await?;
         return Err(summarize_models_error_response(
             status, &headers, &body, true,
         ));
     }
 
-    response
-        .bytes()
-        .map(|v| v.to_vec())
-        .map_err(|e| e.to_string())
+    read_response_bytes(response, MODEL_PICKER_RESPONSE_READ_TIMEOUT).await
 }
 
 #[cfg(test)]
