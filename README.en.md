@@ -9,6 +9,7 @@
 <p align="center">
   <a href="README.en.md">中文</a>|
   <a href="https://github.com/qxcnm/Codex-Manager">GitHub Repo</a>|
+  <a href="https://qxnm.top">Official Website</a>|
   <a href="#sponsor">Sponsor</a>
 </p>
 
