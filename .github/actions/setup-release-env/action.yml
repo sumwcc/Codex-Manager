@@ -17,7 +17,7 @@ inputs:
       apps/pnpm-lock.yaml
       .github/workflows/release-all.yml
   enable-pnpm-cache:
-    description: Enable pnpm store cache through actions/setup-node.
+    description: Enable pnpm store cache through actions/cache.
     required: false
     default: "true"
   rust-toolchain:
@@ -40,25 +40,69 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: ${{ inputs.pnpm-version }}
-        run_install: false
-
-    - name: Setup Node.js with pnpm cache
-      if: ${{ inputs.enable-pnpm-cache == 'true' }}
-      uses: actions/setup-node@v6
-      with:
-        node-version: ${{ inputs.node-version }}
-        cache: pnpm
-        cache-dependency-path: ${{ inputs.pnpm-lock-path }}
-
     - name: Setup Node.js
-      if: ${{ inputs.enable-pnpm-cache != 'true' }}
       uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+
+    - name: Enable Corepack and activate pnpm
+      shell: pwsh
+      run: |
+        corepack enable
+        corepack prepare pnpm@${{ inputs.pnpm-version }} --activate
+
+    - name: Resolve pnpm cache metadata
+      id: pnpm-cache
+      if: ${{ inputs.enable-pnpm-cache == 'true' }}
+      shell: pwsh
+      run: |
+        $storePath = (pnpm store path --silent).Trim()
+        if (-not $storePath) {
+          throw "pnpm store path is empty"
+        }
+
+        $entries = [System.Collections.Generic.List[string]]::new()
+        $patterns = @'
+        ${{ inputs.pnpm-lock-path }}
+        '@ -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+
+        foreach ($pattern in $patterns) {
+          $resolved = @(Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue | Sort-Object FullName)
+          if ($resolved.Count -eq 0) {
+            $entries.Add("missing:$pattern")
+            continue
+          }
+
+          foreach ($file in $resolved) {
+            $hash = (Get-FileHash -Path $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $entries.Add("$($file.FullName.Replace('\', '/')):$hash")
+          }
+        }
+
+        $joined = [string]::Join("`n", $entries)
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($joined)
+        $stream = [System.IO.MemoryStream]::new($bytes)
+        try {
+          $digest = (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        finally {
+          $stream.Dispose()
+        }
+
+        "store-path=$storePath" >> $env:GITHUB_OUTPUT
+        "cache-key=$digest" >> $env:GITHUB_OUTPUT
+
+    - name: Cache pnpm store
+      if: ${{ inputs.enable-pnpm-cache == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.pnpm-cache.outputs.store-path }}
+        key: ${{ runner.os }}-pnpm-${{ inputs.node-version }}-${{ inputs.pnpm-version }}-${{ steps.pnpm-cache.outputs.cache-key }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-${{ inputs.node-version }}-${{ inputs.pnpm-version }}-
+          ${{ runner.os }}-pnpm-${{ inputs.node-version }}-
+          ${{ runner.os }}-pnpm-
 
     - name: Setup Rust
       if: ${{ inputs.rust-target == '' }}

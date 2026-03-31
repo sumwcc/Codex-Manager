@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
@@ -77,6 +77,9 @@ const PLUGIN_VIEW_FILTER_OPTIONS: Array<{
   { value: "not-installed", label: "未安装" },
   { value: "update", label: "更新" },
 ];
+
+const EMPTY_PLUGIN_CATALOG_ITEMS: PluginCatalogEntry[] = [];
+const EMPTY_INSTALLED_PLUGIN_ITEMS: InstalledPluginSummary[] = [];
 
 function normalizeMarketMode(value: string | null | undefined) {
   return String(value || "")
@@ -364,10 +367,10 @@ export default function PluginsPage() {
   const isActivationReady = useDeferredDesktopActivation(serviceReady);
   usePageTransitionReady("/plugins/", !serviceReady);
   const queryClient = useQueryClient();
-  const [marketMode, setMarketMode] = useState("builtin");
+  const [marketModeDraft, setMarketModeDraft] = useState<string | null>(null);
   const [pluginViewFilter, setPluginViewFilter] =
     useState<PluginViewFilter>("not-installed");
-  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceUrlDraft, setSourceUrlDraft] = useState<string | null>(null);
   const [selectedPlugin, setSelectedPlugin] =
     useState<SelectedPluginDetail>(null);
   const [pendingUninstallPlugin, setPendingUninstallPlugin] =
@@ -381,13 +384,11 @@ export default function PluginsPage() {
     queryFn: () => appClient.getSettings(),
     enabled: isPageActive && isActivationReady,
   });
-
-  useEffect(() => {
-    if (settingsQuery.data) {
-      setMarketMode(normalizeMarketMode(settingsQuery.data.pluginMarketMode));
-      setSourceUrl(settingsQuery.data.pluginMarketSourceUrl || "");
-    }
-  }, [settingsQuery.data]);
+  const marketMode =
+    marketModeDraft ??
+    normalizeMarketMode(settingsQuery.data?.pluginMarketMode);
+  const sourceUrl =
+    sourceUrlDraft ?? (settingsQuery.data?.pluginMarketSourceUrl || "");
 
   const catalogQuery = useQuery({
     queryKey: ["plugin-catalog", marketMode, sourceUrl],
@@ -424,8 +425,9 @@ export default function PluginsPage() {
         pluginMarketSourceUrl: sourceUrl,
       }),
     onSuccess: (settings) => {
-      setMarketMode(normalizeMarketMode(settings.pluginMarketMode));
-      setSourceUrl(settings.pluginMarketSourceUrl || "");
+      queryClient.setQueryData(["plugin-settings"], settings);
+      setMarketModeDraft(null);
+      setSourceUrlDraft(null);
       toast.success("市场源已保存");
       void queryClient.invalidateQueries({ queryKey: ["plugin-catalog"] });
     },
@@ -537,8 +539,8 @@ export default function PluginsPage() {
     return map;
   }, [logsQuery.data]);
 
-  const catalogItems = catalogQuery.data?.items || [];
-  const installedItems = installedQuery.data || [];
+  const catalogItems = catalogQuery.data?.items ?? EMPTY_PLUGIN_CATALOG_ITEMS;
+  const installedItems = installedQuery.data ?? EMPTY_INSTALLED_PLUGIN_ITEMS;
   const catalogById = useMemo(
     () => new Map(catalogItems.map((item) => [item.id, item])),
     [catalogItems],
@@ -618,7 +620,9 @@ export default function PluginsPage() {
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setMarketMode(normalizeMarketMode(option.value))}
+                onClick={() =>
+                  setMarketModeDraft(normalizeMarketMode(option.value))
+                }
                 className={cn(
                   "rounded-2xl border p-4 text-left transition-all",
                   marketMode === option.value
@@ -641,7 +645,7 @@ export default function PluginsPage() {
               <div className="flex flex-col gap-3 md:flex-row md:items-center">
                 <Input
                   value={sourceUrl}
-                  onChange={(event) => setSourceUrl(event.target.value)}
+                  onChange={(event) => setSourceUrlDraft(event.target.value)}
                   placeholder="https://example.com/plugin-market.json"
                   className="md:flex-1"
                 />

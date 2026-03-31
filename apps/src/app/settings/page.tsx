@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -735,22 +735,18 @@ export default function SettingsPage() {
       });
   };
 
-  const filteredEnvCatalog = useMemo(() => {
-    const catalog = snapshot?.envOverrideCatalog || [];
-    if (!envSearch) return catalog;
-    const keyword = envSearch.toLowerCase();
-    return catalog.filter(
-      (item) =>
-        item.key.toLowerCase().includes(keyword) ||
-        item.label.toLowerCase().includes(keyword),
-    );
-  }, [envSearch, snapshot?.envOverrideCatalog]);
-
-  const selectedEnvItem = useMemo(
-    () =>
-      snapshot?.envOverrideCatalog.find((item) => item.key === selectedEnvKey),
-    [selectedEnvKey, snapshot?.envOverrideCatalog],
-  );
+  const envOverrideCatalog = snapshot?.envOverrideCatalog ?? [];
+  const filteredEnvCatalog = !envSearch
+    ? envOverrideCatalog
+    : envOverrideCatalog.filter((item) => {
+        const keyword = envSearch.toLowerCase();
+        return (
+          item.key.toLowerCase().includes(keyword) ||
+          item.label.toLowerCase().includes(keyword)
+        );
+      });
+  const selectedEnvItem =
+    envOverrideCatalog.find((item) => item.key === selectedEnvKey) ?? null;
 
   const upstreamProxyInput =
     upstreamProxyDraft ?? (snapshot?.upstreamProxyUrl || "");
@@ -774,17 +770,14 @@ export default function SettingsPage() {
       "")
     : "";
 
-  const activeWorkerPreset = useMemo(() => {
-    if (!snapshot) return null;
-    return (
-      WORKER_PRESETS.find((preset) =>
+  const activeWorkerPreset = snapshot
+    ? (WORKER_PRESETS.find((preset) =>
         WORKER_PRESET_KEYS.every(
           (key) =>
             snapshot.backgroundTasks[key] === preset.backgroundTasks[key],
         ),
-      ) ?? null
-    );
-  }, [snapshot]);
+      ) ?? null)
+    : null;
 
   const lastIntentThemeRef = useRef<string | null>(null);
   const lastIntentAppearancePresetRef = useRef<string | null>(null);
