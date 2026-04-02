@@ -73,6 +73,31 @@ function formatUsd(value: number): string {
 }
 
 /**
+ * 函数 `formatCompactTokenAmount`
+ *
+ * 作者: gaohongshun
+ *
+ * 时间: 2026-04-02
+ *
+ * # 参数
+ * - value: 参数 value
+ *
+ * # 返回
+ * 返回函数执行结果
+ */
+function formatCompactTokenAmount(value: number | null | undefined): string {
+  const normalized =
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (normalized < 1000) {
+    return normalized.toLocaleString("zh-CN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  return formatCompactNumber(normalized, "0.00", 2);
+}
+
+/**
  * 函数 `ApiKeyStatCard`
  *
  * 作者: gaohongshun
@@ -361,7 +386,7 @@ export default function ApiKeysPage() {
           <>
             <ApiKeyStatCard
               title="总使用 Token"
-              value={formatCompactNumber(usageOverview?.totalTokens || 0, "0")}
+              value={formatCompactTokenAmount(usageOverview?.totalTokens || 0)}
               icon={Zap}
               color="h-4 w-4 text-amber-500"
               sub="按全部平台密钥累计"
@@ -480,7 +505,7 @@ export default function ApiKeysPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
-                        {formatCompactNumber(usageByKey[key.id] ?? 0, "0")}
+                        {formatCompactTokenAmount(usageByKey[key.id] ?? 0)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

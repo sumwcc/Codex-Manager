@@ -204,6 +204,50 @@ function formatDuration(value: number | null): string {
 }
 
 /**
+ * 函数 `formatTokenAmount`
+ *
+ * 作者: gaohongshun
+ *
+ * 时间: 2026-04-02
+ *
+ * # 参数
+ * - value: 参数 value
+ *
+ * # 返回
+ * 返回函数执行结果
+ */
+function formatTokenAmount(value: number | null | undefined): string {
+  const normalized =
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+  return normalized.toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * 函数 `formatCompactTokenAmount`
+ *
+ * 作者: gaohongshun
+ *
+ * 时间: 2026-04-02
+ *
+ * # 参数
+ * - value: 参数 value
+ *
+ * # 返回
+ * 返回函数执行结果
+ */
+function formatCompactTokenAmount(value: number | null | undefined): string {
+  const normalized =
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (normalized < 1000) {
+    return formatTokenAmount(normalized);
+  }
+  return formatCompactNumber(normalized, "0.00", 2);
+}
+
+/**
  * 函数 `fallbackAccountNameFromId`
  *
  * 作者: gaohongshun
@@ -1279,9 +1323,9 @@ function LogsPageContent() {
           toneClass="bg-red-500/12 text-red-500"
         />
         <SummaryCard
-          title="累计令牌"
-          value={formatCompactNumber(summary.totalTokens, "0")}
-          description="当前筛选结果中的 total tokens"
+          title="累计词元"
+          value={formatCompactTokenAmount(summary.totalTokens)}
+          description="当前筛选结果中的总词元"
           icon={Database}
           toneClass="bg-amber-500/12 text-amber-500"
         />
@@ -1325,7 +1369,7 @@ function LogsPageContent() {
                   请求时长
                 </TableHead>
                 <TableHead className="w-[148px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  令牌
+                  词元
                 </TableHead>
                 <TableHead className="w-[240px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   错误
@@ -1408,12 +1452,12 @@ function LogsPageContent() {
                     </TableCell>
                     <TableCell className="px-4 py-3 align-top">
                       <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-                        <span>总 {log.totalTokens?.toLocaleString() || 0}</span>
+                        <span>总 {formatTokenAmount(log.totalTokens)}</span>
                         <span>
-                          输入 {log.inputTokens?.toLocaleString() || 0}
+                          输入 {formatTokenAmount(log.inputTokens)}
                         </span>
                         <span className="opacity-60">
-                          缓存 {log.cachedInputTokens?.toLocaleString() || 0}
+                          缓存 {formatTokenAmount(log.cachedInputTokens)}
                         </span>
                       </div>
                     </TableCell>

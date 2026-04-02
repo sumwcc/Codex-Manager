@@ -62,6 +62,31 @@ function formatPercent(value: number | null | undefined): string {
 }
 
 /**
+ * 函数 `formatCompactTokenAmount`
+ *
+ * 作者: gaohongshun
+ *
+ * 时间: 2026-04-02
+ *
+ * # 参数
+ * - value: 参数 value
+ *
+ * # 返回
+ * 返回函数执行结果
+ */
+function formatCompactTokenAmount(value: number | null | undefined): string {
+  const normalized =
+    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (normalized < 1000) {
+    return normalized.toLocaleString("zh-CN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  return formatCompactNumber(normalized, "0.00", 2);
+}
+
+/**
  * 函数 `PercentBar`
  *
  * 作者: gaohongshun
@@ -317,22 +342,22 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {[ 
           {
-            title: "今日令牌",
-            value: formatCompactNumber(stats.todayTokens, "0"),
+            title: "今日词元",
+            value: formatCompactTokenAmount(stats.todayTokens),
             icon: Zap,
             color: "text-yellow-500",
             sub: "输入 + 输出合计",
           },
           {
-            title: "缓存令牌",
-            value: formatCompactNumber(stats.cachedTokens, "0"),
+            title: "缓存词元",
+            value: formatCompactTokenAmount(stats.cachedTokens),
             icon: Database,
             color: "text-indigo-500",
             sub: "上下文缓存命中",
           },
           {
-            title: "推理令牌",
-            value: formatCompactNumber(stats.reasoningTokens, "0"),
+            title: "推理词元",
+            value: formatCompactTokenAmount(stats.reasoningTokens),
             icon: BrainCircuit,
             color: "text-purple-500",
             sub: "大模型思考过程",
