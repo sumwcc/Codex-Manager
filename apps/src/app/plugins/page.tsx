@@ -511,9 +511,11 @@ export default function PluginsPage() {
   const isActivationReady = useDeferredDesktopActivation(serviceReady);
   usePageTransitionReady("/plugins/", !serviceReady);
   const queryClient = useQueryClient();
-  const [marketModeDraft, setMarketModeDraft] = useState<string | null>(null);
+  const [marketModeDraft, setMarketModeDraft] = useState<string | null>(
+    "builtin",
+  );
   const [pluginViewFilter, setPluginViewFilter] =
-    useState<PluginViewFilter>("not-installed");
+    useState<PluginViewFilter>("installed");
   const [sourceUrlDraft, setSourceUrlDraft] = useState<string | null>(null);
   const [selectedPlugin, setSelectedPlugin] =
     useState<SelectedPluginDetail>(null);
