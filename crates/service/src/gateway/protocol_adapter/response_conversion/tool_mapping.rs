@@ -362,10 +362,67 @@ pub(super) fn collect_chat_tool_calls_from_message(
     }
 }
 
+/// 粗略衡量「可执行编辑」信息量：用于避免仅用字符串长度选用 `completed`，
+/// 从而用更长但 `edits:[]` 的快照覆盖流式拼出的有效 `edit` 参数（OpenClaw 报 `edits:[]`）。
+fn tool_arguments_edit_payload_score(v: &Value) -> usize {
+    if let Some(edits) = v.get("edits").and_then(Value::as_array) {
+        let mut n = 0;
+        for e in edits {
+            let Some(obj) = e.as_object() else {
+                continue;
+            };
+            let has_old = obj
+                .get("oldText")
+                .or_else(|| obj.get("old_text"))
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty());
+            let has_new = obj
+                .get("newText")
+                .or_else(|| obj.get("new_text"))
+                .and_then(Value::as_str)
+                .is_some();
+            if has_old || has_new {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            return n;
+        }
+    }
+    let has_path = v
+        .get("path")
+        .or_else(|| v.get("file"))
+        .or_else(|| v.get("filePath"))
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.is_empty());
+    let has_old = v
+        .get("oldText")
+        .or_else(|| v.get("old_text"))
+        .and_then(Value::as_str)
+        .is_some();
+    if has_path && has_old {
+        return 1;
+    }
+    0
+}
+
+fn streamed_tool_arguments_should_be_kept_over_completed(streamed: &str, completed: &str) -> bool {
+    let Ok(sv) = serde_json::from_str::<Value>(streamed) else {
+        return false;
+    };
+    let Ok(cv) = serde_json::from_str::<Value>(completed) else {
+        return false;
+    };
+    let s = tool_arguments_edit_payload_score(&sv);
+    let c = tool_arguments_edit_payload_score(&cv);
+    s > c
+}
+
 /// `convert_openai_sse_to_chat_completions_json` 在流式阶段用 `merge_tool_call_arguments` 聚合；
 /// `response.completed` 里的 `message.tool_calls` 可能更完整。若仅当 `content.is_empty()` 才合并，
 /// 则助手先输出任意文字时永远不会合并，最终 `arguments` 为空、`build_openai_chat_tool_calls` 退化为 `"{}"`。
 /// 此处按索引合并：**优先更长**的 `function.arguments` 字符串，并忽略占位 `"{}"`。
+/// 若更长快照的「可执行编辑」信息量更低（典型：`edits:[]`），则保留流式累积结果。
 pub(super) fn merge_tool_calls_from_completed_message_prefer_longer(
     aggregated: &mut BTreeMap<usize, AggregatedChatToolCall>,
     message: &Map<String, Value>,
@@ -413,9 +470,78 @@ pub(super) fn merge_tool_calls_from_completed_message_prefer_longer(
         if trimmed.is_empty() || matches!(trimmed, "{}" | "[]" | "null") {
             continue;
         }
-        if entry.arguments.is_empty() || completed_args.len() > entry.arguments.len() {
+        if entry.arguments.is_empty() {
+            entry.arguments = completed_args.to_string();
+            continue;
+        }
+        if completed_args.len() > entry.arguments.len() {
+            if streamed_tool_arguments_should_be_kept_over_completed(&entry.arguments, completed_args) {
+                continue;
+            }
             entry.arguments = completed_args.to_string();
         }
+    }
+}
+
+#[cfg(test)]
+mod merge_completed_tests {
+    use super::*;
+
+    #[test]
+    fn merge_keeps_streamed_when_completed_longer_but_empty_edits() {
+        let mut aggregated = BTreeMap::new();
+        let streamed = r#"{"path":"/tmp/a.ts","edits":[{"oldText":"x","newText":"y"}]}"#;
+        aggregated.insert(
+            0,
+            AggregatedChatToolCall {
+                id: Some("call_1".to_string()),
+                name: Some("edit".to_string()),
+                arguments: streamed.to_string(),
+            },
+        );
+        let completed = r#"{"path":"/tmp/a.ts","edits":[],"_pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}"#;
+        assert!(completed.len() > streamed.len());
+        let message = serde_json::json!({
+            "tool_calls": [{
+                "index": 0,
+                "function": {
+                    "name": "edit",
+                    "arguments": completed
+                }
+            }]
+        });
+        let message = message.as_object().unwrap().clone();
+        merge_tool_calls_from_completed_message_prefer_longer(&mut aggregated, &message);
+        assert_eq!(aggregated[&0].arguments, streamed);
+    }
+
+    #[test]
+    fn merge_takes_completed_when_strongly_better() {
+        let mut aggregated = BTreeMap::new();
+        let streamed = r#"{"path":"/tmp/a.ts","edits":[]}"#;
+        aggregated.insert(
+            0,
+            AggregatedChatToolCall {
+                id: Some("call_1".to_string()),
+                name: Some("edit".to_string()),
+                arguments: streamed.to_string(),
+            },
+        );
+        let completed =
+            r#"{"path":"/tmp/a.ts","edits":[{"oldText":"full","newText":"patch"}],"extra":true}"#;
+        assert!(completed.len() > streamed.len());
+        let message = serde_json::json!({
+            "tool_calls": [{
+                "index": 0,
+                "function": {
+                    "name": "edit",
+                    "arguments": completed
+                }
+            }]
+        });
+        let message = message.as_object().unwrap().clone();
+        merge_tool_calls_from_completed_message_prefer_longer(&mut aggregated, &message);
+        assert_eq!(aggregated[&0].arguments, completed);
     }
 }
 
