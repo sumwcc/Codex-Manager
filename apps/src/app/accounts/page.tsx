@@ -2,14 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
   BarChart3,
   Download,
-  Clock3,
   PencilLine,
   ExternalLink,
   FileUp,
@@ -80,7 +78,6 @@ import { useAccounts } from "@/hooks/useAccounts";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
-import { pluginClient } from "@/lib/api/plugin-client";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 import {
@@ -90,49 +87,11 @@ import {
   isPrimaryWindowOnlyUsage,
   isSecondaryWindowOnlyUsage,
 } from "@/lib/utils/usage";
-import { Account, PluginCatalogEntry } from "@/types";
+import { Account } from "@/types";
 
 type StatusFilter = "all" | "available" | "low_quota" | "banned";
 type AccountExportMode = "single" | "multiple";
-const UNAVAILABLE_FREE_CLEANUP_PLUGIN_ID = "cleanup-unavailable-free-accounts";
-const UNAVAILABLE_FREE_CLEANUP_TASK_ID = `${UNAVAILABLE_FREE_CLEANUP_PLUGIN_ID}::run`;
-const UNAVAILABLE_FREE_CLEANUP_DEFAULT_INTERVAL_SECONDS = 60;
 const ACCOUNT_SORT_STEP = 5;
-
-const UNAVAILABLE_FREE_CLEANUP_PLUGIN: PluginCatalogEntry = {
-  id: UNAVAILABLE_FREE_CLEANUP_PLUGIN_ID,
-  name: "清理不可用免费账号",
-  version: "1.0.0",
-  description: "自动清理状态不可用且属于 free 的账号，适合做定时收尾整理。",
-  author: "CodexManager",
-  homepageUrl: null,
-  scriptUrl: null,
-  scriptBody: `
-fn run(context) {
-    log("开始清理不可用免费账号：" + context["plugin"]["name"]);
-    let result = cleanup_unavailable_free_accounts();
-    log("清理完成，删除 " + result["deleted"].to_string() + " 个账号");
-    result
-}
-`,
-  permissions: ["accounts:cleanup"],
-  tasks: [
-    {
-      id: "run",
-      name: "定时自动清理",
-      description: "每 60 秒自动清理一次不可用免费账号",
-      entrypoint: "run",
-      scheduleKind: "interval",
-      intervalSeconds: UNAVAILABLE_FREE_CLEANUP_DEFAULT_INTERVAL_SECONDS,
-      enabled: true,
-    },
-  ],
-  manifestVersion: "1",
-  category: "official",
-  runtimeKind: "rhai",
-  tags: ["账号治理", "精选", "定时脚本"],
-  sourceUrl: "builtin://codexmanager",
-};
 
 /**
  * 函数 `formatAccountPlanValueLabel`
@@ -630,6 +589,7 @@ export default function AccountsPage() {
     refreshAccountList,
     deleteAccount,
     deleteManyAccounts,
+    deleteUnavailableFree,
     importByFile,
     importByDirectory,
     exportAccounts,
@@ -659,13 +619,9 @@ export default function AccountsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [usageModalOpen, setUsageModalOpen] = useState(false);
-  const [cleanupScheduleOpen, setCleanupScheduleOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportModeDraft, setExportModeDraft] =
     useState<AccountExportMode>("multiple");
-  const [cleanupScheduleDraft, setCleanupScheduleDraft] = useState(
-    String(UNAVAILABLE_FREE_CLEANUP_DEFAULT_INTERVAL_SECONDS),
-  );
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [labelDraft, setLabelDraft] = useState("");
   const [tagsDraft, setTagsDraft] = useState("");
@@ -695,29 +651,6 @@ export default function AccountsPage() {
     : !isDesktopRuntime && canUseBrowserDownloadExport
       ? "DL"
       : "ZIP";
-
-  const scheduleCleanupMutation = useMutation({
-    mutationFn: async (intervalSeconds: number) => {
-      const installedPlugins = await pluginClient.listInstalled();
-      const installed = installedPlugins.find(
-        (item) => item.pluginId === UNAVAILABLE_FREE_CLEANUP_PLUGIN_ID,
-      );
-
-      if (!installed) {
-        await pluginClient.install(UNAVAILABLE_FREE_CLEANUP_PLUGIN);
-      }
-
-      await pluginClient.enable(UNAVAILABLE_FREE_CLEANUP_PLUGIN_ID);
-      await pluginClient.updateTask(UNAVAILABLE_FREE_CLEANUP_TASK_ID, intervalSeconds);
-    },
-    onSuccess: () => {
-      toast.success("定时脚本已启用");
-      setCleanupScheduleOpen(false);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "启用定时脚本失败");
-    },
-  });
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((account) => {
@@ -1054,28 +987,6 @@ export default function AccountsPage() {
     } catch {
       // 中文注释：错误提示已在 hook 内统一处理，这里只阻止弹窗误关闭。
     }
-  };
-
-  /**
-   * 函数 `handleConfirmCleanupSchedule`
-   *
-   * 作者: gaohongshun
-   *
-   * 时间: 2026-04-02
-   *
-   * # 参数
-   * 无
-   *
-   * # 返回
-   * 返回函数执行结果
-   */
-  const handleConfirmCleanupSchedule = () => {
-    const parsed = Number(cleanupScheduleDraft.trim());
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      toast.error("请输入有效的定时间隔");
-      return;
-    }
-    void scheduleCleanupMutation.mutateAsync(Math.max(1, Math.trunc(parsed)));
   };
 
   /**
@@ -1505,16 +1416,12 @@ export default function AccountsPage() {
                     </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
+                    variant="destructive"
                     className="h-9 rounded-lg px-2"
                     disabled={!isServiceReady}
-                    onClick={() => {
-                      setCleanupScheduleDraft(
-                        String(UNAVAILABLE_FREE_CLEANUP_DEFAULT_INTERVAL_SECONDS),
-                      );
-                      setCleanupScheduleOpen(true);
-                    }}
+                    onClick={() => deleteUnavailableFree()}
                   >
-                    <Clock3 className="mr-2 h-4 w-4" /> 定时脚本
+                    <Trash2 className="mr-2 h-4 w-4" /> 清理免费不可用账号
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
@@ -1530,46 +1437,6 @@ export default function AccountsPage() {
           </div>
         </CardContent>
       </Card>
-
-      <Dialog open={cleanupScheduleOpen} onOpenChange={setCleanupScheduleOpen}>
-        <DialogContent className="glass-card border-border/70 sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>定时脚本</DialogTitle>
-            <DialogDescription>
-              将内置脚本安装为定时任务，默认每分钟执行一次。启用后可在插件中心继续调整任务间隔。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="cleanup-schedule-interval">运行间隔（秒）</Label>
-              <Input
-                id="cleanup-schedule-interval"
-                type="number"
-                min={60}
-                step={60}
-                value={cleanupScheduleDraft}
-                onChange={(event) => setCleanupScheduleDraft(event.target.value)}
-                className="glass-card h-10 rounded-xl"
-              />
-              <div className="text-xs text-muted-foreground">
-                例如 `60` 表示每分钟运行一次。
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <DialogClose className={cn(buttonVariants({ variant: "outline" }), "rounded-xl")}>
-              取消
-            </DialogClose>
-            <Button
-              className="rounded-xl"
-              onClick={handleConfirmCleanupSchedule}
-              disabled={scheduleCleanupMutation.isPending}
-            >
-              {scheduleCleanupMutation.isPending ? "保存中..." : "安装并启用"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
         <DialogContent className="glass-card border-border/70 sm:max-w-md">
