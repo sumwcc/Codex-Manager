@@ -481,7 +481,7 @@ pub(crate) fn current_originator() -> String {
 /// # 返回
 /// 返回函数执行结果
 pub(crate) fn current_wire_originator() -> String {
-    DEFAULT_ORIGINATOR.to_string()
+    current_originator()
 }
 
 /// 函数 `set_originator`
@@ -1276,21 +1276,70 @@ fn normalize_codex_user_agent_version(raw: &str) -> Result<String, String> {
 /// 返回函数执行结果
 fn current_codex_terminal_user_agent_token() -> String {
     if let Some(program) = env_non_empty("TERM_PROGRAM") {
-        if let Some(version) = env_non_empty("TERM_PROGRAM_VERSION") {
-            return sanitize_user_agent_token(format!("{program}/{version}"));
-        }
-        return sanitize_user_agent_token(program);
+        let version = env_non_empty("TERM_PROGRAM_VERSION");
+        return sanitize_header_value(format_terminal_user_agent(program, version));
+    }
+    if std::env::var_os("WEZTERM_VERSION").is_some() {
+        return sanitize_header_value(format_terminal_user_agent(
+            "WezTerm".to_string(),
+            env_non_empty("WEZTERM_VERSION"),
+        ));
+    }
+    if std::env::var_os("ITERM_SESSION_ID").is_some()
+        || std::env::var_os("ITERM_PROFILE").is_some()
+        || std::env::var_os("ITERM_PROFILE_NAME").is_some()
+    {
+        return sanitize_header_value("iTerm.app".to_string());
+    }
+    if std::env::var_os("TERM_SESSION_ID").is_some() {
+        return sanitize_header_value("Apple_Terminal".to_string());
+    }
+    if std::env::var_os("KITTY_WINDOW_ID").is_some()
+        || std::env::var("TERM")
+            .map(|term| term.contains("kitty"))
+            .unwrap_or(false)
+    {
+        return sanitize_header_value("kitty".to_string());
+    }
+    if std::env::var_os("ALACRITTY_SOCKET").is_some()
+        || std::env::var("TERM")
+            .map(|term| term == "alacritty")
+            .unwrap_or(false)
+    {
+        return sanitize_header_value("Alacritty".to_string());
+    }
+    if std::env::var_os("KONSOLE_VERSION").is_some() {
+        return sanitize_header_value(format_terminal_user_agent(
+            "Konsole".to_string(),
+            env_non_empty("KONSOLE_VERSION"),
+        ));
+    }
+    if std::env::var_os("GNOME_TERMINAL_SCREEN").is_some() {
+        return sanitize_header_value("gnome-terminal".to_string());
+    }
+    if std::env::var_os("VTE_VERSION").is_some() {
+        return sanitize_header_value(format_terminal_user_agent(
+            "VTE".to_string(),
+            env_non_empty("VTE_VERSION"),
+        ));
     }
     if std::env::var_os("WT_SESSION").is_some() {
         return "WindowsTerminal".to_string();
     }
     if let Some(term) = env_non_empty("TERM") {
-        return sanitize_user_agent_token(term);
+        return sanitize_header_value(term);
     }
     "unknown".to_string()
 }
 
-/// 函数 `sanitize_user_agent_token`
+fn format_terminal_user_agent(name: String, version: Option<String>) -> String {
+    match version.as_ref().filter(|value| !value.is_empty()) {
+        Some(version) => format!("{name}/{version}"),
+        None => name,
+    }
+}
+
+/// 函数 `sanitize_header_value`
 ///
 /// 作者: gaohongshun
 ///
@@ -1301,16 +1350,21 @@ fn current_codex_terminal_user_agent_token() -> String {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn sanitize_user_agent_token(raw: String) -> String {
+fn sanitize_header_value(raw: String) -> String {
     let sanitized: String = raw
         .chars()
-        .map(|ch| if matches!(ch, ' '..='~') { ch } else { '_' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/') {
+                ch
+            } else {
+                '_'
+            }
+        })
         .collect();
-    let trimmed = sanitized.trim();
-    if trimmed.is_empty() {
+    if sanitized.trim().is_empty() {
         return "unknown".to_string();
     }
-    trimmed.replace('(', "_").replace(')', "_")
+    sanitized
 }
 
 /// 函数 `normalize_residency_requirement`

@@ -349,11 +349,13 @@ fn set_originator_updates_env_and_dynamic_user_agent() {
 
     assert_eq!(applied, "codex_cli_rs_windows");
     assert_eq!(current_originator(), "codex_cli_rs_windows");
+    assert_eq!(current_wire_originator(), "codex_cli_rs_windows");
     assert_eq!(
         std::env::var(ENV_ORIGINATOR).ok().as_deref(),
         Some("codex_cli_rs_windows")
     );
-    let expected_prefix = format!("codex_cli_rs/{}", current_codex_user_agent_version());
+    let expected_prefix =
+        format!("codex_cli_rs_windows/{}", current_codex_user_agent_version());
     assert!(current_codex_user_agent().contains(expected_prefix.as_str()));
 }
 
@@ -444,5 +446,61 @@ fn set_request_compression_enabled_updates_env_and_cache() {
             .ok()
             .as_deref(),
         Some("1")
+    );
+}
+
+#[test]
+fn terminal_user_agent_prefers_term_program_over_wt_session() {
+    let _guard = crate::test_env_guard();
+    let _term_program = EnvGuard::set("TERM_PROGRAM", "WindowsTerminal");
+    let _term_program_version = EnvGuard::set("TERM_PROGRAM_VERSION", "1.21");
+    let _wt_session = EnvGuard::set("WT_SESSION", "1");
+    let _wezterm = EnvGuard::clear("WEZTERM_VERSION");
+    let _iterm_session = EnvGuard::clear("ITERM_SESSION_ID");
+    let _iterm_profile = EnvGuard::clear("ITERM_PROFILE");
+    let _iterm_profile_name = EnvGuard::clear("ITERM_PROFILE_NAME");
+    let _term_session = EnvGuard::clear("TERM_SESSION_ID");
+    let _kitty = EnvGuard::clear("KITTY_WINDOW_ID");
+    let _alacritty = EnvGuard::clear("ALACRITTY_SOCKET");
+    let _konsole = EnvGuard::clear("KONSOLE_VERSION");
+    let _gnome = EnvGuard::clear("GNOME_TERMINAL_SCREEN");
+    let _vte = EnvGuard::clear("VTE_VERSION");
+    let _term = EnvGuard::clear("TERM");
+
+    assert_eq!(current_codex_terminal_user_agent_token(), "WindowsTerminal/1.21");
+}
+
+#[test]
+fn terminal_user_agent_detects_windows_terminal_from_wt_session() {
+    let _guard = crate::test_env_guard();
+    let _term_program = EnvGuard::clear("TERM_PROGRAM");
+    let _term_program_version = EnvGuard::clear("TERM_PROGRAM_VERSION");
+    let _wt_session = EnvGuard::set("WT_SESSION", "1");
+    let _wezterm = EnvGuard::clear("WEZTERM_VERSION");
+    let _iterm_session = EnvGuard::clear("ITERM_SESSION_ID");
+    let _iterm_profile = EnvGuard::clear("ITERM_PROFILE");
+    let _iterm_profile_name = EnvGuard::clear("ITERM_PROFILE_NAME");
+    let _term_session = EnvGuard::clear("TERM_SESSION_ID");
+    let _kitty = EnvGuard::clear("KITTY_WINDOW_ID");
+    let _alacritty = EnvGuard::clear("ALACRITTY_SOCKET");
+    let _konsole = EnvGuard::clear("KONSOLE_VERSION");
+    let _gnome = EnvGuard::clear("GNOME_TERMINAL_SCREEN");
+    let _vte = EnvGuard::clear("VTE_VERSION");
+    let _term = EnvGuard::clear("TERM");
+
+    assert_eq!(current_codex_terminal_user_agent_token(), "WindowsTerminal");
+}
+
+#[test]
+fn terminal_user_agent_sanitizes_header_like_official_codex() {
+    let _guard = crate::test_env_guard();
+    let _term_program = EnvGuard::set("TERM_PROGRAM", "Weird Terminal()");
+    let _term_program_version = EnvGuard::set("TERM_PROGRAM_VERSION", "1.2 beta");
+    let _wt_session = EnvGuard::clear("WT_SESSION");
+    let _term = EnvGuard::clear("TERM");
+
+    assert_eq!(
+        current_codex_terminal_user_agent_token(),
+        "Weird_Terminal__/1.2_beta"
     );
 }

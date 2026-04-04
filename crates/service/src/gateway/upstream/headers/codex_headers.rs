@@ -367,7 +367,10 @@ mod tests {
                 .map(|value| value.starts_with(expected_user_agent_prefix.as_str())),
             Some(true)
         );
-        assert_eq!(header_value(&headers, "originator"), Some("codex_cli_rs"));
+        assert_eq!(
+            header_value(&headers, "originator"),
+            Some("codex_cli_rs_tests")
+        );
         assert_eq!(
             header_value(&headers, "x-client-request-id"),
             Some("conversation-anchor")
