@@ -68,6 +68,10 @@ pub(super) fn build_anthropic_error_body(message: &str) -> Vec<u8> {
     response_conversion::build_anthropic_error_body(message)
 }
 
+pub(super) fn build_gemini_error_body(message: &str) -> Vec<u8> {
+    response_conversion::build_gemini_error_body(message)
+}
+
 /// 函数 `convert_openai_completions_stream_chunk`
 ///
 /// 作者: gaohongshun

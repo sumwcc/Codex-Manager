@@ -225,6 +225,8 @@ fn response_adapter_label(value: super::ResponseAdapter) -> &'static str {
         super::ResponseAdapter::Passthrough => "Passthrough",
         super::ResponseAdapter::AnthropicJson => "AnthropicJson",
         super::ResponseAdapter::AnthropicSse => "AnthropicSse",
+        super::ResponseAdapter::GeminiJson => "GeminiJson",
+        super::ResponseAdapter::GeminiSse => "GeminiSse",
         super::ResponseAdapter::OpenAIChatCompletionsJson => "OpenAIChatCompletionsJson",
         super::ResponseAdapter::OpenAIChatCompletionsSse => "OpenAIChatCompletionsSse",
         super::ResponseAdapter::OpenAICompletionsJson => "OpenAICompletionsJson",

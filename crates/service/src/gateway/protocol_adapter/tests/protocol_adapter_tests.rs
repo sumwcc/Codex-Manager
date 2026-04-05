@@ -9,6 +9,10 @@ use super::{
 mod anthropic_request;
 #[path = "protocol_adapter_tests/anthropic_response.rs"]
 mod anthropic_response;
+#[path = "protocol_adapter_tests/gemini_request.rs"]
+mod gemini_request;
+#[path = "protocol_adapter_tests/gemini_response.rs"]
+mod gemini_response;
 #[path = "protocol_adapter_tests/openai_request.rs"]
 mod openai_request;
 #[path = "protocol_adapter_tests/openai_response.rs"]

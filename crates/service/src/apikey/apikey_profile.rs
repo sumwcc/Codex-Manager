@@ -1,6 +1,7 @@
 pub(crate) const CLIENT_CODEX: &str = "codex";
 pub(crate) const PROTOCOL_OPENAI_COMPAT: &str = "openai_compat";
 pub(crate) const PROTOCOL_ANTHROPIC_NATIVE: &str = "anthropic_native";
+pub(crate) const PROTOCOL_GEMINI_NATIVE: &str = "gemini_native";
 pub(crate) const PROTOCOL_AZURE_OPENAI: &str = "azure_openai";
 pub(crate) const AUTH_BEARER: &str = "authorization_bearer";
 pub(crate) const AUTH_X_API_KEY: &str = "x_api_key";
@@ -38,6 +39,32 @@ pub(crate) fn is_anthropic_request_path(path: &str) -> bool {
     path == "/v1/messages" || path.starts_with("/v1/messages/") || path.starts_with("/v1/messages?")
 }
 
+fn normalized_request_path(path: &str) -> &str {
+    path.split('?').next().unwrap_or(path)
+}
+
+pub(crate) fn is_gemini_generate_content_request_path(path: &str) -> bool {
+    let normalized = normalized_request_path(path);
+    ["/v1/models/", "/v1beta/models/", "/v1alpha/models/"]
+        .iter()
+        .any(|prefix| {
+            normalized.starts_with(prefix)
+                && (normalized.contains(":generateContent")
+                    || normalized.contains(":streamGenerateContent"))
+        })
+}
+
+pub(crate) fn is_gemini_count_tokens_request_path(path: &str) -> bool {
+    let normalized = normalized_request_path(path);
+    ["/v1/models/", "/v1beta/models/", "/v1alpha/models/"]
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix) && normalized.contains(":countTokens"))
+}
+
+pub(crate) fn is_gemini_request_path(path: &str) -> bool {
+    is_gemini_generate_content_request_path(path) || is_gemini_count_tokens_request_path(path)
+}
+
 /// 函数 `resolve_gateway_protocol_type`
 ///
 /// 作者: gaohongshun
@@ -53,8 +80,9 @@ pub(crate) fn is_anthropic_request_path(path: &str) -> bool {
 pub(crate) fn resolve_gateway_protocol_type(protocol_type: &str, path: &str) -> &'static str {
     match normalize_key(protocol_type).as_str() {
         "azure" | "azure_openai" => PROTOCOL_AZURE_OPENAI,
+        _ if is_gemini_request_path(path) => PROTOCOL_GEMINI_NATIVE,
         // 中文注释：平台 Key 对 Codex / Claude Code 默认按路径通配；
-        // `/v1/messages*` 走 Claude 语义，其余标准路径走 OpenAI/Codex 语义。
+        // `/v1/messages*` 走 Claude 语义，Gemini 原生路径走 Gemini 语义，其余标准路径走 OpenAI/Codex 语义。
         _ if is_anthropic_request_path(path) => PROTOCOL_ANTHROPIC_NATIVE,
         _ => PROTOCOL_OPENAI_COMPAT,
     }
@@ -76,6 +104,7 @@ pub(crate) fn normalize_protocol_type(value: Option<String>) -> Result<String, S
         Some(raw) => match normalize_key(&raw).as_str() {
             "openai" | "openai_compat" => Ok(PROTOCOL_OPENAI_COMPAT.to_string()),
             "anthropic" | "anthropic_native" => Ok(PROTOCOL_ANTHROPIC_NATIVE.to_string()),
+            "gemini" | "gemini_native" => Ok(PROTOCOL_GEMINI_NATIVE.to_string()),
             "azure" | "azure_openai" => Ok(PROTOCOL_AZURE_OPENAI.to_string()),
             other => Err(format!("unsupported protocol type: {other}")),
         },
@@ -206,8 +235,10 @@ pub(crate) fn normalize_static_headers_json(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_anthropic_request_path, resolve_gateway_protocol_type, PROTOCOL_ANTHROPIC_NATIVE,
-        PROTOCOL_AZURE_OPENAI, PROTOCOL_OPENAI_COMPAT,
+        is_anthropic_request_path, is_gemini_count_tokens_request_path,
+        is_gemini_generate_content_request_path, resolve_gateway_protocol_type,
+        PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_AZURE_OPENAI, PROTOCOL_GEMINI_NATIVE,
+        PROTOCOL_OPENAI_COMPAT,
     };
 
     #[test]
@@ -224,6 +255,34 @@ mod tests {
         assert_eq!(
             resolve_gateway_protocol_type(PROTOCOL_ANTHROPIC_NATIVE, "/v1/responses"),
             PROTOCOL_OPENAI_COMPAT
+        );
+    }
+
+    #[test]
+    fn wildcard_protocol_routes_gemini_generate_content_path_to_gemini() {
+        assert!(is_gemini_generate_content_request_path(
+            "/v1beta/models/gemini-2.5-pro:generateContent"
+        ));
+        assert_eq!(
+            resolve_gateway_protocol_type(
+                PROTOCOL_OPENAI_COMPAT,
+                "/v1beta/models/gemini-2.5-pro:generateContent"
+            ),
+            PROTOCOL_GEMINI_NATIVE
+        );
+    }
+
+    #[test]
+    fn wildcard_protocol_routes_gemini_count_tokens_path_to_gemini() {
+        assert!(is_gemini_count_tokens_request_path(
+            "/v1beta/models/gemini-2.5-pro:countTokens?alt=json"
+        ));
+        assert_eq!(
+            resolve_gateway_protocol_type(
+                PROTOCOL_OPENAI_COMPAT,
+                "/v1beta/models/gemini-2.5-pro:countTokens?alt=json"
+            ),
+            PROTOCOL_GEMINI_NATIVE
         );
     }
 

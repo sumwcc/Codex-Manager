@@ -195,6 +195,7 @@ pub(crate) fn should_drop_incoming_header(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     name.eq_ignore_ascii_case("Authorization")
         || name.eq_ignore_ascii_case("x-api-key")
+        || name.eq_ignore_ascii_case("x-goog-api-key")
         || name.eq_ignore_ascii_case("Host")
         || name.eq_ignore_ascii_case("Content-Length")
         // 中文注释：Claude SDK/CLI 会附带 anthropic/x-stainless 指纹头；

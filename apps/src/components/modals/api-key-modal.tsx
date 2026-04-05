@@ -30,9 +30,10 @@ import { Key, Clipboard, ShieldCheck } from "lucide-react";
 import { ApiKey } from "@/types";
 
 const PROTOCOL_LABELS: Record<string, string> = {
-  openai_compat: "通配兼容 (Codex / Claude Code)",
+  openai_compat: "通配兼容 (Codex / Claude Code / Gemini CLI)",
   azure_openai: "Azure OpenAI",
-  anthropic_native: "通配兼容 (Codex / Claude Code)",
+  anthropic_native: "通配兼容 (Codex / Claude Code / Gemini CLI)",
+  gemini_native: "通配兼容 (Codex / Claude Code / Gemini CLI)",
 };
 
 const REASONING_LABELS: Record<string, string> = {
@@ -253,7 +254,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[550px] glass-card border-none">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-[calc(100%-2rem)] sm:max-w-[680px] md:max-w-[760px] max-h-[90vh] overflow-y-auto glass-card border-none">
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-full bg-primary/10">
@@ -328,19 +329,19 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
                   <SelectValue>
                     {(value) =>
                       PROTOCOL_LABELS[String(value || "")] ||
-                      "通配兼容 (Codex / Claude Code)"
+                      "通配兼容 (Codex / Claude Code / Gemini CLI)"
                     }
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
                   <SelectItem value="openai_compat">
-                    通配兼容 (Codex / Claude Code)
+                    通配兼容 (Codex / Claude Code / Gemini CLI)
                   </SelectItem>
                   <SelectItem value="azure_openai">Azure OpenAI</SelectItem>
                 </SelectContent>
               </Select>
               <p className="min-h-[32px] text-[11px] text-muted-foreground">
-                默认按路径通配：<code>/v1/messages*</code> 走 Claude 语义，其它标准路径走 Codex / OpenAI 语义。
+                默认按路径通配：<code>/v1/messages*</code> 走 Claude 语义，<code>/v1beta/models/*:generateContent</code> 这类路径走 Gemini 语义，其它标准路径走 Codex / OpenAI 语义。
               </p>
             </div>
             <div className="grid gap-2 content-start">

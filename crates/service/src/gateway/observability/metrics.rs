@@ -592,6 +592,11 @@ fn classify_protocol(protocol_type: Option<&str>) -> &'static str {
     {
         return "anthropic_native";
     }
+    if protocol_type.eq_ignore_ascii_case("gemini_native")
+        || protocol_type.eq_ignore_ascii_case("gemini")
+    {
+        return "gemini_native";
+    }
     "other"
 }
 

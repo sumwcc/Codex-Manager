@@ -3,6 +3,10 @@ use serde_json::json;
 use crate::gateway::request_helpers::is_html_content_type;
 
 use super::super::ResponseAdapter;
+use super::gemini::{
+    convert_gemini_json_to_sse, convert_openai_json_to_gemini, convert_openai_sse_to_gemini,
+    convert_openai_sse_to_gemini_json,
+};
 use super::json_conversion::convert_openai_json_to_anthropic;
 use super::openai_chat::{
     convert_openai_json_to_chat_completions, convert_openai_sse_to_chat_completions_json,
@@ -51,6 +55,21 @@ pub(super) fn adapt_upstream_response(
                 return convert_anthropic_json_to_sse(&anthropic_json);
             }
             convert_openai_sse_to_anthropic(body, tool_name_restore_map)
+        }
+        ResponseAdapter::GeminiJson => {
+            reject_html_challenge(upstream_content_type)?;
+            if is_sse_payload(upstream_content_type, body) {
+                return convert_openai_sse_to_gemini_json(body, tool_name_restore_map);
+            }
+            convert_openai_json_to_gemini(body, tool_name_restore_map)
+        }
+        ResponseAdapter::GeminiSse => {
+            reject_html_challenge(upstream_content_type)?;
+            if is_json_payload(upstream_content_type) {
+                let (gemini_json, _) = convert_openai_json_to_gemini(body, tool_name_restore_map)?;
+                return convert_gemini_json_to_sse(&gemini_json);
+            }
+            convert_openai_sse_to_gemini(body, tool_name_restore_map)
         }
         ResponseAdapter::OpenAIChatCompletionsJson | ResponseAdapter::OpenAIChatCompletionsSse => {
             reject_html_challenge(upstream_content_type)?;

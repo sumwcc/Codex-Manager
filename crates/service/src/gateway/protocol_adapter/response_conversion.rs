@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 mod adapter_dispatch;
+mod gemini;
 mod json_conversion;
 mod openai_chat;
 mod openai_completions;
@@ -162,4 +163,8 @@ pub(super) fn convert_openai_chat_stream_chunk_with_tool_name_restore_map(
         value,
         tool_name_restore_map,
     )
+}
+
+pub(super) fn build_gemini_error_body(message: &str) -> Vec<u8> {
+    gemini::build_gemini_error_body(message)
 }

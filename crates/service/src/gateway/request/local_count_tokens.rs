@@ -1,7 +1,9 @@
 use serde_json::{json, Value};
 use tiny_http::Response;
 
-use crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE;
+use crate::apikey_profile::{
+    is_gemini_count_tokens_request_path, PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE,
+};
 
 /// 函数 `accumulate_text_len`
 ///
@@ -69,6 +71,28 @@ fn estimate_input_tokens_from_anthropic_messages(body: &[u8]) -> Result<u64, Str
     Ok(estimated)
 }
 
+fn estimate_input_tokens_from_gemini_request(body: &[u8]) -> Result<u64, String> {
+    let payload: Value =
+        serde_json::from_slice(body).map_err(|_| "invalid gemini request json".to_string())?;
+    let Some(object) = payload.as_object() else {
+        return Err("gemini request body must be an object".to_string());
+    };
+
+    let mut char_count = 0usize;
+    if let Some(system_instruction) = object.get("systemInstruction") {
+        char_count += accumulate_text_len(system_instruction);
+    }
+    if let Some(contents) = object.get("contents").and_then(Value::as_array) {
+        for content in contents {
+            if let Some(parts) = content.get("parts") {
+                char_count += accumulate_text_len(parts);
+            }
+        }
+    }
+
+    Ok(((char_count as u64) / 4).max(1))
+}
+
 /// 函数 `maybe_respond_local_count_tokens`
 ///
 /// 作者: gaohongshun
@@ -97,13 +121,25 @@ pub(super) fn maybe_respond_local_count_tokens(
     let is_anthropic_count_tokens = protocol_type == PROTOCOL_ANTHROPIC_NATIVE
         && request_method.eq_ignore_ascii_case("POST")
         && (path == "/v1/messages/count_tokens" || path.starts_with("/v1/messages/count_tokens?"));
-    if !is_anthropic_count_tokens {
+    let is_gemini_count_tokens = protocol_type == PROTOCOL_GEMINI_NATIVE
+        && request_method.eq_ignore_ascii_case("POST")
+        && is_gemini_count_tokens_request_path(path);
+    if !is_anthropic_count_tokens && !is_gemini_count_tokens {
         return Ok(Some(request));
     }
 
-    match estimate_input_tokens_from_anthropic_messages(body) {
+    let estimate_result = if is_gemini_count_tokens {
+        estimate_input_tokens_from_gemini_request(body)
+    } else {
+        estimate_input_tokens_from_anthropic_messages(body)
+    };
+    match estimate_result {
         Ok(input_tokens) => {
-            let output = json!({ "input_tokens": input_tokens }).to_string();
+            let output = if is_gemini_count_tokens {
+                json!({ "totalTokens": input_tokens }).to_string()
+            } else {
+                json!({ "input_tokens": input_tokens }).to_string()
+            };
             super::trace_log::log_attempt_result(trace_id, "-", None, 200, None);
             super::trace_log::log_request_final(trace_id, 200, None, None, None, 0);
             super::record_gateway_request_outcome(path, 200, Some(protocol_type));

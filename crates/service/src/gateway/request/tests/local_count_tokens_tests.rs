@@ -60,3 +60,23 @@ fn estimate_input_tokens_rejects_non_object_payload() {
         .expect_err("should reject non-object payload");
     assert_eq!(err, "claude request body must be an object");
 }
+
+#[test]
+fn estimate_gemini_input_tokens_uses_contents_and_system_instruction() {
+    let body = br#"{
+        "systemInstruction":{"parts":[{"text":"abcdabcd"}]},
+        "contents":[
+            {"role":"user","parts":[{"text":"abcd"}]},
+            {"role":"model","parts":[{"text":"abcdabcd"}]}
+        ]
+    }"#;
+    let count = estimate_input_tokens_from_gemini_request(body).expect("estimate failed");
+    assert_eq!(count, 5);
+}
+
+#[test]
+fn estimate_gemini_input_tokens_rejects_invalid_json() {
+    let err = estimate_input_tokens_from_gemini_request(br#"{"contents":["#)
+        .expect_err("should reject invalid json");
+    assert_eq!(err, "invalid gemini request json");
+}

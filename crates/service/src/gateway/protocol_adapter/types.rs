@@ -5,6 +5,8 @@ pub(crate) enum ResponseAdapter {
     Passthrough,
     AnthropicJson,
     AnthropicSse,
+    GeminiJson,
+    GeminiSse,
     OpenAIChatCompletionsJson,
     OpenAIChatCompletionsSse,
     OpenAICompletionsJson,

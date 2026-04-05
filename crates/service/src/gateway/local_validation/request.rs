@@ -1,5 +1,6 @@
 use crate::apikey_profile::{
-    resolve_gateway_protocol_type, PROTOCOL_ANTHROPIC_NATIVE, ROTATION_AGGREGATE_API,
+    is_gemini_generate_content_request_path, resolve_gateway_protocol_type,
+    PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE, ROTATION_AGGREGATE_API,
 };
 use bytes::Bytes;
 use codexmanager_core::rpc::types::ModelOption;
@@ -109,10 +110,12 @@ fn ensure_anthropic_model_is_listed(
 ///
 /// # 返回
 /// 返回函数执行结果
-fn allow_openai_responses_path_rewrite(protocol_type: &str, normalized_path: &str) -> bool {
-    protocol_type == crate::apikey_profile::PROTOCOL_OPENAI_COMPAT
+fn allow_compat_responses_path_rewrite(protocol_type: &str, normalized_path: &str) -> bool {
+    (protocol_type == crate::apikey_profile::PROTOCOL_OPENAI_COMPAT
         && (normalized_path.starts_with("/v1/chat/completions")
-            || normalized_path.starts_with("/v1/completions"))
+            || normalized_path.starts_with("/v1/completions")))
+        || (protocol_type == PROTOCOL_GEMINI_NATIVE
+            && is_gemini_generate_content_request_path(normalized_path))
 }
 
 /// 函数 `should_derive_compat_conversation_anchor`
@@ -129,7 +132,7 @@ fn allow_openai_responses_path_rewrite(protocol_type: &str, normalized_path: &st
 /// 返回函数执行结果
 fn should_derive_compat_conversation_anchor(protocol_type: &str, normalized_path: &str) -> bool {
     (protocol_type == PROTOCOL_ANTHROPIC_NATIVE && normalized_path.starts_with("/v1/messages"))
-        || allow_openai_responses_path_rewrite(protocol_type, normalized_path)
+        || allow_compat_responses_path_rewrite(protocol_type, normalized_path)
 }
 
 /// 函数 `resolve_local_conversation_id`
@@ -326,10 +329,10 @@ pub(super) fn build_local_validation_result(
     if effective_protocol_type != PROTOCOL_ANTHROPIC_NATIVE
         && !normalized_path.starts_with("/v1/responses")
         && path.starts_with("/v1/responses")
-        && !allow_openai_responses_path_rewrite(effective_protocol_type, &normalized_path)
+        && !allow_compat_responses_path_rewrite(effective_protocol_type, &normalized_path)
     {
-        // 中文注释：防回归保护：仅 anthropic_native 的 /v1/messages 允许改写到 /v1/responses；
-        // 其余协议和路径一律保持原路径透传，避免客户端按 chat/completions 语义却拿到 responses 流格式。
+        // 中文注释：防回归保护：仅已登记的兼容协议路径允许改写到 /v1/responses；
+        // 其余协议和路径一律保持原路径透传，避免客户端按原生协议却拿到错误的流格式。
         log::warn!(
             "event=gateway_protocol_adapt_guard protocol_type={} from_path={} to_path={} action=force_passthrough",
             effective_protocol_type,

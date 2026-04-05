@@ -1,4 +1,7 @@
-use crate::apikey_profile::{PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_OPENAI_COMPAT};
+use crate::apikey_profile::{
+    is_gemini_generate_content_request_path, PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE,
+    PROTOCOL_OPENAI_COMPAT,
+};
 
 use super::request_mapping;
 use super::{AdaptedGatewayRequest, ResponseAdapter, ToolNameRestoreMap};
@@ -68,6 +71,21 @@ pub(crate) fn adapt_request_for_protocol(
                 ResponseAdapter::AnthropicSse
             } else {
                 ResponseAdapter::AnthropicJson
+            },
+            tool_name_restore_map,
+        });
+    }
+
+    if protocol_type == PROTOCOL_GEMINI_NATIVE && is_gemini_generate_content_request_path(path) {
+        let (adapted_body, request_stream, tool_name_restore_map) =
+            request_mapping::convert_gemini_generate_content_request(path, &body)?;
+        return Ok(AdaptedGatewayRequest {
+            path: "/v1/responses".to_string(),
+            body: adapted_body,
+            response_adapter: if request_stream {
+                ResponseAdapter::GeminiSse
+            } else {
+                ResponseAdapter::GeminiJson
             },
             tool_name_restore_map,
         });

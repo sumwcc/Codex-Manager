@@ -6,7 +6,7 @@ use crate::gateway::error_log::GatewayErrorLogInput;
 
 use super::super::{
     adapt_upstream_response, adapt_upstream_response_with_tool_name_restore_map,
-    build_anthropic_error_body, ResponseAdapter, ToolNameRestoreMap,
+    build_anthropic_error_body, build_gemini_error_body, ResponseAdapter, ToolNameRestoreMap,
 };
 use super::{
     collect_non_stream_json_from_sse_bytes, extract_error_hint_from_body,
@@ -1410,7 +1410,10 @@ pub(crate) fn respond_with_upstream(
                 None,
             ))
         }
-        ResponseAdapter::AnthropicJson | ResponseAdapter::AnthropicSse => {
+        ResponseAdapter::AnthropicJson
+        | ResponseAdapter::AnthropicSse
+        | ResponseAdapter::GeminiJson
+        | ResponseAdapter::GeminiSse => {
             let status = StatusCode(upstream.status().as_u16());
             let mut headers = Vec::new();
             for (name, value) in upstream.headers().iter() {
@@ -1493,7 +1496,14 @@ pub(crate) fn respond_with_upstream(
             ) {
                 Ok(result) => result,
                 Err(err) => (
-                    build_anthropic_error_body(&format!("response conversion failed: {err}")),
+                    if matches!(
+                        response_adapter,
+                        ResponseAdapter::GeminiJson | ResponseAdapter::GeminiSse
+                    ) {
+                        build_gemini_error_body(&format!("response conversion failed: {err}"))
+                    } else {
+                        build_anthropic_error_body(&format!("response conversion failed: {err}"))
+                    },
                     "application/json",
                 ),
             };
@@ -1593,9 +1603,11 @@ fn resolve_stream_keepalive_frame(
         ResponseAdapter::OpenAIChatCompletionsSse => SseKeepAliveFrame::OpenAIChatCompletions,
         ResponseAdapter::OpenAICompletionsSse => SseKeepAliveFrame::OpenAICompletions,
         ResponseAdapter::AnthropicSse => SseKeepAliveFrame::Anthropic,
+        ResponseAdapter::GeminiSse => SseKeepAliveFrame::Comment,
         ResponseAdapter::OpenAIChatCompletionsJson
         | ResponseAdapter::OpenAICompletionsJson
-        | ResponseAdapter::AnthropicJson => SseKeepAliveFrame::Comment,
+        | ResponseAdapter::AnthropicJson
+        | ResponseAdapter::GeminiJson => SseKeepAliveFrame::Comment,
     }
 }
 

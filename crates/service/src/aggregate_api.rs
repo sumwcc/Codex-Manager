@@ -85,7 +85,7 @@ fn normalize_provider_type(value: Option<String>) -> Result<String, String> {
         Some(raw) => {
             let normalized = raw.trim().to_ascii_lowercase().replace('-', "_");
             match normalized.as_str() {
-                "codex" | "openai" | "openai_compat" | "gpt" => {
+                "codex" | "openai" | "openai_compat" | "gpt" | "gemini" | "gemini_native" => {
                     Ok(AGGREGATE_API_PROVIDER_CODEX.to_string())
                 }
                 "claude" | "anthropic" | "anthropic_native" | "claude_code" => {

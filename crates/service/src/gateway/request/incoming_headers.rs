@@ -47,7 +47,9 @@ impl IncomingHeaderSnapshot {
                 }
                 continue;
             }
-            if name.eq_ignore_ascii_case("x-api-key") {
+            if name.eq_ignore_ascii_case("x-api-key")
+                || name.eq_ignore_ascii_case("x-goog-api-key")
+            {
                 snapshot.x_api_key_present = true;
                 if snapshot.x_api_key.is_none() && !value.is_empty() {
                     snapshot.x_api_key = Some(value.to_string());
@@ -131,7 +133,7 @@ impl IncomingHeaderSnapshot {
                 }
                 continue;
             }
-            if header.field.equiv("x-api-key") {
+            if header.field.equiv("x-api-key") || header.field.equiv("x-goog-api-key") {
                 snapshot.x_api_key_present = true;
                 if snapshot.x_api_key.is_none() {
                     let value = header.value.as_str().trim();

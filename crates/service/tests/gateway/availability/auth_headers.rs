@@ -72,6 +72,7 @@ fn drop_incoming_header_keeps_session_affinity_for_primary_attempt() {
     assert!(should_drop_incoming_header("ChatGPT-Account-Id"));
     assert!(should_drop_incoming_header("authorization"));
     assert!(should_drop_incoming_header("x-api-key"));
+    assert!(should_drop_incoming_header("x-goog-api-key"));
     assert!(should_drop_incoming_header("anthropic-version"));
     assert!(should_drop_incoming_header("x-stainless-lang"));
     assert!(!should_drop_incoming_header("session_id"));
