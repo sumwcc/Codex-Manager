@@ -88,34 +88,15 @@ If this project has been helpful to you, you are welcome to support the author.
 
 ## Recent Changes
   - Current latest version: `v0.1.18` (2026-04-06, release)
-  -  the local gateway now has stronger Gemini CLI compatibility. Requests can be relayed to `/v1/responses`, with Gemini SSE streaming, permission confirmation, tools, MCP, and skill call chains handled end-to-end.
-  -  fixed a Gemini `response.completed` issue where tool output could be misclassified as the final assistant message, reducing cases like `已修改 Desktop\\gemini.txt。` leaking into the final reply.
-  -  fixed a token-refresh polling boundary issue. The scheduler now prefetches tokens that will enter the refresh window before the next poll cycle, reducing edge misses when both the poll interval and the refresh-ahead window are `600s`.
-  - Request logs now distinguish between the client-explicit service tier and the effective service tier that actually goes upstream after platform-key overrides, so `auto` no longer obscures whether a default `Fast` setting was really applied.
-  - Regular platform keys now use a wildcard-compatible protocol mode for Codex and Claude Code. The gateway routes `/v1/messages*` with Claude semantics and other standard paths with Codex / OpenAI semantics, so separate keys are no longer required for those clients.
-  - The settings page now includes model forward rules with `pattern=target` syntax, for example `spark*=gpt-5.4-mini`. Platform-key bound models still take precedence over global forwarding rules.
-  - The account-page quota detail popup has also been realigned so it now sits on the vertical midpoint of the quota overview card, making the 5-hour, 7-day, and extra quota details feel anchored to the correct hover target instead of floating too high.
+  - The Gemini -> Codex / Responses request path now matches CPA-style compatibility more closely, including developer messages, tool-name mapping, FIFO `call_id`, `reasoning`, `include`, and `parallel_tool_calls`.
+  - Legacy unused Gemini-path code has been removed, so `cargo tauri dev` and `cargo test` no longer flood the build with `dead_code` warnings from the old adapter flow.
+  - The account quota detail popup has been realigned to the vertical center of the quota overview card, so the 5-hour, 7-day, and extra quota panels now feel visually anchored.
   - Version alignment for this round is complete too: the workspace, frontend package, Tauri desktop app, lockfile, README, and CHANGELOG have all been updated to `0.1.18`.
 
 ### Recent Commit Summary
-- `f4a03df`: fixed a Gemini completed-event issue where tool output could be mistaken for the final assistant message.
-- `2d3b583`: fixed Gemini CLI SSE tool-call compatibility and strengthened `/v1/responses`, tools, MCP, and skill support.
-- `a2c0e05`: switched platform-key protocol handling to wildcard path-based routing and added global model forwarding rules.
-- `4389764`: added effective service-tier logging so request logs now separate client-explicit and actually applied values.
-- `83bdb96`: expanded account-page and usage-modal quota rendering so refreshes now surface both standard and extra quota windows.
-- `41375a4`: added `/v1/responses` WebSocket request support and transport-aware request logging.
-- `b762a65`: fixed `service_tier` log semantics and added raw client-side `service_tier` diagnostics for both HTTP and WebSocket requests.
-- `7e7b76f`: separated leftover formatting-only changes into their own cleanup commit.
-- `be73359`: adjusted abbreviated token displays to keep two decimal places for more stable number formatting across dashboard, logs, and platform key pages.
-- `dfb4494`: merged PR #86, which consolidates fixes for Anthropic SSE tool-call argument compatibility during streaming bridge conversion.
-- `981bc6e`: aliased `chat.completion` usage fields to OpenAI `prompt/completion tokens`, reducing usage accounting mismatches.
-- `480f847`: fixed a case where empty `edits` in completed events could overwrite streamed edit arguments.
-- `7bbc5fc`: fixed `chat/completions` SSE handling so completed tool arguments are merged correctly even when content is non-empty.
-- `aa2c09c`: merged streamed tool arguments before Anthropic SSE conversion to avoid losing arguments at completion time.
-- `29c3b6b`: prevented placeholder tool arguments from wiping real streamed edit payloads, further hardening streaming tool-call stability.
-- `c1844b7`: standardized stream disconnect messaging to a clearer network-jitter style prompt.
-- `a89cd9c`: preserved upstream raw error text and tightened log messaging to make real failures easier to diagnose.
-- `8d619a0`: added export-for-selected-accounts support and improved account switching during usage refresh.
+- `c9ec8c9`: aligned the Gemini request path with CPA-style Gemini -> Codex/Responses behavior.
+- `45063b6`: removed unused Gemini-path code and added CPA acknowledgement notes to the README.
+- `3c56c7a`: bumped the release version metadata to `0.1.18`.
 
 ## Feature Overview
 - Account pool management: groups, tags, sorting, notes, ban detection, and banned-account filtering

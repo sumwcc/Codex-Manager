@@ -90,34 +90,15 @@
 
 ## 最近变更
   - 当前最新版本：`v0.1.18`（2026-04-06，release）
-  - 本地网关已补强 Gemini CLI 兼容，请求可转发到 `/v1/responses`，并补齐 Gemini SSE 流、权限确认、tools、MCP 与 skill 调用链路。
-  - 修复 Gemini `response.completed` 中工具结果被误当成最终正文的问题，减少 `已修改 Desktop\\gemini.txt。` 这类工具结果串到最终回答里的情况。
-  - 修复令牌刷新轮询边界问题，轮询现在会预抓“下一轮轮询窗口内即将进入刷新窗口”的 token，降低当轮询间隔与提前刷新窗口都为 `600s` 时偶发 refresh 踩线失效的概率。
-  - 请求日志现在会同时区分“客户端显式服务等级”和“最终生效服务等级”，可以直接看出平台 Key 默认 `Fast` 是否真的在请求改写后生效，不会再把 `auto` 和最终上游行为混为一谈。
-  - 平台 Key 的普通协议类型已经收敛成“通配兼容 (Codex / Claude Code)”，默认按请求路径自动分流：`/v1/messages*` 走 Claude 语义，其它标准路径走 Codex / OpenAI 语义，不再需要为不同客户端重复维护两套 Key。
-  - 设置页新增“模型转发规则”，支持使用 `pattern=target` 做全局模型改写，例如 `spark*=gpt-5.4-mini`；如果平台 Key 自身绑定了固定模型，则平台 Key 绑定值优先。
-  - 账号页的“额度详情”悬浮卡位置也做了收口，浮层现在会按额度概览卡片的中线对齐，查看 5 小时 / 7 天 / 专属额度时更贴近视觉锚点，不会再明显偏上。
+  - Gemini → Codex / Responses 请求链路已按 CPA 的处理方向补齐兼容，请求现在会按 Codex 上游期望补足 developer message、tool name 映射、FIFO `call_id`、`reasoning`、`include`、`parallel_tool_calls` 等字段。
+  - 清理了 Gemini 路线遗留的未使用旧实现，`cargo tauri dev` / `cargo test` 下不再刷出一批 `dead_code` 告警，后续排查更干净。
+  - 账号页“额度详情”悬浮卡位置已修正，右侧浮层现在按额度概览卡片中线对齐，查看 5 小时 / 7 天 / 附加额度时视觉锚点更稳定。
   - 这轮版本收口也已完成：workspace、前端包、Tauri 桌面端、锁文件、README 和 CHANGELOG 的版本说明已统一到 `0.1.18`。
 
 ### 近期提交摘要
-- `f4a03df`：修复 Gemini completed 事件把工具输出误当成最终正文的问题。
-- `2d3b583`：修复 Gemini CLI SSE 工具调用链路，补强 `/v1/responses`、tools、MCP、skill 兼容。
-- `a2c0e05`：平台 Key 协议切换为按请求路径通配，并新增全局模型转发规则。
-- `4389764`：请求日志新增“最终生效服务等级”，区分客户端显式值与实际生效值。
-- `83bdb96`：补齐账号页与用量弹窗的全部额度展示，刷新后会把标准额度和附加额度一起回显。
-- `41375a4`：新增 `/v1/responses` WebSocket 请求支持，并补齐 transport-aware 请求日志链路。
-- `b762a65`：修复 `service_tier` 日志口径，并为 HTTP / WS 增加客户端原始 `service_tier` 诊断事件。
-- `7e7b76f`：整理上一轮遗留的纯格式化改动，避免和功能提交混在一起。
-- `be73359`：调整词元缩写显示保留两位小数，首页、日志和平台 Key 页的数字展示更稳定。
-- `dfb4494`：合并 PR #86，集中修复 Anthropic SSE 工具调用参数在流式桥接中的兼容问题。
-- `981bc6e`：将 `chat.completion` 用量别名映射到 OpenAI `prompt/completion tokens`，减少统计口径不一致。
-- `480f847`：修复 completed 事件里空 `edits` 覆盖已流出的编辑参数问题。
-- `7bbc5fc`：修复 `chat/completions` SSE 在已有内容时未正确合并 completed 工具参数的问题。
-- `aa2c09c`：在 Anthropic SSE 转换前先合并流式工具参数，避免完成态丢参。
-- `29c3b6b`：避免占位工具参数清空真实编辑载荷，继续补强流式工具调用稳定性。
-- `c1844b7`：统一流式断连提示为“网络抖动”，减少用户误判。
-- `a89cd9c`：保留上游原始错误文案并收敛日志提示，方便排查真实故障。
-- `8d619a0`：支持按选中导出账号，并优化用量刷新时的切号体验。
+- `c9ec8c9`：对齐 Gemini 请求链路与 CPA，补齐 Gemini → Codex/Responses 的请求适配细节。
+- `45063b6`：清理 Gemini 路线未使用代码，并在 README 补充 CPA 的 Gemini 路线鸣谢。
+- `3c56c7a`：发布版本统一提升到 `0.1.18`。
 
 ## 功能概览
 - 账号池管理：分组、标签、排序、备注、封禁识别与封禁筛选
