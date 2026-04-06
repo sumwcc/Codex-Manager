@@ -68,9 +68,11 @@ fn parse_prefixed_request_log_query(raw: &str) -> Option<RequestLogQuery> {
         "model" => Some(parse_field_query("model", is_exact, needle)),
         "reasoning" | "reason" => Some(parse_field_query("reasoning_effort", is_exact, needle)),
         "tier" | "service_tier" => Some(parse_field_query("service_tier", is_exact, needle)),
-        "effective_tier" | "effective_service_tier" => {
-            Some(parse_field_query("effective_service_tier", is_exact, needle))
-        }
+        "effective_tier" | "effective_service_tier" => Some(parse_field_query(
+            "effective_service_tier",
+            is_exact,
+            needle,
+        )),
         "adapter" => Some(parse_field_query("response_adapter", is_exact, needle)),
         "error" => Some(parse_field_query("error", is_exact, needle)),
         "key" | "key_id" => Some(parse_field_query("key_id", is_exact, needle)),

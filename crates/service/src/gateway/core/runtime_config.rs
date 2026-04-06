@@ -475,9 +475,10 @@ pub(crate) fn current_free_account_max_model() -> String {
 /// 返回函数执行结果
 pub(crate) fn current_model_forward_rules() -> String {
     ensure_runtime_config_loaded();
-    serialize_model_forward_rules(
-        &crate::lock_utils::read_recover(model_forward_rules_cell(), "model_forward_rules"),
-    )
+    serialize_model_forward_rules(&crate::lock_utils::read_recover(
+        model_forward_rules_cell(),
+        "model_forward_rules",
+    ))
 }
 
 /// 函数 `resolve_forwarded_model`
@@ -497,7 +498,9 @@ pub(crate) fn resolve_forwarded_model(model: &str) -> Option<String> {
     let rules = crate::lock_utils::read_recover(model_forward_rules_cell(), "model_forward_rules");
     rules
         .iter()
-        .find(|rule| wildcard_pattern_matches(rule.from_pattern.as_str(), normalized_model.as_str()))
+        .find(|rule| {
+            wildcard_pattern_matches(rule.from_pattern.as_str(), normalized_model.as_str())
+        })
         .map(|rule| rule.to_model.clone())
 }
 
@@ -1310,9 +1313,10 @@ fn normalize_model_forward_pattern(raw: &str) -> Result<String, String> {
     if normalized.chars().all(|ch| ch == '*') {
         return Err("modelForwardRules pattern cannot be wildcard-only".to_string());
     }
-    if normalized.chars().any(|ch| {
-        !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '*'))
-    }) {
+    if normalized
+        .chars()
+        .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '*')))
+    {
         return Err("modelForwardRules pattern contains unsupported characters".to_string());
     }
     Ok(normalized)

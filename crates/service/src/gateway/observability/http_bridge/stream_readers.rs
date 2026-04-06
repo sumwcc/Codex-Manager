@@ -30,7 +30,6 @@ mod openai_completions;
 mod passthrough;
 
 pub(crate) use anthropic::AnthropicSseReader;
-pub(crate) use gemini::GeminiSseReader;
 use common::{
     classify_upstream_stream_read_error, collector_output_text_trimmed,
     mark_collector_terminal_success, sse_keepalive_interval, stream_reader_disconnected_message,
@@ -39,6 +38,7 @@ use common::{
 pub(crate) use common::{
     PassthroughSseCollector, SseKeepAliveFrame, UpstreamSseFramePump, UpstreamSseFramePumpItem,
 };
+pub(crate) use gemini::GeminiSseReader;
 pub(crate) use openai_chat::OpenAIChatCompletionsSseReader;
 pub(crate) use openai_completions::OpenAICompletionsSseReader;
 pub(crate) use passthrough::PassthroughSseUsageReader;

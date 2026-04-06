@@ -63,10 +63,7 @@ fn goog_api_key_header_is_accepted_as_platform_key() {
     );
 
     let snapshot = IncomingHeaderSnapshot::from_http_headers(&headers);
-    assert_eq!(
-        snapshot.platform_key(),
-        Some("platform-key-from-gemini")
-    );
+    assert_eq!(snapshot.platform_key(), Some("platform-key-from-gemini"));
     assert!(snapshot.has_x_api_key());
     assert_eq!(
         snapshot.sticky_key_material(),

@@ -157,14 +157,14 @@ pub(in super::super) fn proxy_validated_request(
                     );
                     super::super::write_request_log(
                         &storage,
-                    super::super::request_log::RequestLogTraceContext {
-                        trace_id: Some(trace_id.as_str()),
-                        original_path: Some(original_path.as_str()),
-                        adapted_path: Some(path.as_str()),
-                        response_adapter: Some(super::super::ResponseAdapter::Passthrough),
-                        effective_service_tier: effective_service_tier_for_log.as_deref(),
-                        ..Default::default()
-                    },
+                        super::super::request_log::RequestLogTraceContext {
+                            trace_id: Some(trace_id.as_str()),
+                            original_path: Some(original_path.as_str()),
+                            adapted_path: Some(path.as_str()),
+                            response_adapter: Some(super::super::ResponseAdapter::Passthrough),
+                            effective_service_tier: effective_service_tier_for_log.as_deref(),
+                            ..Default::default()
+                        },
                         Some(key_id.as_str()),
                         None,
                         path.as_str(),

@@ -86,7 +86,11 @@ impl Storage {
                 &log.cf_ray,
                 log.status_code,
                 if log.compression_enabled { 1 } else { 0 },
-                if log.compression_retry_attempted { 1 } else { 0 },
+                if log.compression_retry_attempted {
+                    1
+                } else {
+                    0
+                },
                 &log.message,
                 log.created_at,
             ],
@@ -238,7 +242,9 @@ mod tests {
                         "compact_challenge_downgrade_retry".to_string()
                     },
                     error_kind: Some("cloudflare_challenge".to_string()),
-                    upstream_url: Some("https://chatgpt.com/backend-api/codex/responses".to_string()),
+                    upstream_url: Some(
+                        "https://chatgpt.com/backend-api/codex/responses".to_string(),
+                    ),
                     cf_ray: Some(format!("ray-{index}")),
                     status_code: Some(403),
                     compression_enabled: true,
@@ -250,9 +256,7 @@ mod tests {
         }
 
         let total = storage
-            .count_gateway_error_logs(Some(
-                "chatgpt_challenge_retry_without_compression",
-            ))
+            .count_gateway_error_logs(Some("chatgpt_challenge_retry_without_compression"))
             .expect("count gateway error logs");
         assert_eq!(total, 3);
 

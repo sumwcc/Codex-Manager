@@ -22,11 +22,11 @@ fn normalize_rate_limit_entry(source_key: Option<&str>, value: &Value) -> Option
     }
 
     let mut normalized = serde_json::Map::new();
-    if let Some(source_key) = source_key
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        normalized.insert("source_key".to_string(), Value::String(source_key.to_string()));
+    if let Some(source_key) = source_key.map(str::trim).filter(|value| !value.is_empty()) {
+        normalized.insert(
+            "source_key".to_string(),
+            Value::String(source_key.to_string()),
+        );
     }
     for key in ["limit_id", "limit_name", "allowed", "limit_reached"] {
         if let Some(field) = obj.get(key) {
@@ -70,7 +70,8 @@ fn collect_extra_rate_limits(value: &Value) -> Vec<Value> {
                     .filter(|value| !value.is_empty())
                     .map(ToString::to_string)
                     .unwrap_or_else(|| format!("additional_rate_limits[{index}]"));
-                if let Some(normalized) = normalize_rate_limit_entry(Some(source_key.as_str()), item)
+                if let Some(normalized) =
+                    normalize_rate_limit_entry(Some(source_key.as_str()), item)
                 {
                     out.push(normalized);
                 }

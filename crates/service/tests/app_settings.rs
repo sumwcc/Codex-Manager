@@ -445,9 +445,7 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
         );
         assert_eq!(
             storage
-                .get_app_setting(
-                    codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY
-                )
+                .get_app_setting(codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY)
                 .expect("read model forward rules"),
             Some("spark*=gpt-5.4-mini".to_string())
         );
@@ -778,7 +776,10 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
             ("CODEXMANAGER_SERVICE_ADDR", Some("0.0.0.0:4999")),
             ("CODEXMANAGER_ROUTE_STRATEGY", Some("balanced")),
             ("CODEXMANAGER_FREE_ACCOUNT_MAX_MODEL", Some("gpt-5.2-codex")),
-            ("CODEXMANAGER_MODEL_FORWARD_RULES", Some("spark*=gpt-5.4-mini")),
+            (
+                "CODEXMANAGER_MODEL_FORWARD_RULES",
+                Some("spark*=gpt-5.4-mini"),
+            ),
             ("CODEXMANAGER_ENABLE_REQUEST_COMPRESSION", Some("0")),
             ("CODEXMANAGER_ORIGINATOR", Some("codex_cli_rs_env")),
             ("CODEXMANAGER_RESIDENCY_REQUIREMENT", Some("us")),
@@ -925,9 +926,7 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
         );
         assert_eq!(
             storage
-                .get_app_setting(
-                    codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY
-                )
+                .get_app_setting(codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY)
                 .expect("read model forward rules"),
             Some("spark*=gpt-5.4-mini".to_string())
         );

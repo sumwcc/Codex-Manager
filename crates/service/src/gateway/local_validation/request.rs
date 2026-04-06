@@ -316,12 +316,9 @@ pub(super) fn build_local_validation_result(
     }
 
     let original_body = body.clone();
-    let adapted = super::super::adapt_request_for_protocol(
-        effective_protocol_type,
-        &normalized_path,
-        body,
-    )
-    .map_err(|err| LocalValidationError::new(400, err))?;
+    let adapted =
+        super::super::adapt_request_for_protocol(effective_protocol_type, &normalized_path, body)
+            .map_err(|err| LocalValidationError::new(400, err))?;
     let mut path = adapted.path;
     let mut response_adapter = adapted.response_adapter;
     let mut tool_name_restore_map = adapted.tool_name_restore_map;
@@ -397,11 +394,7 @@ pub(super) fn build_local_validation_result(
     let has_prompt_cache_key = client_request_meta.has_prompt_cache_key;
     let request_shape = client_request_meta.request_shape;
 
-    ensure_anthropic_model_is_listed(
-        &storage,
-        effective_protocol_type,
-        model_for_log.as_deref(),
-    )?;
+    ensure_anthropic_model_is_listed(&storage, effective_protocol_type, model_for_log.as_deref())?;
 
     Ok(LocalValidationResult {
         trace_id,

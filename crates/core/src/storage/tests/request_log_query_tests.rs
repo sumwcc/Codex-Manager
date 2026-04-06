@@ -89,8 +89,7 @@ fn prefixed_request_type_and_service_tier_queries_are_supported() {
         } if pattern == "%fast%"
     ));
 
-    let effective_service_tier_query =
-        parse_request_log_query(Some("effective_tier:=priority"));
+    let effective_service_tier_query = parse_request_log_query(Some("effective_tier:=priority"));
     assert!(matches!(
         effective_service_tier_query,
         RequestLogQuery::FieldExact {
