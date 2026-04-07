@@ -60,39 +60,24 @@ fn normalize_header_key(name: &str) -> String {
     name.trim().to_ascii_lowercase()
 }
 
-fn merge_action_query(original_path: &str, action: &str) -> String {
+fn normalize_action_path(action: &str) -> String {
     let action_trimmed = action.trim();
     if action_trimmed.is_empty() {
-        return original_path.to_string();
+        return String::new();
     }
-    let mut normalized = if action_trimmed.starts_with('/') {
+    if action_trimmed.starts_with('/') {
         action_trimmed.to_string()
     } else {
         format!("/{action_trimmed}")
-    };
-    if normalized.contains('?') {
-        return normalized;
     }
-    let Some((_, query)) = original_path.split_once('?') else {
-        return normalized;
-    };
-    let query = query.trim();
-    if query.is_empty() {
-        return normalized;
-    }
-    normalized.push('?');
-    normalized.push_str(query);
-    normalized
 }
 
 fn effective_action_path(candidate: &AggregateApi, path: &str) -> String {
-    candidate
-        .action
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|action| merge_action_query(path, action))
-        .unwrap_or_else(|| path.to_string())
+    match candidate.action.as_deref().map(str::trim) {
+        Some("") => String::new(),
+        Some(value) => normalize_action_path(value),
+        None => path.to_string(),
+    }
 }
 
 fn replace_query_param(mut url: reqwest::Url, name: &str, value: &str) -> reqwest::Url {

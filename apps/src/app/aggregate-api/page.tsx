@@ -190,10 +190,14 @@ export default function AggregateApiPage() {
       setTestingApiId(apiId);
     },
     onSuccess: async (result) => {
-      toast.success(
-        result.ok
-          ? "连通性测试成功"
-          : `连通性测试失败: ${result.message || result.statusCode || ""}`,
+      if (result.ok) {
+        toast.success("连通性测试成功");
+        return;
+      }
+      toast.error(
+        `连通性测试失败: ${
+          result.message || result.statusCode || "未返回具体错误信息"
+        }`,
       );
     },
     onSettled: async (_result, _error, apiId) => {
@@ -674,6 +678,21 @@ export default function AggregateApiPage() {
                             <p className="mt-1 text-[10px] text-muted-foreground">
                               {formatTsFromSeconds(api.lastTestAt, "未知时间")}
                             </p>
+                          ) : null}
+                          {api.lastTestStatus === "failed" && api.lastTestError ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={<div />}
+                                className="mt-1 block max-w-full cursor-help text-left"
+                              >
+                                <p className="max-w-[220px] truncate text-[10px] text-red-500/90">
+                                  {api.lastTestError}
+                                </p>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
+                                {api.lastTestError}
+                              </TooltipContent>
+                            </Tooltip>
                           ) : null}
                         </TableCell>
                         <TableCell>

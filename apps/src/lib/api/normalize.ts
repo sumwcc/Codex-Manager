@@ -585,7 +585,10 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
         : source.auth_params && typeof source.auth_params === "object"
           ? asObject(source.auth_params)
           : null,
-    action: asString(source.action) || null,
+    action:
+      typeof source.action === "string"
+        ? source.action
+        : asString(source.action) || null,
     status: asString(source.status) || "active",
     createdAt: toNullableNumber(source.createdAt ?? source.created_at),
     updatedAt: toNullableNumber(source.updatedAt ?? source.updated_at),

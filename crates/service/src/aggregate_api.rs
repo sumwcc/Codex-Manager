@@ -226,9 +226,7 @@ fn normalize_action_override(
     match enabled {
         None => Ok(None),
         Some(false) => Ok(Some(String::new())),
-        Some(true) => normalize_action(action).and_then(|value| {
-            value.ok_or_else(|| "action is required".to_string()).map(Some)
-        }),
+        Some(true) => normalize_action(action).map(|value| Some(value.unwrap_or_default())),
     }
 }
 
@@ -241,18 +239,17 @@ fn serialize_userpass_secret(username: &str, password: &str) -> Result<String, S
 }
 
 fn action_path_or_default(api: &AggregateApi, default: &str) -> String {
-    api.action
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| {
+    match api.action.as_deref().map(str::trim) {
+        Some("") => String::new(),
+        Some(value) => {
             if value.starts_with('/') {
                 value.to_string()
             } else {
                 format!("/{value}")
             }
-        })
-        .unwrap_or_else(|| default.to_string())
+        }
+        None => default.to_string(),
+    }
 }
 
 fn with_query_param(url: &str, name: &str, value: &str) -> String {
@@ -448,6 +445,9 @@ fn provider_default_url(provider_type: &str) -> &'static str {
 /// 返回函数执行结果
 fn normalize_probe_url(base_url: &str, suffix: &str) -> String {
     let base = base_url.trim().trim_end_matches('/');
+    if suffix.trim().is_empty() {
+        return base.to_string();
+    }
     if base.ends_with("/v1") {
         format!("{base}{suffix}")
     } else {
@@ -884,9 +884,7 @@ pub(crate) fn create_aggregate_api(
         auth_params_json: normalized_auth_params_json
             .map(|value| if value.is_empty() { None } else { Some(value) })
             .unwrap_or(None),
-        action: normalized_action
-            .map(|value| if value.is_empty() { None } else { Some(value) })
-            .unwrap_or(None),
+        action: normalized_action,
         status: "active".to_string(),
         created_at,
         updated_at: created_at,
@@ -1004,15 +1002,9 @@ pub(crate) fn update_aggregate_api(
 
     if let Some(action) = normalize_action_override(action_custom_enabled, action)? {
         let normalized = action.trim().to_string();
-        if normalized.is_empty() {
-            storage
-                .update_aggregate_api_action(api_id, None)
-                .map_err(|err| err.to_string())?;
-        } else {
-            storage
-                .update_aggregate_api_action(api_id, Some(normalized.as_str()))
-                .map_err(|err| err.to_string())?;
-        }
+        storage
+            .update_aggregate_api_action(api_id, Some(normalized.as_str()))
+            .map_err(|err| err.to_string())?;
     }
 
     if next_auth_type == AGGREGATE_API_AUTH_APIKEY {
