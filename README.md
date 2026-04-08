@@ -7,7 +7,9 @@
 <p align="center">本地桌面端 + 服务进程的 Codex 账号管理器+网关转发</p>
 
 <p align="center">
-  <a href="README.en.md">English</a>|
+  <a href="docs/en/README.md">English</a>|
+  <a href="docs/ru/README.md">Русский</a>|
+  <a href="docs/ko/README.md">한국어</a>|
   <a href="https://github.com/qxcnm/Codex-Manager">GitHub 主仓库</a>|
   <a href="https://qxnm.top">官网</a>|
   <a href="#赞助商">赞助商</a>
@@ -79,14 +81,14 @@
 ## 首页导览
 | 你要做什么 | 直接进入 |
 | --- | --- |
-| 首次启动、部署、Docker、macOS 放行 | [运行与部署指南](docs/report/运行与部署指南.md) |
-| 配置端口、代理、数据库、Web 密码、环境变量 | [环境变量与运行配置](docs/report/环境变量与运行配置说明.md) |
-| 排查账号不命中、导入失败、挑战拦截、请求异常 | [FAQ 与账号命中规则](docs/report/FAQ与账号命中规则.md) |
-| 排查后台任务账号跳过、禁用与停用原因 | [后台任务账号跳过说明](docs/report/后台任务账号跳过说明.md) |
-| 插件中心最小接入、快速对接 | [插件中心最小接入说明](docs/report/插件中心最小接入说明.md) |
-| 对接插件中心、查看接口清单、市场模式与 Rhai 接口 | [插件中心对接与接口清单](docs/report/插件中心对接与接口清单.md) |
-| 系统全部可对接内部接口 | [系统内部接口总表](docs/report/系统内部接口总表.md) |
-| 本地构建、打包、发版、脚本调用 | [构建发布与脚本说明](docs/release/构建发布与脚本说明.md) |
+| 首次启动、部署、Docker、macOS 放行 | [运行与部署指南](docs/zh-CN/report/运行与部署指南.md) |
+| 配置端口、代理、数据库、Web 密码、环境变量 | [环境变量与运行配置](docs/zh-CN/report/环境变量与运行配置说明.md) |
+| 排查账号不命中、导入失败、挑战拦截、请求异常 | [FAQ 与账号命中规则](docs/zh-CN/report/FAQ与账号命中规则.md) |
+| 排查后台任务账号跳过、禁用与停用原因 | [后台任务账号跳过说明](docs/zh-CN/report/后台任务账号跳过说明.md) |
+| 插件中心最小接入、快速对接 | [插件中心最小接入说明](docs/zh-CN/report/插件中心最小接入说明.md) |
+| 对接插件中心、查看接口清单、市场模式与 Rhai 接口 | [插件中心对接与接口清单](docs/zh-CN/report/插件中心对接与接口清单.md) |
+| 系统全部可对接内部接口 | [系统内部接口总表](docs/zh-CN/report/系统内部接口总表.md) |
+| 本地构建、打包、发版、脚本调用 | [构建发布与脚本说明](docs/zh-CN/release/构建发布与脚本说明.md) |
 
 ## 最近变更
   - 当前最新版本：`v0.1.19`（2026-04-06，release）
@@ -133,7 +135,7 @@
 - Windows：`%APPDATA%\\com.codexmanager.desktop\\codexmanager.db`
 - macOS：`~/Library/Application Support/com.codexmanager.desktop/codexmanager.db`
 - Linux：`~/.local/share/com.codexmanager.desktop/codexmanager.db`
-- 如需调整数据库、代理、监听地址等运行配置，可继续查看 [环境变量与运行配置](docs/report/环境变量与运行配置说明.md)。
+- 如需调整数据库、代理、监听地址等运行配置，可继续查看 [环境变量与运行配置](docs/zh-CN/report/环境变量与运行配置说明.md)。
 
 ## 页面展示
 ### 桌面端
@@ -148,29 +150,28 @@
 - `codexmanager-start`：一键拉起 service + web
 
 ## 常用文档
-- 版本历史：[CHANGELOG.md](CHANGELOG.md)
-- 协作约定：[CONTRIBUTING.md](CONTRIBUTING.md)
-- 架构说明：[ARCHITECTURE.md](ARCHITECTURE.md)
-- 测试基线：[TESTING.md](TESTING.md)
-- 安全说明：[SECURITY.md](SECURITY.md)
+- 版本历史：[CHANGELOG.md](docs/zh-CN/CHANGELOG.md)
+- 协作约定：[CONTRIBUTING.md](docs/zh-CN/CONTRIBUTING.md)
+- 架构说明：[ARCHITECTURE.md](docs/zh-CN/ARCHITECTURE.md)
+- 测试基线：[TESTING.md](docs/zh-CN/TESTING.md)
+- 安全说明：[SECURITY.md](docs/zh-CN/SECURITY.md)
 - 文档索引：[docs/README.md](docs/README.md)
 
 ## 专题页面
 | 页面 | 内容 |
 | --- | --- |
-| [运行与部署指南](docs/report/运行与部署指南.md) | 首次启动、Docker、Service 版、macOS 放行 |
-| [环境变量与运行配置](docs/report/环境变量与运行配置说明.md) | 应用配置、代理、监听地址、数据库、Web 安全 |
-| [FAQ 与账号命中规则](docs/report/FAQ与账号命中规则.md) | 账号命中、挑战拦截、导入导出、常见异常 |
-| [后台任务账号跳过说明](docs/report/后台任务账号跳过说明.md) | 后台任务过滤、禁用账号、workspace 停用原因 |
-| [最小排障手册](docs/report/最小排障手册.md) | 快速定位服务启动、请求转发、模型刷新异常 |
-| [插件中心对接与接口清单](docs/report/插件中心对接与接口清单.md) | 插件中心路由、市场模式、Tauri/RPC 接口、清单字段、Rhai 内建函数 |
-| [构建发布与脚本说明](docs/release/构建发布与脚本说明.md) | 本地构建、Tauri 打包、Release workflow、脚本参数 |
-| [发布与产物说明](docs/release/发布与产物说明.md) | 各平台发版产物、命名、是否 pre-release |
-| [脚本与发布职责对照](docs/report/脚本与发布职责对照.md) | 各脚本负责什么、什么场景该用哪个 |
-| [协议兼容回归清单](docs/report/协议兼容回归清单.md) | `/v1/chat/completions`、`/v1/responses`、tools 回归项 |
-| [当前网关与 Codex 请求头和参数差异表](docs/report/当前网关与Codex请求头和参数差异表.md) | 当前网关参数传递、请求头和请求参数与 Codex 的对照说明 |
-| [系统内部接口总表](docs/report/系统内部接口总表.md) | 桌面端、服务端、插件中心全部可对接内部接口 |
-| [CHANGELOG.md](CHANGELOG.md) | 最新发版内容、未发版更新与完整版本历史 |
+| [运行与部署指南](docs/zh-CN/report/运行与部署指南.md) | 首次启动、Docker、Service 版、macOS 放行 |
+| [环境变量与运行配置](docs/zh-CN/report/环境变量与运行配置说明.md) | 应用配置、代理、监听地址、数据库、Web 安全 |
+| [FAQ 与账号命中规则](docs/zh-CN/report/FAQ与账号命中规则.md) | 账号命中、挑战拦截、导入导出、常见异常 |
+| [后台任务账号跳过说明](docs/zh-CN/report/后台任务账号跳过说明.md) | 后台任务过滤、禁用账号、workspace 停用原因 |
+| [最小排障手册](docs/zh-CN/report/最小排障手册.md) | 快速定位服务启动、请求转发、模型刷新异常 |
+| [插件中心对接与接口清单](docs/zh-CN/report/插件中心对接与接口清单.md) | 插件中心路由、市场模式、Tauri/RPC 接口、清单字段、Rhai 内建函数 |
+| [构建发布与脚本说明](docs/zh-CN/release/构建发布与脚本说明.md) | 本地构建、Tauri 打包、Release workflow、脚本参数 |
+| [发布与产物说明](docs/zh-CN/release/发布与产物说明.md) | 各平台发版产物、命名、是否 pre-release |
+| [脚本与发布职责对照](docs/zh-CN/report/脚本与发布职责对照.md) | 各脚本负责什么、什么场景该用哪个 |
+| [当前网关与 Codex 请求头和参数差异表](docs/zh-CN/report/当前网关与Codex请求头和参数差异表.md) | 当前网关参数传递、请求头和请求参数与 Codex 的对照说明 |
+| [系统内部接口总表](docs/zh-CN/report/系统内部接口总表.md) | 桌面端、服务端、插件中心全部可对接内部接口 |
+| [CHANGELOG.md](docs/zh-CN/CHANGELOG.md) | 最新发版内容、未发版更新与完整版本历史 |
 
 ## 目录结构
 ```text

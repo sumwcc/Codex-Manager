@@ -1,0 +1,213 @@
+# Update log
+
+This file is used to record externally visible changes to CodexManager and serves as the single source of truth for version history.
+The format refers to Keep a Changelog, and is combined with the actual maintenance method of the current project to achieve minimum convergence.
+
+## [Unreleased]
+
+## [0.1.19] - 2026-04-06
+
+### Fixed
+- Adjust the positioning method of the "Amount Details" floating card on the account page. The floating layer on the right side is changed to be aligned with the center line of the balance overview card to reduce the visual misalignment of the prompt content that is obviously upward.
+- Align the Gemini → Codex/Responses request link (CPA compliant), and clean up the Gemini route unused code to eliminate compilation warnings.
+
+### Changed
+- The release version is upgraded to `0.1.19`, and the version notes of workspace, front-end package, Tauri desktop, lock file, README and CHANGELOG are updated simultaneously.
+
+## [0.1.17] - 2026-04-05
+
+### Added
+- The request log has a new "final effective service level" caliber. The HTTP/WS log will now retain both the client's explicit `service_tier` and the final value after the request is rewritten, making it easier to check whether the platform Key's default `Fast` is actually sent to the upstream.
+- A new global "model forwarding rule" has been added to the settings page, which supports the use of `pattern=target` format for model name rewriting, and takes effect during the runtime request rewriting phase.
+
+### Changed
+- The protocol type of common platform keys converges to "wildcard compatibility (Codex / Claude Code)". By default, Claude or Codex / OpenAI semantics are automatically selected according to the request path, reducing the cost of repeatedly maintaining multiple sets of Keys.
+- The release version is upgraded to `0.1.17`, and the version notes of workspace, front-end package, Tauri desktop, lock file, README and CHANGELOG are updated simultaneously.
+
+## [0.1.16] - 2026-04-05
+
+### Added
+- Added `/v1/responses` WebSocket request support, completed transmission type identification, request header normalization, proxy runtime and request log link.
+- A new additional quota window display is added to the account page and usage pop-up window; after refreshing, the remaining quota and reset time of the standard quota and additional quotas such as Code Review/Spark will be displayed uniformly.
+- The gateway trace adds a new `CLIENT_SERVICE_TIER` event to record whether the HTTP/WS original request explicitly carries `service_tier`, the original value and the log normalized value, making it easy to quickly distinguish the client's explicit `fast` from the platform Key's default service level.
+
+### Fixed
+- Fixed the issue of inconsistent calibers of `service_tier` in HTTP and WS request logs; now `fast` will only be recorded when the client requests that it explicitly carries `service_tier`, and the platform Key default value will no longer be mistakenly recorded as a request to explicitly enable it.
+- Fixed the issue where the service level display on the log page is inconsistent with the gateway on-wire value; `priority` will be uniformly displayed as `fast`, and requests that do not explicitly carry a service level will continue to be displayed as `auto`.
+
+### Changed
+- The release version is upgraded to `0.1.16`, and the version notes of workspace, front-end package, Tauri desktop, lock file, README and CHANGELOG are updated simultaneously.
+
+## [0.1.15] - 2026-04-03
+
+### Changed
+- The release version is upgraded to `0.1.15`, and the version notes of workspace, front-end package, Tauri desktop, running documentation and README are updated simultaneously.
+
+## [0.1.14] - 2026-03-30
+
+### Added
+- A new "System Derivation" button and "Single Account Concurrency Limit" are added to the settings page, which can be backfilled according to the current machine resources with one click and take effect immediately.
+- The entry layer adds short queue waiting and rapid overload degradation to prevent high concurrency from directly dragging down the service process.
+
+### Changed
+- README、workspace、前端包、Tauri 桌面端与版本一致性校验脚本统一提升到 `0.1.14`。
+
+## [0.1.13] - 2026-03-25
+
+### Added
+- Added "Aggregation API" management page to support supplier name, sequence priority, classification according to `Codex / Claude`, connectivity testing and minimum forwarding upstream management.
+- The platform key has a new `账号轮转 / 聚合 API 轮转` policy, and the aggregation API rotation will hit the corresponding suppliers first in order before continuing to the next channel.
+
+### Fixed
+- Fixed the automatic recovery behavior when starting the desktop service and switching between pages, to avoid being paged and restarted after shutting down, and to avoid accidentally clearing data on the dashboard when disconnected.
+
+### Changed
+- README, workspace, front-end package, Tauri desktop and version consistency verification scripts have been upgraded to `0.1.13`.
+
+## [0.1.12] - 2026-03-20
+
+### Fixed
+- Fixed the issue where the platform key name editing link was not fully transparently transmitted on the desktop; now both Web and the desktop can correctly save and echo the name, and support Chinese names.
+- Fixed the issue where the key ID in the platform key list was truncated by default; now it will be directly displayed in full for easy verification and troubleshooting.
+
+### Changed
+- README adds sponsorship support entrance and sponsorship area jump, making it easier to locate sponsorship instructions directly from the top of the document.
+- The release version is upgraded to `0.1.12`, and workspace, front-end package, Tauri desktop, version consistency verification script and README are updated simultaneously.
+
+## [0.1.11] - 2026-03-20
+
+### Added
+- Account management has added new ban identification, ban filtering and "one-click cleanup of banned accounts" portals; `account_deactivated` and `workspace_deactivated` will be automatically recognized as unavailable signals and can be filtered and cleared directly in the list.
+- The 5-hour/7-day quota column of the account list will now display the reset time of the respective window; free accounts that only return the 7-day window will also display the reset time in the 7-day column.
+- The platform key has new service level configurations: `跟随请求`, `Fast`, and `Flex`, among which `Fast` will be mapped to the upstream `priority`, and `Flex` will be directly transmitted to `flex`.
+
+### Fixed
+- Fixed the issue where `serviceTier` was not transparently transmitted when creating/editing the desktop platform key, causing the "service level" to not take effect or be echoed after being saved.
+- Fixed the problem of Web occasionally downloading wrong files when refreshing other than the home page, and fixed the copy failure caused by `navigator.clipboard.writeText` being unavailable when copying API Key/login link in some operating environments.
+- Fixed an issue where the "Check for Updates" button on the settings page continued to rotate incorrectly when automatically and silently checking for updates; now the loading status is only displayed when manually clicked.
+
+### Changed
+- The main link of the gateway continues to close to Codex-first: outbound semantics such as session binding, automatic number and thread switching, `originator` / `User-Agent` / request compression have been further aligned, and the upstream cookie link left behind by the old compatibility path has been removed.
+- The setting page replenishment service listening address switch can be switched between `localhost` and `0.0.0.0`; README and documents have also been synchronized to the current mainline path.
+- The release version is upgraded to `0.1.11`, and workspace, front-end package, Tauri desktop, version consistency verification script and README are updated simultaneously.
+
+## [0.1.10] - 2026-03-18
+
+### Fixed
+- Fixed the problem that the Web / Docker version mistakenly entered the desktop-specific command branch, account enable/disable was missing the `sort` parameter, resulting in the inability to switch states, and the status column was not refreshed in time after the account details failed to be refreshed.
+- Fixed an issue where disabled accounts still participate in manual batch refresh and background usage polling; batch refresh and background polling now skip manually disabled accounts and are executed as concurrent workers.
+- Fixed the semantic confusion of account status: manual disablement is unified into `disabled`, quota exhaustion and `usage endpoint 401` are unified into `unavailable`, `refresh token 401` related links are also unified into `unavailable`, and the front-end status display is synchronously closed to "Disabled/Unavailable".
+- Fixed the problem of Windows local Web `codexmanager-service` / `codexmanager-web` still remaining in the background after the launcher closes the console window; the launcher will now recycle the child process together through the Job Object.
+
+### Changed
+- The release version is upgraded to `0.1.10`, and workspace, Tauri desktop version, front-end package version, README latest version description and version consistency test are simultaneously updated.
+
+## [0.1.9] - 2026-03-18
+
+### Added
+- The request log now supports backend paging, backend statistics, first try account and try link display, making it easier to distinguish the actual hit account from the final account after failover.
+- A new free / 7-day single-window account usage model configuration is added to the settings page. Free accounts will initiate requests according to the setting model.
+
+### Fixed
+- Fixed stability issues such as desktop startup misjudgment, `/rpc` empty response, refresh failure caused by missing `spawn_blocking`, out-of-sync refresh of the usage pop-up window, lag on the first page cut, and Hydration inconsistency.
+- Fixed issues such as incorrect refresh token extraction, free account request model not being rewritten correctly, unstable priority account behavior, and `503 no available account` missing contextual diagnosis.
+- Fixed the issue of verify failure caused by the mismatch between the pnpm version and the current lock file in the release workflow.
+
+### Changed
+- The old front-end has been removed, and the desktop and Web management interfaces have been unified to the new `apps` front-end; account management, platform keys, request logs, settings pages, and navigation layouts have all undergone a desktop-first restructuring.
+- Codex Request links continue to be aligned with actual on-wire behavior: login / callback / workspace validation, refresh semantics, `/v1/responses` and `/v1/responses/compact` rewrites, thread anchors, request compression, error summaries, and fallback diagnostics all continue to be aligned.
+- Gateway failure diagnostics and disk logging continue to converge, with compact false success bodies, HTML/challenge pages, `401 refresh` subclasses, and exhausted candidate links all outputting clearer summaries.
+- Unifiedly upgrade the release version to `0.1.9`, and simultaneously update the workspace, Tauri desktop, `tauri.conf.json` and front-end package versions.
+- The fixed Tauri CLI versions in the GitHub Release workflow have been aligned to the actual version currently used on the Rust side, reducing the risk of CLI / crate drift in the packaging phase.
+- The release documentation and README have been updated to `v0.1.9`, and the front-end static export directory description has been corrected to `apps/out`.
+
+## [0.1.8] - 2026-03-11
+
+### Fixed
+- Removed the default `https://api.openai.com/v1` fallback path for ChatGPT-backed requests; upstream `challenge` and `403` outcomes are now returned from the primary login-account path instead of being rewritten into local fallback errors.
+- ChatGPT login-account requests now recover from `401` by refreshing the local `access_token` with the stored `refresh_token` and retrying the current request once.
+
+### Changed
+- ChatGPT login-account turns now use `access_token` directly on the primary upstream path and no longer mix in `api_key_access_token` semantics.
+- Synthetic gateway terminal failures now return structured OpenAI-style `error.message / error.type / error.code` payloads while keeping the existing trace and error-code headers.
+
+## [0.1.7] - 2026-03-11
+
+### Added
+- Added gateway transmission parameters to the settings page: supports direct configuration of upstream streaming timeout and SSE keepalive interval, and takes effect hot when the service is running.
+- Desktop startup snapshot completion: Dashboard statistics, account usage status, and request log first screen will restore the most recent snapshot first, reducing all 0/unknown status after source code running or service restart.
+
+### Fixed
+- Fixed an issue where `codexmanager-web`'s access password session could continue to be used across reboots; after closing and reopening the Web process, the old login cookie would become invalid and the password would need to be re-verified.
+- Fix the startup and root routing compatibility issue when the source code runs `codexmanager-web`, and reduce the inconsistent behavior of Web static resources and root paths under Axum routing.
+- Fixed the SSE idle disconnection and reconnection problem in long output scenarios to reduce the probability of long-term streaming responses being interrupted by misjudgment.
+- Fixed desktop interaction issues such as saving the upstream agent on the settings page, closing the platform key creation pop-up window and submitting it repeatedly, and the account form not refreshing after successful login.
+- Fixed some upstream compatibility issues caused by the default additional version parameters when pulling models, and changed the model request to not include a version number by default.
+- Fixed the problem of inconsistent account merging logic between account import and login callback, and unified new or updated accounts according to the same identity rule.
+- Fixed the problem of tool truncation in Claude / Anthropic `/v1/messages` when adapted to multiple MCP server scenarios; tools for subsequent servers will no longer be lost due to the first 16 tools being full.
+- Fixed the problem of missing long tool name shortening and response restoration in Claude / Anthropic `/v1/messages` to avoid mapping instability when the MCP tool name is too long.
+
+### Changed
+- The gateway failure response adds structured `errorCode` / `errorDetail` fields, and simultaneously adds `X-CodexManager-Error-Code`, `X-CodexManager-Trace-Id` response headers to facilitate the client and log system to track failed links.
+- Protocol adaptation continues to align the Codex / OpenAI compatible ecology: further unifying the forwarding semantics of `/v1/chat/completions`, `/v1/responses`, Claude `/v1/messages`, and stabilizing `tools` / `tool_calls`, thinking/reasoning, streaming bridging, and response restoration links.
+- The settings page and runtime configuration continue to converge: high-frequency configurations such as background tasks, gateway transmission, upstream proxy, Web security, etc. are unified and persisted by `app_settings` and backfilled into the current process.
+- The desktop and service startup links will continue to be managed, the startup boundaries and startup sequences between Web/service/desktop will be converged, and the behavior bifurcation between source code running and packaged running will be reduced.
+- The project continues to promote long-term maintenance-oriented reconstruction management: the front-end main entrance, settings page, request log view, Tauri command registration, service life cycle, gateway protocol adapter, HTTP bridge, upstream attempt flow and other areas have further split module boundaries to reduce the coupling between large files and the root-level facade.
+- The service/gateway directory structure continues to converge, and more wildcard imports, cross-layer direct connections, and extremely long facade lists have been replaced by explicit dependencies and layered modules, making subsequent maintenance and protocol regression positioning costs lower.
+- The release link continues to converge to `release-all.yml` single entry, and the front-end construction products and protocol regression baselines are reused to reduce the risk of protocol regression during repeated builds and releases.
+
+## [0.1.6] - 2026-03-07
+
+### Fixed
+- Fix the problem that `release-all.yml` still relies heavily on pre-built front-end artifacts when `run_verify` is manually closed; each platform task will automatically fall back to local `pnpm install + build` when `codexmanager-frontend-dist` is missing.
+
+### Changed
+- Windows Desktop release products continue to converge, only `CodexManager-portable.exe` portable version will be retained, and no additional `CodexManager-windows-portable.zip` will be generated.
+- Improve SOCKS5 upstream proxy support and normalization, and supplement the proxy protocol prompt copy in the settings page.
+
+## [0.1.5] - 2026-03-06
+
+### Added
+- Added "Import by folder": On the desktop, you can directly select a directory, recursively scan the `.json` files and import accounts in batches.
+- Added OpenAI upstream proxy configuration and request header convergence policy switches, which can be saved directly on the settings page and take effect immediately.
+- Supplement the chat tools hit probe script to facilitate local verification of whether the tool call is actually hit and transparently transmitted.
+
+### Fixed
+- Fix `tool_calls` / `tools` related regressions: Complete the tool call retention, tool name shortening and response restoration link in the chat aggregation path to avoid tool calls being lost or having names confused in OpenAI compatible returns, streaming increments and adaptation transformations.
+- Improve the OpenClaw / Anthropic compatibility return adaptation to ensure that tool calls, SSE deltas, and non-streaming JSON responses are all correctly restored in a compatible format.
+- Request log tracing is enhanced to supplement the original path, adaptation path and more context to facilitate locating `/v1/chat/completions -> /v1/responses` forwarding and protocol adaptation issues.
+
+### Changed
+- Gateway protocol adaptation further aligns Codex CLI: `/v1/chat/completions` and `/v1/responses` two links uniformly converge to Codex `responses` semantics, the upstream streaming/non-streaming behavior is closer to the official one, and is compatible with OpenAI compatible calls of clients such as Cherry Studio.
+- The commonly used configurations at the top of the settings page have been changed to a unified three-column row layout, and the agent configuration remains consistent with it; it also supports hiding in the system tray after closing the window.
+- The publishing process is integrated into a single one-click multi-platform workflow, and the desktop product form is converged; Windows directly provides portable exe, macOS uniformly uses DMG distribution.
+
+## [0.1.4] - 2026-03-03
+
+### Added
+- Added "One-click removal of unavailable Free accounts": clean up "Unavailable + free plan" accounts in batches and return scan/skip/deletion statistics.
+- Added "Export User": Supports selecting a local directory and exporting according to "one account, one JSON file".
+- Import compatibility enhancement: support automatic identification of `tokens.*`, top-level `*_token`, camelCase fields (such as `accessToken` / `idToken` / `refreshToken`).
+
+### Fixed
+- Compatible with old services: The front-end will automatically normalize the top-level token format before importing it to avoid reporting `missing field: tokens` in the old version of the back-end.
+
+### Changed
+- The operation area of ​​the account management page is integrated into a single "Account Operation" drop-down menu, replacing the stack of multiple buttons on the right, making the interface more concise.
+
+[Unreleased]: https://github.com/qxcnm/Codex-Manager/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.19
+[0.1.17]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.17
+[0.1.16]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.16
+[0.1.15]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.15
+[0.1.14]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.14
+[0.1.13]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.13
+[0.1.12]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.12
+[0.1.11]: https://github.com/qxcnm/Codex-Manager/compare/v0.1.10...v0.1.11
+[0.1.10]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.10
+[0.1.9]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.9
+[0.1.8]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.8
+[0.1.7]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.7
+[0.1.6]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.6
+[0.1.5]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.5
+[0.1.4]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.4
