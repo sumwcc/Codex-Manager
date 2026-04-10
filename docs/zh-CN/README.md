@@ -16,6 +16,35 @@
 - 如果你要看最新发版内容和主分支未发版更新，先看 [CHANGELOG.md](CHANGELOG.md)。
 - 如果你要快速判断“哪个文档最适合当前问题”，先看下面的“文档首页”和“推荐入口”。
 
+## 赞助商
+
+感谢以下赞助商对 CodexManager 的支持。
+
+<table>
+  <tr>
+    <td align="center" valign="middle" width="180">
+      <a href="https://www.aixiamo.com/">
+        <img src="../../assets/images/sponsors/aixiamo.ico" alt="小末 AI 小卖铺" width="88" />
+      </a>
+    </td>
+    <td valign="top">
+      <strong>小末 AI 小卖铺（末端夏）</strong> 为 CodexManager 用户提供稳定的 GPT / Gemini 会员与充值服务，支持自助购买、自助兑换激活。通过<a href="https://www.aixiamo.com/">官网</a>注册，并在充值期间输入 <code>cliproxyapi</code>，可享专属优惠。
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle" width="180">
+      <a href="https://gzxsy.vip/">
+        <img src="../../assets/images/sponsors/xingsiyan.png" alt="星思研中转站" width="120" />
+      </a>
+    </td>
+    <td valign="top">
+      <strong>星思研中转站</strong> 为 Claude Code、Codex、Gemini 等模型调用场景提供稳定中转与配套服务，适合需要高可用接口、便捷接入和持续交付支持的开发者与团队。可前往<a href="https://gzxsy.vip/">官网</a>了解最新方案。
+    </td>
+  </tr>
+</table>
+
+其他赞助商：PackyCode、AICodeMirror、BmoPlus、LingtrueAPI、Poixe AI
+
 ## 文档首页
 | 如果你现在要做什么 | 建议先看 |
 | --- | --- |

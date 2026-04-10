@@ -16,6 +16,35 @@
 - 최신 릴리스 내용과 미출시 변경 사항은 [변경-이력.md](변경-이력.md)에서 확인하세요.
 - 어떤 문서를 먼저 봐야 할지 모르겠다면 아래 표를 이용하세요.
 
+## 스폰서
+
+CodexManager를 후원해 주신 다음 스폰서께 감사드립니다.
+
+<table>
+  <tr>
+    <td align="center" valign="middle" width="180">
+      <a href="https://www.aixiamo.com/">
+        <img src="../../assets/images/sponsors/aixiamo.ico" alt="XiaoMo AI Shop" width="88" />
+      </a>
+    </td>
+    <td valign="top">
+      <strong>XiaoMo AI Shop (MoDuanXia)</strong> 는 CodexManager 사용자를 위해 안정적인 GPT·Gemini 멤버십 충전 서비스를 제공하며, 셀프 구매와 셀프 활성화를 지원합니다. <a href="https://www.aixiamo.com/">공식 사이트</a>에서 가입한 뒤 충전 시 <code>cliproxyapi</code> 를 입력하면 전용 할인 혜택을 받을 수 있습니다.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle" width="180">
+      <a href="https://gzxsy.vip/">
+        <img src="../../assets/images/sponsors/xingsiyan.png" alt="Xing Si Yan Gateway" width="120" />
+      </a>
+    </td>
+    <td valign="top">
+      <strong>Xing Si Yan Gateway</strong> 는 Claude Code, Codex, Gemini 같은 모델 호출 시나리오를 위한 안정적인 중계와 부가 서비스를 제공합니다. 신뢰할 수 있는 API, 빠른 도입, 지속적인 운영 지원이 필요한 개발자와 팀에 잘 맞습니다. 최신 플랜은 <a href="https://gzxsy.vip/">공식 사이트</a>에서 확인할 수 있습니다.
+    </td>
+  </tr>
+</table>
+
+기타 스폰서: PackyCode, AICodeMirror, BmoPlus, LingtrueAPI, Poixe AI
+
 ## 생태계 조합
 
 ### OpenCowork

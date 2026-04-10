@@ -49,9 +49,33 @@
 ## 赞助商
 
 感谢以下朋友与伙伴对 CodexManager 的支持。
-    末端夏：感谢提供 token 支持。他的 GPT 卡网支持自助购买、自助兑换激活，稳定不到车，带质保，支持 Codex 5.4。官网：[小末AI](https://www.aixiamo.com)
 
- [Wonderdch](https://github.com/Wonderdch)、 Catch_Bat、 [suxinwl](https://github.com/suxinwl)、 [Hermit](https://github.com/HermitChen)、 [Suifeng023](https://github.com/Suifeng023)、 [HK-hub](https://github.com/HK-hub)
+<table>
+  <tr>
+    <td align="center" valign="middle" width="180">
+      <a href="https://www.aixiamo.com/">
+        <img src="assets/images/sponsors/aixiamo.ico" alt="小末 AI 小卖铺" width="88" />
+      </a>
+    </td>
+    <td valign="top">
+      <strong>小末 AI 小卖铺（末端夏）</strong> 为 CodexManager 用户提供稳定的 GPT / Gemini 会员与充值服务，支持自助购买、自助兑换激活。通过<a href="https://www.aixiamo.com/">官网</a>注册，并在充值期间输入 <code>cliproxyapi</code>，可享专属优惠。
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle" width="180">
+      <a href="https://gzxsy.vip/">
+        <img src="assets/images/sponsors/xingsiyan.png" alt="星思研中转站" width="120" />
+      </a>
+    </td>
+    <td valign="top">
+      <strong>星思研中转站</strong> 为 Claude Code、Codex、Gemini 等模型调用场景提供稳定中转与配套服务，适合需要高可用接口、便捷接入和持续交付支持的开发者与团队。可前往<a href="https://gzxsy.vip/">官网</a>了解最新方案。
+    </td>
+  </tr>
+</table>
+
+其他赞助商：PackyCode、AICodeMirror、BmoPlus、LingtrueAPI、Poixe AI
+
+其他支持者：[Wonderdch](https://github.com/Wonderdch)、Catch_Bat、[suxinwl](https://github.com/suxinwl)、[Hermit](https://github.com/HermitChen)、[Suifeng023](https://github.com/Suifeng023)、[HK-hub](https://github.com/HK-hub)
 
 
 ## ☕ 支持项目 (Support)
