@@ -139,17 +139,13 @@ pub(crate) fn apply_balanced_round_robin<T>(
 /// # 返回
 /// 返回函数执行结果
 fn rotate_to_manual_preferred_account(candidates: &mut [(Account, Token)]) -> bool {
-    let lock = ROUTE_STATE.get_or_init(|| Mutex::new(RouteRoundRobinState::default()));
-    let state = crate::lock_utils::lock_recover(lock, "route_state");
-    let Some(account_id) = state.manual_preferred_account_id.as_deref() else {
+    let Some(account_id) = get_manual_preferred_account() else {
         return false;
     };
     let Some(index) = candidates
         .iter()
-        .position(|(account, _)| account.id.eq(account_id))
+        .position(|(account, _)| account.id == account_id)
     else {
-        // 中文注释：手动优先是用户显式选择；当前轮次未命中候选池时保持该状态，
-        // 避免一次过滤/暂时不可用就把用户设置静默清掉。
         return false;
     };
     if index > 0 {
@@ -269,10 +265,9 @@ pub(crate) fn set_route_strategy(strategy: &str) -> Result<&'static str, String>
 /// # 返回
 /// 返回函数执行结果
 pub(crate) fn get_manual_preferred_account() -> Option<String> {
-    ensure_route_config_loaded();
-    let lock = ROUTE_STATE.get_or_init(|| Mutex::new(RouteRoundRobinState::default()));
-    let state = crate::lock_utils::lock_recover(lock, "route_state");
-    state.manual_preferred_account_id.clone()
+    crate::storage_helpers::open_storage()
+        .and_then(|storage| storage.preferred_account_id().ok())
+        .flatten()
 }
 
 /// 函数 `set_manual_preferred_account`
@@ -287,14 +282,15 @@ pub(crate) fn get_manual_preferred_account() -> Option<String> {
 /// # 返回
 /// 返回函数执行结果
 pub(crate) fn set_manual_preferred_account(account_id: &str) -> Result<(), String> {
-    ensure_route_config_loaded();
     let id = account_id.trim();
     if id.is_empty() {
         return Err("accountId is required".to_string());
     }
-    let lock = ROUTE_STATE.get_or_init(|| Mutex::new(RouteRoundRobinState::default()));
-    let mut state = crate::lock_utils::lock_recover(lock, "route_state");
-    state.manual_preferred_account_id = Some(id.to_string());
+    let mut storage = crate::storage_helpers::open_storage()
+        .ok_or_else(|| "storage not initialized".to_string())?;
+    storage
+        .set_preferred_account(Some(id))
+        .map_err(|err| err.to_string())?;
     Ok(())
 }
 
@@ -310,40 +306,9 @@ pub(crate) fn set_manual_preferred_account(account_id: &str) -> Result<(), Strin
 /// # 返回
 /// 无
 pub(crate) fn clear_manual_preferred_account() {
-    ensure_route_config_loaded();
-    let lock = ROUTE_STATE.get_or_init(|| Mutex::new(RouteRoundRobinState::default()));
-    let mut state = crate::lock_utils::lock_recover(lock, "route_state");
-    state.manual_preferred_account_id = None;
-}
-
-/// 函数 `clear_manual_preferred_account_if`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - crate: 参数 crate
-///
-/// # 返回
-/// 返回函数执行结果
-pub(crate) fn clear_manual_preferred_account_if(account_id: &str) -> bool {
-    ensure_route_config_loaded();
-    let id = account_id.trim();
-    if id.is_empty() {
-        return false;
+    if let Some(mut storage) = crate::storage_helpers::open_storage() {
+        let _ = storage.set_preferred_account(None);
     }
-    let lock = ROUTE_STATE.get_or_init(|| Mutex::new(RouteRoundRobinState::default()));
-    let mut state = crate::lock_utils::lock_recover(lock, "route_state");
-    if state
-        .manual_preferred_account_id
-        .as_deref()
-        .is_some_and(|current| current == id)
-    {
-        state.manual_preferred_account_id = None;
-        return true;
-    }
-    false
 }
 
 /// 函数 `next_start_index`

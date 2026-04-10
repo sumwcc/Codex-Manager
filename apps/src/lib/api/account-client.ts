@@ -74,6 +74,7 @@ interface LoginStartPayload {
 
 interface AccountUpdatePayload {
   sort?: number | null;
+  preferred?: boolean | null;
   status?: string | null;
   label?: string | null;
   note?: string | null;
@@ -290,6 +291,7 @@ export const accountClient = {
       withAddr({
         accountId,
         sort: typeof params.sort === "number" ? params.sort : null,
+        preferred: typeof params.preferred === "boolean" ? params.preferred : null,
         status: params.status || null,
         label: params.label ?? null,
         note: params.note ?? null,
@@ -301,6 +303,10 @@ export const accountClient = {
           : params.tags ?? null,
       })
     ),
+  setPreferred: (accountId: string) =>
+    invoke("service_account_update", withAddr({ accountId, preferred: true })),
+  clearPreferred: (accountId: string) =>
+    invoke("service_account_update", withAddr({ accountId, preferred: false })),
   disableAccount: (accountId: string) =>
     invoke("service_account_update", withAddr({ accountId, status: "disabled" })),
   enableAccount: (accountId: string) =>

@@ -751,24 +751,19 @@ export function canParticipateInRouting(level: AvailabilityLevel): boolean {
  * # 参数
  * - accounts: 参数 accounts
  * - requestLogs: 参数 requestLogs
- * - manualPreferredAccountId?: 参数 manualPreferredAccountId?
  *
  * # 返回
  * 返回函数执行结果
  */
 export function pickCurrentAccount(
   accounts: Account[],
-  requestLogs: RequestLog[],
-  manualPreferredAccountId?: string
+  requestLogs: RequestLog[]
 ): Account | null {
   if (!accounts.length) return null;
 
-  const preferredId = String(manualPreferredAccountId || "").trim();
-  if (preferredId) {
-    const preferred = accounts.find((item) => item.id === preferredId);
-    if (preferred && canParticipateInRouting(preferred.availabilityLevel)) {
-      return preferred;
-    }
+  const preferred = accounts.find((item) => item.preferred);
+  if (preferred && canParticipateInRouting(preferred.availabilityLevel)) {
+    return preferred;
   }
 
   let latestHit: RequestLog | null = null;
@@ -787,7 +782,7 @@ export function pickCurrentAccount(
 
   return (
     accounts.find((item) => canParticipateInRouting(item.availabilityLevel)) ||
-    (preferredId ? accounts.find((item) => item.id === preferredId) : null) ||
+    preferred ||
     accounts[0] ||
     null
   );

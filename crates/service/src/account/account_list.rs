@@ -298,6 +298,7 @@ fn filtered_accounts(
 /// 返回函数执行结果
 fn to_account_summary_with_reason(
     acc: Account,
+    preferred: bool,
     status_reason: Option<String>,
     plan_type: Option<String>,
     plan_type_raw: Option<String>,
@@ -308,6 +309,7 @@ fn to_account_summary_with_reason(
         id: acc.id,
         label: acc.label,
         group_name: acc.group_name,
+        preferred,
         sort: acc.sort,
         status: acc.status,
         status_reason,
@@ -338,6 +340,9 @@ fn to_account_summaries(
         .iter()
         .map(|account| account.id.clone())
         .collect::<Vec<_>>();
+    let preferred_account_id = storage
+        .preferred_account_id()
+        .map_err(|err| format!("load preferred account failed: {err}"))?;
     let status_reasons = storage
         .latest_account_status_reasons(&account_ids)
         .map_err(|err| format!("load account status reasons failed: {err}"))?;
@@ -361,7 +366,16 @@ fn to_account_summaries(
         .collect::<HashMap<String, AccountMetadata>>();
     Ok(accounts
         .into_iter()
-        .map(|account| map_account_summary(account, &status_reasons, &tokens, &usages, &metadata))
+        .map(|account| {
+            map_account_summary(
+                account,
+                preferred_account_id.as_deref(),
+                &status_reasons,
+                &tokens,
+                &usages,
+                &metadata,
+            )
+        })
         .collect())
 }
 
@@ -382,6 +396,7 @@ fn to_account_summaries(
 /// 返回函数执行结果
 fn map_account_summary(
     account: Account,
+    preferred_account_id: Option<&str>,
     status_reasons: &HashMap<String, String>,
     tokens: &HashMap<String, Token>,
     usages: &HashMap<String, UsageSnapshotRecord>,
@@ -389,6 +404,7 @@ fn map_account_summary(
 ) -> AccountSummary {
     let account_id = account.id.clone();
     let status_reason = status_reasons.get(&account_id).cloned();
+    let preferred = preferred_account_id.is_some_and(|id| id == account_id);
     let plan = resolve_account_plan(tokens.get(&account_id), usages.get(&account_id));
     let account_metadata = metadata.get(&account_id);
     let (plan_type, plan_type_raw) = match plan {
@@ -397,6 +413,7 @@ fn map_account_summary(
     };
     to_account_summary_with_reason(
         account,
+        preferred,
         status_reason,
         plan_type,
         plan_type_raw,

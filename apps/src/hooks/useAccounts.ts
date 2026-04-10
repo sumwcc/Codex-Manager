@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { accountClient } from "@/lib/api/account-client";
 import { attachUsagesToAccounts } from "@/lib/api/normalize";
-import { serviceClient } from "@/lib/api/service-client";
 import {
   buildStartupSnapshotQueryKey,
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
@@ -119,7 +118,6 @@ export function useAccounts() {
   );
   const startupAccounts = startupSnapshot?.accounts || [];
   const startupUsages = startupSnapshot?.usageSnapshots || [];
-  const startupManualPreferredAccountId = startupSnapshot?.manualPreferredAccountId || "";
   const hasStartupAccountSnapshot = startupAccounts.length > 0;
 
   /**
@@ -167,15 +165,6 @@ export function useAccounts() {
     retry: 1,
     placeholderData: (previousData) =>
       previousData || (startupUsages.length > 0 ? startupUsages : undefined),
-  });
-
-  const manualPreferredAccountQuery = useQuery({
-    queryKey: ["gateway", "manual-account", serviceStatus.addr || null],
-    queryFn: () => serviceClient.getManualPreferredAccountId(),
-    enabled: areAccountQueriesEnabled,
-    retry: 1,
-    placeholderData: (previousData) =>
-      previousData ?? startupManualPreferredAccountId,
   });
 
   const accounts = useMemo(() => {
@@ -252,28 +241,7 @@ export function useAccounts() {
       queryClient.invalidateQueries({ queryKey: ["usage-aggregate"] }),
       queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
       queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
-      queryClient.invalidateQueries({ queryKey: ["gateway", "manual-account"] }),
       queryClient.invalidateQueries({ queryKey: ["logs"] }),
-    ]);
-  };
-
-  /**
-   * 函数 `invalidateManualPreferred`
-   *
-   * 作者: gaohongshun
-   *
-   * 时间: 2026-04-02
-   *
-   * # 参数
-   * 无
-   *
-   * # 返回
-   * 返回函数执行结果
-   */
-  const invalidateManualPreferred = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["gateway", "manual-account"] }),
-      queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
     ]);
   };
 
@@ -502,10 +470,10 @@ export function useAccounts() {
     },
   });
 
-  const setManualPreferredMutation = useMutation({
-    mutationFn: (accountId: string) => serviceClient.setManualPreferredAccount(accountId),
+  const setPreferredMutation = useMutation({
+    mutationFn: (accountId: string) => accountClient.setPreferred(accountId),
     onSuccess: async () => {
-      await invalidateManualPreferred();
+      await invalidateAll();
       toast.success(t("已设为优先账号"));
     },
     onError: (error: unknown) => {
@@ -513,10 +481,10 @@ export function useAccounts() {
     },
   });
 
-  const clearManualPreferredMutation = useMutation({
-    mutationFn: () => serviceClient.clearManualPreferredAccount(),
+  const clearPreferredMutation = useMutation({
+    mutationFn: (accountId: string) => accountClient.clearPreferred(accountId),
     onSuccess: async () => {
-      await invalidateManualPreferred();
+      await invalidateAll();
       toast.success(t("已取消优先账号"));
     },
     onError: (error: unknown) => {
@@ -533,7 +501,6 @@ export function useAccounts() {
       !hasStartupAccountSnapshot &&
       (!areAccountQueriesEnabled || accountsQuery.isLoading || usagesQuery.isLoading),
     isServiceReady,
-    manualPreferredAccountId: manualPreferredAccountQuery.data || "",
     refreshAccount: (accountId: string) => {
       if (!ensureServiceReady("刷新账号")) return;
       refreshAccountMutation.mutate(accountId);
@@ -577,11 +544,11 @@ export function useAccounts() {
     },
     setPreferredAccount: (accountId: string) => {
       if (!ensureServiceReady("设置优先账号")) return;
-      setManualPreferredMutation.mutate(accountId);
+      setPreferredMutation.mutate(accountId);
     },
-    clearPreferredAccount: () => {
+    clearPreferredAccount: (accountId: string) => {
       if (!ensureServiceReady("取消优先账号")) return;
-      clearManualPreferredMutation.mutate();
+      clearPreferredMutation.mutate(accountId);
     },
     updateAccountSort: async (accountId: string, sort: number) => {
       if (!ensureServiceReady("更新账号顺序")) return;
@@ -620,7 +587,7 @@ export function useAccounts() {
     isExporting: exportMutation.isPending,
     isDeletingMany: deleteManyMutation.isPending,
     isUpdatingPreferred:
-      setManualPreferredMutation.isPending || clearManualPreferredMutation.isPending,
+      setPreferredMutation.isPending || clearPreferredMutation.isPending,
     isUpdatingSortAccountId:
       updateAccountSortMutation.isPending &&
       updateAccountSortMutation.variables &&

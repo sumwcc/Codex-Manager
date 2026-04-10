@@ -23,7 +23,29 @@ impl Storage {
     /// 返回函数执行结果
     pub fn insert_account(&self, account: &Account) -> Result<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO accounts (id, label, issuer, chatgpt_account_id, workspace_id, sort, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT OR REPLACE INTO accounts (
+                id,
+                label,
+                issuer,
+                chatgpt_account_id,
+                workspace_id,
+                sort,
+                status,
+                created_at,
+                updated_at,
+                preferred
+            ) VALUES (
+                ?1,
+                ?2,
+                ?3,
+                ?4,
+                ?5,
+                ?6,
+                ?7,
+                ?8,
+                ?9,
+                COALESCE((SELECT preferred FROM accounts WHERE id = ?1), 0)
+            )",
             (
                 &account.id,
                 &account.label,
@@ -464,10 +486,93 @@ impl Storage {
         self.ensure_column("accounts", "chatgpt_account_id", "TEXT")?;
         self.ensure_column("accounts", "group_name", "TEXT")?;
         self.ensure_column("accounts", "sort", "INTEGER DEFAULT 0")?;
+        self.ensure_column("accounts", "preferred", "INTEGER NOT NULL DEFAULT 0")?;
         self.ensure_column("login_sessions", "note", "TEXT")?;
         self.ensure_column("login_sessions", "tags", "TEXT")?;
         self.ensure_column("login_sessions", "group_name", "TEXT")?;
         Ok(())
+    }
+
+    /// 函数 `preferred_account_id`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-10
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn preferred_account_id(&self) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id
+             FROM accounts
+             WHERE preferred = 1
+             ORDER BY updated_at DESC, id ASC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 函数 `set_preferred_account`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-10
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - account_id: 参数 account_id
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn set_preferred_account(&mut self, account_id: Option<&str>) -> Result<()> {
+        let now = now_ts();
+        let tx = self.conn.transaction()?;
+        tx.execute("UPDATE accounts SET preferred = 0 WHERE preferred != 0", [])?;
+        if let Some(account_id) = account_id {
+            let normalized_account_id = account_id.trim();
+            if !normalized_account_id.is_empty() {
+                tx.execute(
+                    "UPDATE accounts
+                     SET preferred = 1, updated_at = ?1
+                     WHERE id = ?2",
+                    (now, normalized_account_id),
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 函数 `clear_preferred_account_if`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-10
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - account_id: 参数 account_id
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn clear_preferred_account_if(&self, account_id: &str) -> Result<bool> {
+        let normalized_account_id = account_id.trim();
+        if normalized_account_id.is_empty() {
+            return Ok(false);
+        }
+        let updated = self.conn.execute(
+            "UPDATE accounts SET preferred = 0, updated_at = ?1 WHERE id = ?2 AND preferred = 1",
+            (now_ts(), normalized_account_id),
+        )?;
+        Ok(updated > 0)
     }
 
     /// 函数 `ensure_login_session_workspace_column`
@@ -1040,5 +1145,42 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(ids, vec!["acc-active-ok".to_string()]);
+    }
+
+    #[test]
+    fn set_preferred_account_keeps_only_one_account_selected() {
+        let mut storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        storage
+            .insert_account(&sample_account("acc-a", "active", now))
+            .expect("insert account a");
+        storage
+            .insert_account(&sample_account("acc-b", "active", now))
+            .expect("insert account b");
+
+        storage
+            .set_preferred_account(Some("acc-a"))
+            .expect("set preferred a");
+        assert_eq!(storage.preferred_account_id().expect("preferred a"), Some("acc-a".to_string()));
+
+        storage
+            .set_preferred_account(Some("acc-b"))
+            .expect("set preferred b");
+        assert_eq!(storage.preferred_account_id().expect("preferred b"), Some("acc-b".to_string()));
+
+        assert!(
+            storage
+                .clear_preferred_account_if("acc-a")
+                .expect("clear non-preferred")
+                == false
+        );
+        assert!(
+            storage
+                .clear_preferred_account_if("acc-b")
+                .expect("clear preferred")
+        );
+        assert_eq!(storage.preferred_account_id().expect("no preferred"), None);
     }
 }

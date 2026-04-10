@@ -73,6 +73,7 @@ fn account_list_payload(
 fn account_update_payload(
     account_id: String,
     sort: Option<i64>,
+    preferred: Option<bool>,
     status: Option<String>,
     label: Option<String>,
     note: Option<String>,
@@ -82,6 +83,9 @@ fn account_update_payload(
     params.insert("accountId".to_string(), serde_json::json!(account_id));
     if let Some(value) = sort {
         params.insert("sort".to_string(), serde_json::json!(value));
+    }
+    if let Some(value) = preferred {
+        params.insert("preferred".to_string(), serde_json::json!(value));
     }
     if let Some(value) = status {
         let trimmed = value.trim();
@@ -220,6 +224,7 @@ pub async fn service_account_update(
     addr: Option<String>,
     account_id: String,
     sort: Option<i64>,
+    preferred: Option<bool>,
     status: Option<String>,
     label: Option<String>,
     note: Option<String>,
@@ -228,7 +233,7 @@ pub async fn service_account_update(
     rpc_call_in_background(
         "account/update",
         addr,
-        account_update_payload(account_id, sort, status, label, note, tags),
+        account_update_payload(account_id, sort, preferred, status, label, note, tags),
     )
     .await
 }
@@ -252,6 +257,7 @@ mod tests {
     fn account_update_payload_supports_status_only_updates() {
         let actual = account_update_payload(
             "acc-1".to_string(),
+            None,
             None,
             Some("active".to_string()),
             None,
@@ -279,8 +285,16 @@ mod tests {
     /// 无
     #[test]
     fn account_update_payload_supports_sort_only_updates() {
-        let actual = account_update_payload("acc-1".to_string(), Some(5), None, None, None, None)
-            .expect("payload");
+        let actual = account_update_payload(
+            "acc-1".to_string(),
+            Some(5),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("payload");
         let expected = serde_json::json!({
             "accountId": "acc-1",
             "sort": 5
@@ -304,6 +318,7 @@ mod tests {
         let actual = account_update_payload(
             "acc-1".to_string(),
             None,
+            None,
             Some("   ".to_string()),
             None,
             None,
@@ -312,6 +327,25 @@ mod tests {
         .expect("payload");
         let expected = serde_json::json!({
             "accountId": "acc-1"
+        });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn account_update_payload_supports_preferred_updates() {
+        let actual = account_update_payload(
+            "acc-1".to_string(),
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("payload");
+        let expected = serde_json::json!({
+            "accountId": "acc-1",
+            "preferred": true
         });
         assert_eq!(actual, expected);
     }

@@ -12,7 +12,6 @@ use crate::account_identity::{
 };
 use crate::account_status::mark_account_unavailable_for_auth_error;
 use crate::app_settings::{get_persisted_app_setting, save_persisted_app_setting};
-use crate::gateway::clear_manual_preferred_account_if;
 use crate::storage_helpers::open_storage;
 use crate::usage_token_refresh::refresh_and_persist_access_token;
 
@@ -180,7 +179,6 @@ pub(crate) fn login_with_chatgpt_auth_tokens(
 
     set_current_auth_account_id(Some(&account_id))?;
     set_current_auth_mode(Some(AUTH_MODE_CHATGPT_AUTH_TOKENS))?;
-    let _ = crate::gateway::set_manual_preferred_account(&account_id);
 
     Ok(LoginStartResult::ChatgptAuthTokens {})
 }
@@ -303,7 +301,6 @@ pub(crate) fn logout_current_account() -> Result<serde_json::Value, String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let current_account_id = get_persisted_app_setting(CURRENT_AUTH_ACCOUNT_ID_KEY);
     if let Some(account_id) = current_account_id.as_deref() {
-        let _ = clear_manual_preferred_account_if(account_id);
         if storage
             .find_account_by_id(account_id)
             .map_err(|err| err.to_string())?
@@ -347,7 +344,6 @@ fn resolve_current_account_with_token(
         _ => {
             set_current_auth_account_id(None)?;
             set_current_auth_mode(None)?;
-            let _ = clear_manual_preferred_account_if(&account_id);
             Ok(None)
         }
     }

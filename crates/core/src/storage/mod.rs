@@ -562,6 +562,11 @@ impl Storage {
             include_str!("../../migrations/044_api_keys_account_plan_filter.sql"),
             |s| s.ensure_api_key_rotation_columns(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "045_accounts_preferred",
+            include_str!("../../migrations/045_accounts_preferred.sql"),
+            |s| s.ensure_account_meta_columns(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;

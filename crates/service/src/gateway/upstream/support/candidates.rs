@@ -113,16 +113,6 @@ pub(in super::super) fn candidate_skip_reason_for_proxy(
     candidate_count: usize,
     account_max_inflight: usize,
 ) -> Option<CandidateSkipReason> {
-    // 中文注释：当用户手动“切到当前”后，首候选应持续优先命中；
-    // 仅在真实请求失败时由上游流程自动清除手动锁定，再回退常规轮转。
-    let is_manual_preferred_head = idx == 0
-        && super::super::super::manual_preferred_account()
-            .as_deref()
-            .is_some_and(|manual_id| manual_id == account_id);
-    if is_manual_preferred_head {
-        return None;
-    }
-
     let has_more_candidates = idx + 1 < candidate_count;
     if super::super::super::is_account_in_cooldown(account_id) && has_more_candidates {
         super::super::super::record_gateway_failover_attempt();
@@ -142,7 +132,10 @@ pub(in super::super) fn candidate_skip_reason_for_proxy(
 }
 #[cfg(test)]
 mod tests {
-    use super::{allow_openai_fallback_for_account, free_account_model_override};
+    use super::{
+        allow_openai_fallback_for_account, candidate_skip_reason_for_proxy,
+        free_account_model_override, CandidateSkipReason,
+    };
     use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
 
     /// 函数 `free_account_model_override_uses_configured_model_for_free_account`
@@ -467,5 +460,12 @@ mod tests {
         assert!(!allow_openai_fallback_for_account(
             &storage, &account, &token
         ));
+    }
+
+    #[test]
+    fn candidate_skip_reason_for_proxy_allows_failover_when_head_account_is_inflight_limited() {
+        let _guard = crate::gateway::acquire_account_inflight("acc-preferred");
+        let actual = candidate_skip_reason_for_proxy("acc-preferred", 0, 2, 1);
+        assert_eq!(actual, Some(CandidateSkipReason::Inflight));
     }
 }

@@ -707,7 +707,6 @@ export default function AccountsPage() {
     isRefreshingAllAccounts,
     isExporting,
     isDeletingMany,
-    manualPreferredAccountId,
     setPreferredAccount,
     clearPreferredAccount,
     isUpdatingPreferred,
@@ -1732,7 +1731,7 @@ export default function AccountsPage() {
                         <TableCell className="max-w-[220px]">
                           <AccountInfoCell
                             account={account}
-                            isPreferred={manualPreferredAccountId === account.id}
+                            isPreferred={account.preferred}
                           />
                         </TableCell>
                         <TableCell>
@@ -1841,13 +1840,13 @@ export default function AccountsPage() {
                                 className="gap-2"
                                 disabled={!isServiceReady || isUpdatingPreferred}
                                 onClick={() =>
-                                  manualPreferredAccountId === account.id
-                                    ? clearPreferredAccount()
+                                  account.preferred
+                                    ? clearPreferredAccount(account.id)
                                     : setPreferredAccount(account.id)
                                 }
                               >
                                 <Pin className="h-4 w-4" />
-                                {manualPreferredAccountId === account.id
+                                {account.preferred
                                   ? t("取消优先")
                                   : t("设为优先")}
                               </DropdownMenuItem>

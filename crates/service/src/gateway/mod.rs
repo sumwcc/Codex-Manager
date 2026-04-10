@@ -749,10 +749,12 @@ pub(crate) fn set_manual_preferred_account(account_id: &str) -> Result<(), Strin
         return Err("accountId is required".to_string());
     }
     let storage = open_storage().ok_or_else(|| "storage not initialized".to_string())?;
-    let candidates = collect_gateway_candidates(&storage)?;
-    let found = candidates.iter().any(|(account, _)| account.id == id);
+    let found = storage
+        .find_account_by_id(id)
+        .map_err(|err| err.to_string())?
+        .is_some();
     if !found {
-        return Err("account is not available for routing".to_string());
+        return Err("account not found".to_string());
     }
     route_hint::set_manual_preferred_account(id)
 }
@@ -770,21 +772,6 @@ pub(crate) fn set_manual_preferred_account(account_id: &str) -> Result<(), Strin
 /// 无
 pub(crate) fn clear_manual_preferred_account() {
     route_hint::clear_manual_preferred_account();
-}
-
-/// 函数 `clear_manual_preferred_account_if`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - crate: 参数 crate
-///
-/// # 返回
-/// 返回函数执行结果
-pub(crate) fn clear_manual_preferred_account_if(account_id: &str) -> bool {
-    route_hint::clear_manual_preferred_account_if(account_id)
 }
 
 /// 函数 `gateway_resolve_effective_upstream_base`

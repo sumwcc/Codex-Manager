@@ -16,6 +16,7 @@ use crate::{account_status, storage_helpers::open_storage};
 pub(crate) fn update_account(
     account_id: &str,
     sort: Option<i64>,
+    preferred: Option<bool>,
     status: Option<&str>,
     label: Option<&str>,
     note: Option<&str>,
@@ -34,6 +35,7 @@ pub(crate) fn update_account(
     let metadata_requested = note.is_some() || tags.is_some();
 
     if sort.is_none()
+        && preferred.is_none()
         && normalized_status.is_none()
         && normalized_label.is_none()
         && !metadata_requested
@@ -41,8 +43,33 @@ pub(crate) fn update_account(
         return Err("missing account update fields".to_string());
     }
 
-    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let mut storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let now = now_ts();
+    if let Some(preferred) = preferred {
+        if preferred {
+            let found = storage
+                .find_account_by_id(normalized_account_id)
+                .map_err(|err| err.to_string())?
+                .is_some();
+            if !found {
+                return Err("account not found".to_string());
+            }
+            storage
+                .set_preferred_account(Some(normalized_account_id))
+                .map_err(|e| e.to_string())?;
+        } else {
+            storage
+                .clear_preferred_account_if(normalized_account_id)
+                .map_err(|e| e.to_string())?;
+        }
+        let _ = storage.insert_event(&Event {
+            account_id: Some(normalized_account_id.to_string()),
+            event_type: "account_preferred_update".to_string(),
+            message: format!("preferred={preferred}"),
+            created_at: now,
+        });
+    }
+
     if let Some(sort) = sort {
         storage
             .update_account_sort(normalized_account_id, sort)

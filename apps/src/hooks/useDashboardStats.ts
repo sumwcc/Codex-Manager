@@ -89,8 +89,7 @@ export function useDashboardStats() {
   const unavailableAccounts = totalAccounts - availableAccounts;
   const currentAccount = pickCurrentAccount(
     accounts,
-    data?.requestLogs || [],
-    data?.manualPreferredAccountId
+    data?.requestLogs || []
   );
   const recommendations = pickBestRecommendations(accounts);
 

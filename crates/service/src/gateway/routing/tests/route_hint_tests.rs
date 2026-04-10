@@ -512,7 +512,7 @@ fn balanced_mode_keeps_strict_round_robin_by_default() {
     reload_from_env();
 }
 
-/// 函数 `manual_preferred_account_is_preserved_when_current_candidates_do_not_include_it`
+/// 函数 `persisted_preferred_account_rotates_to_head`
 ///
 /// 作者: gaohongshun
 ///
@@ -524,17 +524,47 @@ fn balanced_mode_keeps_strict_round_robin_by_default() {
 /// # 返回
 /// 无
 #[test]
-fn manual_preferred_account_is_preserved_when_current_candidates_do_not_include_it() {
+fn persisted_preferred_account_rotates_to_head() {
     let _guard = crate::test_env_guard();
     clear_route_state_for_tests();
-    set_manual_preferred_account("acc-missing").expect("set manual preferred");
+    let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+    let db_path = std::env::temp_dir().join(format!(
+        "codexmanager-route-hint-preferred-{}.db",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&db_path);
+    std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+    crate::initialize_storage_if_needed().expect("init storage");
+    let storage = crate::storage_helpers::open_storage().expect("open storage");
+    let now = codexmanager_core::storage::now_ts();
+    for (account_id, sort) in [("acc-a", 0_i64), ("acc-b", 1_i64)] {
+        storage
+            .insert_account(&Account {
+                id: account_id.to_string(),
+                label: account_id.to_string(),
+                issuer: "issuer".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert account");
+    }
+    set_manual_preferred_account("acc-b").expect("set preferred");
 
     let mut candidates = candidate_list();
-    apply_route_strategy(&mut candidates, "gk-manual-missing", Some("gpt-5.3-codex"));
+    apply_route_strategy(&mut candidates, "gk-preferred", Some("gpt-5.3-codex"));
 
-    assert_eq!(
-        get_manual_preferred_account().as_deref(),
-        Some("acc-missing")
-    );
-    assert_eq!(account_ids(&candidates)[0], "acc-a");
+    assert_eq!(get_manual_preferred_account().as_deref(), Some("acc-b"));
+    assert_eq!(account_ids(&candidates)[0], "acc-b");
+
+    if let Some(value) = previous_db_path {
+        std::env::set_var("CODEXMANAGER_DB_PATH", value);
+    } else {
+        std::env::remove_var("CODEXMANAGER_DB_PATH");
+    }
+    let _ = std::fs::remove_file(&db_path);
 }

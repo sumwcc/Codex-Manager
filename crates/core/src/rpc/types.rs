@@ -176,6 +176,7 @@ pub struct AccountSummary {
     pub id: String,
     pub label: String,
     pub group_name: Option<String>,
+    pub preferred: bool,
     pub sort: i64,
     pub status: String,
     pub status_reason: Option<String>,

@@ -188,11 +188,6 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
           staleTime: PRIMARY_PAGE_WARMUP_STALE_TIME,
         }),
         queryClient.prefetchQuery({
-          queryKey: ["gateway", "manual-account", addr || null],
-          queryFn: () => serviceClient.getManualPreferredAccountId(),
-          staleTime: PRIMARY_PAGE_WARMUP_STALE_TIME,
-        }),
-        queryClient.prefetchQuery({
           queryKey: ["apikeys"],
           queryFn: () => accountClient.listApiKeys(),
           staleTime: PRIMARY_PAGE_WARMUP_STALE_TIME,

@@ -369,6 +369,7 @@ export function normalizeAccount(item: unknown, usage?: AccountUsage | null): Ac
     name,
     group: groupName,
     priority: asInteger(source.sort ?? source.priority, 0, 0),
+    preferred: Boolean(source.preferred),
     label: name,
     groupName,
     sort: asInteger(source.sort ?? source.priority, 0, 0),

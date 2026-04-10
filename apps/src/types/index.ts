@@ -39,6 +39,7 @@ export interface Account {
   name: string;
   group: string;
   priority: number;
+  preferred: boolean;
   label: string;
   groupName: string;
   sort: number;
