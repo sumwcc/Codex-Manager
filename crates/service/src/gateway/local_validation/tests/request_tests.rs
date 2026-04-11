@@ -99,7 +99,7 @@ fn anthropic_key_applies_custom_model_and_reasoning() {
 }
 
 #[test]
-fn anthropic_key_applies_fast_service_tier_as_priority_on_responses_request() {
+fn anthropic_key_preserves_fast_service_tier_on_responses_request() {
     let api_key = sample_api_key(
         crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE,
         Some("gpt-5.3-codex"),
@@ -133,7 +133,7 @@ fn anthropic_key_applies_fast_service_tier_as_priority_on_responses_request() {
 
     assert_eq!(
         payload.get("service_tier").and_then(Value::as_str),
-        Some("priority")
+        Some("fast")
     );
 }
 
@@ -240,7 +240,7 @@ fn aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides_with
     );
     assert_eq!(
         payload.get("service_tier").and_then(Value::as_str),
-        Some("priority")
+        Some("fast")
     );
     assert_eq!(model_for_log.as_deref(), Some("gpt-5.4"));
     assert_eq!(reasoning_for_log.as_deref(), Some("high"));
@@ -276,10 +276,7 @@ fn aggregate_passthrough_preserves_fast_service_tier_for_log_when_request_is_rew
     );
     let payload: Value = serde_json::from_slice(&rewritten_body).expect("json body");
 
-    assert_eq!(
-        payload.get("service_tier").and_then(Value::as_str),
-        Some("priority")
-    );
+    assert_eq!(payload.get("service_tier").and_then(Value::as_str), Some("Fast"));
     assert_eq!(model_for_log.as_deref(), Some("gpt-5.4"));
     assert_eq!(reasoning_for_log.as_deref(), Some("high"));
     assert_eq!(service_tier_for_log.as_deref(), Some("fast"));
