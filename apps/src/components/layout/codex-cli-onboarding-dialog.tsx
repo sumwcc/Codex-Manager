@@ -216,6 +216,13 @@ export function CodexCliOnboardingDialog({
     return () => window.cancelAnimationFrame(rafId);
   }, [open]);
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    scrollContainerRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [currentStep, open]);
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (isSaving) {
       return;
@@ -346,32 +353,6 @@ export function CodexCliOnboardingDialog({
                       </div>
                     </div>
                   </section>
-
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="gap-2"
-                      onClick={() => setCurrentStep((step) => Math.max(0, step - 1))}
-                      disabled={isFirstStep}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                      {t("上一步")}
-                    </Button>
-                    <Button
-                      type="button"
-                      className="gap-2"
-                      onClick={() =>
-                        setCurrentStep((step) =>
-                          Math.min(GUIDE_STEPS.length - 1, step + 1),
-                        )
-                      }
-                      disabled={isLastStep}
-                    >
-                      {isLastStep ? t("已经是最后一步") : t("下一步")}
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
                 </div>
               </section>
 
@@ -430,6 +411,35 @@ export function CodexCliOnboardingDialog({
               <span className="leading-6">{t("下次不再显示这份引导")}</span>
             </label>
             <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row">
+              {!isLastStep ? (
+                <>
+                  {!isFirstStep ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => setCurrentStep((step) => Math.max(0, step - 1))}
+                      disabled={isSaving}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      {t("上一步")}
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    className="gap-2"
+                    onClick={() =>
+                      setCurrentStep((step) =>
+                        Math.min(GUIDE_STEPS.length - 1, step + 1),
+                      )
+                    }
+                    disabled={isSaving}
+                  >
+                    {t("下一步")}
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
@@ -438,13 +448,15 @@ export function CodexCliOnboardingDialog({
               >
                 {t("本次关闭")}
               </Button>
-              <Button type="button" onClick={() => void handleAcknowledge()} disabled={isSaving}>
-                {isSaving
-                  ? t("保存中...")
-                  : dismissPermanently
-                    ? t("保存并关闭")
-                    : t("我已阅读")}
-              </Button>
+              {isLastStep ? (
+                <Button type="button" onClick={() => void handleAcknowledge()} disabled={isSaving}>
+                  {isSaving
+                    ? t("保存中...")
+                    : dismissPermanently
+                      ? t("保存并关闭")
+                      : t("我已阅读")}
+                </Button>
+              ) : null}
             </div>
           </DialogFooter>
         </div>
