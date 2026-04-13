@@ -1,6 +1,4 @@
 use serde_json::{json, Value};
-use tiny_http::Response;
-
 use crate::apikey_profile::{
     is_gemini_count_tokens_request_path, PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE,
 };
@@ -134,6 +132,18 @@ pub(super) fn maybe_respond_local_count_tokens(
     if !is_anthropic_count_tokens && !is_gemini_count_tokens {
         return Ok(Some(request));
     }
+    let context = super::local_response::LocalResponseContext {
+        trace_id,
+        key_id,
+        protocol_type,
+        original_path,
+        path,
+        response_adapter,
+        request_method,
+        model_for_log,
+        reasoning_for_log,
+        storage,
+    };
 
     let estimate_result = if is_gemini_count_tokens {
         estimate_input_tokens_from_gemini_request(body)
@@ -147,26 +157,10 @@ pub(super) fn maybe_respond_local_count_tokens(
             } else {
                 json!({ "input_tokens": input_tokens }).to_string()
             };
-            super::trace_log::log_attempt_result(trace_id, "-", None, 200, None);
-            super::trace_log::log_request_final(trace_id, 200, None, None, None, 0);
-            super::record_gateway_request_outcome(path, 200, Some(protocol_type));
-            super::write_request_log(
-                storage,
-                super::request_log::RequestLogTraceContext {
-                    trace_id: Some(trace_id),
-                    original_path: Some(original_path),
-                    adapted_path: Some(path),
-                    response_adapter: Some(response_adapter),
-                    ..Default::default()
-                },
-                Some(key_id),
-                None,
-                path,
-                request_method,
-                model_for_log,
-                reasoning_for_log,
-                None,
-                Some(200),
+            super::local_response::respond_local_json(
+                request,
+                &context,
+                output,
                 super::request_log::RequestLogUsage {
                     input_tokens: Some(input_tokens.min(i64::MAX as u64) as i64),
                     cached_input_tokens: Some(0),
@@ -174,52 +168,11 @@ pub(super) fn maybe_respond_local_count_tokens(
                     total_tokens: Some(input_tokens.min(i64::MAX as u64) as i64),
                     reasoning_output_tokens: Some(0),
                 },
-                None,
-                None,
-            );
-            let response = super::error_response::with_trace_id_header(
-                Response::from_string(output)
-                    .with_status_code(200)
-                    .with_header(
-                        tiny_http::Header::from_bytes(
-                            b"content-type".as_slice(),
-                            b"application/json".as_slice(),
-                        )
-                        .map_err(|_| "build content-type header failed".to_string())?,
-                    ),
-                Some(trace_id),
-            );
-            let _ = request.respond(response);
+            )?;
             Ok(None)
         }
         Err(err) => {
-            super::trace_log::log_attempt_result(trace_id, "-", None, 400, Some(err.as_str()));
-            super::trace_log::log_request_final(trace_id, 400, None, None, Some(err.as_str()), 0);
-            super::record_gateway_request_outcome(path, 400, Some(protocol_type));
-            super::write_request_log(
-                storage,
-                super::request_log::RequestLogTraceContext {
-                    trace_id: Some(trace_id),
-                    original_path: Some(original_path),
-                    adapted_path: Some(path),
-                    response_adapter: Some(response_adapter),
-                    ..Default::default()
-                },
-                Some(key_id),
-                None,
-                path,
-                request_method,
-                model_for_log,
-                reasoning_for_log,
-                None,
-                Some(400),
-                super::request_log::RequestLogUsage::default(),
-                Some(err.as_str()),
-                None,
-            );
-            let response =
-                super::error_response::terminal_text_response(400, err.clone(), Some(trace_id));
-            let _ = request.respond(response);
+            super::local_response::respond_local_terminal_error(request, &context, 400, err)?;
             Ok(None)
         }
     }

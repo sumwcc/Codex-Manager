@@ -9,6 +9,9 @@ static GATEWAY_REQUEST_LABELS: OnceLock<Mutex<HashMap<GatewayRequestLabelKey, us
 static GATEWAY_TOTAL_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 static GATEWAY_ACTIVE_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 static GATEWAY_FAILOVER_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
+static GATEWAY_CANDIDATE_SKIPS_TOTAL: AtomicUsize = AtomicUsize::new(0);
+static GATEWAY_CANDIDATE_SKIP_COOLDOWN_TOTAL: AtomicUsize = AtomicUsize::new(0);
+static GATEWAY_CANDIDATE_SKIP_INFLIGHT_TOTAL: AtomicUsize = AtomicUsize::new(0);
 static GATEWAY_COOLDOWN_MARKS: AtomicUsize = AtomicUsize::new(0);
 static RPC_TOTAL_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 static RPC_FAILED_REQUESTS: AtomicUsize = AtomicUsize::new(0);
@@ -36,11 +39,20 @@ struct GatewayRequestLabelKey {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GatewayCandidateSkipReason {
+    Cooldown,
+    Inflight,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GatewayMetricsSnapshot {
     pub total_requests: usize,
     pub active_requests: usize,
     pub account_inflight_total: usize,
     pub failover_attempts: usize,
+    pub candidate_skips_total: usize,
+    pub candidate_skip_cooldown_total: usize,
+    pub candidate_skip_inflight_total: usize,
     pub cooldown_marks: usize,
     pub rpc_total_requests: usize,
     pub rpc_failed_requests: usize,
@@ -171,6 +183,29 @@ pub(crate) fn begin_rpc_request() -> RpcRequestGuard {
 /// 无
 pub(crate) fn record_gateway_failover_attempt() {
     GATEWAY_FAILOVER_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// 函数 `record_gateway_candidate_skip`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-13
+///
+/// # 参数
+/// - reason: 参数 reason
+///
+/// # 返回
+/// 无
+pub(crate) fn record_gateway_candidate_skip(reason: GatewayCandidateSkipReason) {
+    GATEWAY_CANDIDATE_SKIPS_TOTAL.fetch_add(1, Ordering::Relaxed);
+    match reason {
+        GatewayCandidateSkipReason::Cooldown => {
+            GATEWAY_CANDIDATE_SKIP_COOLDOWN_TOTAL.fetch_add(1, Ordering::Relaxed);
+        }
+        GatewayCandidateSkipReason::Inflight => {
+            GATEWAY_CANDIDATE_SKIP_INFLIGHT_TOTAL.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 }
 
 /// 函数 `record_gateway_cooldown_mark`
@@ -391,6 +426,11 @@ pub(crate) fn gateway_metrics_snapshot() -> GatewayMetricsSnapshot {
         active_requests: GATEWAY_ACTIVE_REQUESTS.load(Ordering::Relaxed),
         account_inflight_total: account_inflight_total(),
         failover_attempts: GATEWAY_FAILOVER_ATTEMPTS.load(Ordering::Relaxed),
+        candidate_skips_total: GATEWAY_CANDIDATE_SKIPS_TOTAL.load(Ordering::Relaxed),
+        candidate_skip_cooldown_total: GATEWAY_CANDIDATE_SKIP_COOLDOWN_TOTAL
+            .load(Ordering::Relaxed),
+        candidate_skip_inflight_total: GATEWAY_CANDIDATE_SKIP_INFLIGHT_TOTAL
+            .load(Ordering::Relaxed),
         cooldown_marks: GATEWAY_COOLDOWN_MARKS.load(Ordering::Relaxed),
         rpc_total_requests: RPC_TOTAL_REQUESTS.load(Ordering::Relaxed),
         rpc_failed_requests: RPC_FAILED_REQUESTS.load(Ordering::Relaxed),
@@ -432,6 +472,9 @@ pub(crate) fn gateway_metrics_prometheus() -> String {
 codexmanager_gateway_requests_active {}\n\
 codexmanager_gateway_account_inflight_total {}\n\
 codexmanager_gateway_failover_attempts_total {}\n\
+codexmanager_gateway_candidate_skips_total {}\n\
+codexmanager_gateway_candidate_skips_by_reason_total{{reason=\"cooldown\"}} {}\n\
+codexmanager_gateway_candidate_skips_by_reason_total{{reason=\"inflight\"}} {}\n\
 codexmanager_gateway_cooldown_marks_total {}\n\
 codexmanager_rpc_requests_total {}\n\
 codexmanager_rpc_requests_failed_total {}\n\
@@ -457,6 +500,9 @@ codexmanager_gateway_upstream_attempt_errors_total {}\n\
         m.active_requests,
         m.account_inflight_total,
         m.failover_attempts,
+        m.candidate_skips_total,
+        m.candidate_skip_cooldown_total,
+        m.candidate_skip_inflight_total,
         m.cooldown_marks,
         m.rpc_total_requests,
         m.rpc_failed_requests,

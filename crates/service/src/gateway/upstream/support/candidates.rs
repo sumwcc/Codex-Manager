@@ -115,7 +115,9 @@ pub(in super::super) fn candidate_skip_reason_for_proxy(
 ) -> Option<CandidateSkipReason> {
     let has_more_candidates = idx + 1 < candidate_count;
     if super::super::super::is_account_in_cooldown(account_id) && has_more_candidates {
-        super::super::super::record_gateway_failover_attempt();
+        super::super::super::record_gateway_candidate_skip(
+            super::super::super::GatewayCandidateSkipReason::Cooldown,
+        );
         return Some(CandidateSkipReason::Cooldown);
     }
 
@@ -124,7 +126,9 @@ pub(in super::super) fn candidate_skip_reason_for_proxy(
         && has_more_candidates
     {
         // 中文注释：并发上限是软约束，最后一个候选仍要尝试，避免把可恢复抖动直接放大成全局不可用。
-        super::super::super::record_gateway_failover_attempt();
+        super::super::super::record_gateway_candidate_skip(
+            super::super::super::GatewayCandidateSkipReason::Inflight,
+        );
         return Some(CandidateSkipReason::Inflight);
     }
 

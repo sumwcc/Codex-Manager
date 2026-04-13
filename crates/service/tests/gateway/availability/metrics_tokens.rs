@@ -65,6 +65,13 @@ fn metrics_prometheus_contains_expected_series() {
     assert!(text.contains("codexmanager_gateway_requests_active "));
     assert!(text.contains("codexmanager_gateway_account_inflight_total "));
     assert!(text.contains("codexmanager_gateway_failover_attempts_total "));
+    assert!(text.contains("codexmanager_gateway_candidate_skips_total "));
+    assert!(
+        text.contains("codexmanager_gateway_candidate_skips_by_reason_total{reason=\"cooldown\"} ")
+    );
+    assert!(
+        text.contains("codexmanager_gateway_candidate_skips_by_reason_total{reason=\"inflight\"} ")
+    );
     assert!(text.contains("codexmanager_gateway_cooldown_marks_total "));
     assert!(text.contains("codexmanager_rpc_requests_total "));
     assert!(text.contains("codexmanager_rpc_requests_failed_total "));
@@ -158,4 +165,47 @@ fn usage_refresh_metrics_track_success_and_failure() {
     assert!(after_success >= before_success + 1);
     assert!(after_failures >= before_failures + 1);
     assert!(after_duration >= before_duration + 10);
+}
+
+/// 函数 `candidate_skip_metrics_track_reason_breakdown`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-13
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn candidate_skip_metrics_track_reason_breakdown() {
+    let before = gateway_metrics_prometheus();
+    let before_skips = metric_value(&before, "codexmanager_gateway_candidate_skips_total");
+    let before_cooldown = metric_value(
+        &before,
+        "codexmanager_gateway_candidate_skips_by_reason_total{reason=\"cooldown\"}",
+    );
+    let before_inflight = metric_value(
+        &before,
+        "codexmanager_gateway_candidate_skips_by_reason_total{reason=\"inflight\"}",
+    );
+
+    super::super::record_gateway_candidate_skip(super::super::GatewayCandidateSkipReason::Cooldown);
+    super::super::record_gateway_candidate_skip(super::super::GatewayCandidateSkipReason::Inflight);
+
+    let after = gateway_metrics_prometheus();
+    let after_skips = metric_value(&after, "codexmanager_gateway_candidate_skips_total");
+    let after_cooldown = metric_value(
+        &after,
+        "codexmanager_gateway_candidate_skips_by_reason_total{reason=\"cooldown\"}",
+    );
+    let after_inflight = metric_value(
+        &after,
+        "codexmanager_gateway_candidate_skips_by_reason_total{reason=\"inflight\"}",
+    );
+
+    assert!(after_skips >= before_skips + 2);
+    assert!(after_cooldown >= before_cooldown + 1);
+    assert!(after_inflight >= before_inflight + 1);
 }

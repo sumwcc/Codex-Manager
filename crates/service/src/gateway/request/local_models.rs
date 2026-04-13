@@ -1,6 +1,4 @@
 use codexmanager_core::rpc::types::ModelsResponse;
-use tiny_http::Response;
-
 const MODEL_CACHE_SCOPE_DEFAULT: &str = "default";
 
 /// 函数 `serialize_models_response`
@@ -87,46 +85,25 @@ pub(super) fn maybe_respond_local_models(
     if !is_models_list {
         return Ok(Some(request));
     }
+    let context = super::local_response::LocalResponseContext {
+        trace_id,
+        key_id,
+        protocol_type,
+        original_path,
+        path,
+        response_adapter,
+        request_method,
+        model_for_log,
+        reasoning_for_log,
+        storage,
+    };
     let hide_descriptions = should_hide_model_descriptions_for_request(&request);
 
     let cached = match read_cached_models_response(storage) {
         Ok(models) => models,
         Err(err) => {
             let message = format!("model options cache read failed: {err}");
-            super::trace_log::log_attempt_result(trace_id, "-", None, 503, Some(message.as_str()));
-            super::trace_log::log_request_final(
-                trace_id,
-                503,
-                None,
-                None,
-                Some(message.as_str()),
-                0,
-            );
-            super::record_gateway_request_outcome(path, 503, Some(protocol_type));
-            super::write_request_log(
-                storage,
-                super::request_log::RequestLogTraceContext {
-                    trace_id: Some(trace_id),
-                    original_path: Some(original_path),
-                    adapted_path: Some(path),
-                    response_adapter: Some(response_adapter),
-                    ..Default::default()
-                },
-                Some(key_id),
-                None,
-                path,
-                request_method,
-                model_for_log,
-                reasoning_for_log,
-                None,
-                Some(503),
-                super::request_log::RequestLogUsage::default(),
-                Some(message.as_str()),
-                None,
-            );
-            let response =
-                super::error_response::terminal_text_response(503, message, Some(trace_id));
-            let _ = request.respond(response);
+            super::local_response::respond_local_terminal_error(request, &context, 503, message)?;
             return Ok(None);
         }
     };
@@ -150,90 +127,12 @@ pub(super) fn maybe_respond_local_models(
             }
             Ok(_) => {
                 let message = "models refresh returned empty catalog".to_string();
-                super::trace_log::log_attempt_result(
-                    trace_id,
-                    "-",
-                    None,
-                    503,
-                    Some(message.as_str()),
-                );
-                super::trace_log::log_request_final(
-                    trace_id,
-                    503,
-                    None,
-                    None,
-                    Some(message.as_str()),
-                    0,
-                );
-                super::record_gateway_request_outcome(path, 503, Some(protocol_type));
-                super::write_request_log(
-                    storage,
-                    super::request_log::RequestLogTraceContext {
-                        trace_id: Some(trace_id),
-                        original_path: Some(original_path),
-                        adapted_path: Some(path),
-                        response_adapter: Some(response_adapter),
-                        ..Default::default()
-                    },
-                    Some(key_id),
-                    None,
-                    path,
-                    request_method,
-                    model_for_log,
-                    reasoning_for_log,
-                    None,
-                    Some(503),
-                    super::request_log::RequestLogUsage::default(),
-                    Some(message.as_str()),
-                    None,
-                );
-                let response =
-                    super::error_response::terminal_text_response(503, message, Some(trace_id));
-                let _ = request.respond(response);
+                super::local_response::respond_local_terminal_error(request, &context, 503, message)?;
                 return Ok(None);
             }
             Err(err) => {
                 let message = format!("models refresh failed: {err}");
-                super::trace_log::log_attempt_result(
-                    trace_id,
-                    "-",
-                    None,
-                    503,
-                    Some(message.as_str()),
-                );
-                super::trace_log::log_request_final(
-                    trace_id,
-                    503,
-                    None,
-                    None,
-                    Some(message.as_str()),
-                    0,
-                );
-                super::record_gateway_request_outcome(path, 503, Some(protocol_type));
-                super::write_request_log(
-                    storage,
-                    super::request_log::RequestLogTraceContext {
-                        trace_id: Some(trace_id),
-                        original_path: Some(original_path),
-                        adapted_path: Some(path),
-                        response_adapter: Some(response_adapter),
-                        ..Default::default()
-                    },
-                    Some(key_id),
-                    None,
-                    path,
-                    request_method,
-                    model_for_log,
-                    reasoning_for_log,
-                    None,
-                    Some(503),
-                    super::request_log::RequestLogUsage::default(),
-                    Some(message.as_str()),
-                    None,
-                );
-                let response =
-                    super::error_response::terminal_text_response(503, message, Some(trace_id));
-                let _ = request.respond(response);
+                super::local_response::respond_local_terminal_error(request, &context, 503, message)?;
                 return Ok(None);
             }
         }
@@ -241,43 +140,12 @@ pub(super) fn maybe_respond_local_models(
 
     let response_models = response_models_for_client(&models, hide_descriptions);
     let output = serialize_models_response(&response_models);
-    super::trace_log::log_attempt_result(trace_id, "-", None, 200, None);
-    super::trace_log::log_request_final(trace_id, 200, None, None, None, 0);
-    super::record_gateway_request_outcome(path, 200, Some(protocol_type));
-    super::write_request_log(
-        storage,
-        super::request_log::RequestLogTraceContext {
-            trace_id: Some(trace_id),
-            original_path: Some(original_path),
-            adapted_path: Some(path),
-            response_adapter: Some(response_adapter),
-            ..Default::default()
-        },
-        Some(key_id),
-        None,
-        path,
-        request_method,
-        model_for_log,
-        reasoning_for_log,
-        None,
-        Some(200),
+    super::local_response::respond_local_json(
+        request,
+        &context,
+        output,
         super::request_log::RequestLogUsage::default(),
-        None,
-        None,
-    );
-    let response = super::error_response::with_trace_id_header(
-        Response::from_string(output)
-            .with_status_code(200)
-            .with_header(
-                tiny_http::Header::from_bytes(
-                    b"content-type".as_slice(),
-                    b"application/json".as_slice(),
-                )
-                .map_err(|_| "build content-type header failed".to_string())?,
-            ),
-        Some(trace_id),
-    );
-    let _ = request.respond(response);
+    )?;
     Ok(None)
 }
 
