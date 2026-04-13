@@ -10,6 +10,12 @@ import {
 } from "../runtime/runtime-capabilities";
 import { useAppStore } from "../store/useAppStore";
 import { RuntimeCapabilities } from "../../types";
+import {
+  getAppErrorMessage,
+  isCommandMissingError,
+  unwrapRpcPayload,
+} from "./transport-errors";
+export { getAppErrorMessage, isCommandMissingError } from "./transport-errors";
 
 type InvokeParams = Record<string, unknown>;
 
@@ -344,79 +350,6 @@ export async function loadRuntimeCapabilities(
 }
 
 /**
- * 函数 `getAppErrorMessage`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - error: 参数 error
- * - fallback: 参数 fallback
- *
- * # 返回
- * 返回函数执行结果
- */
-export function getAppErrorMessage(
-  error: unknown,
-  fallback = "操作失败"
-): string {
-  if (error instanceof Error) {
-    const nested = getAppErrorMessage(error.message, "");
-    return nested || fallback;
-  }
-
-  const businessMessage = resolveBusinessErrorMessage(error);
-  if (businessMessage) return businessMessage;
-
-  const rpcMessage = resolveRpcErrorMessage(error).trim();
-  if (!rpcMessage || rpcMessage === "null" || rpcMessage === "undefined") {
-    return fallback;
-  }
-  return rpcMessage;
-}
-
-/**
- * 函数 `resolveRpcErrorMessage`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - error: 参数 error
- *
- * # 返回
- * 返回函数执行结果
- */
-function resolveRpcErrorMessage(error: unknown): string {
-  if (typeof error === "string") return error;
-  const record = asRecord(error);
-  if (record?.message && typeof record.message === "string") {
-    return record.message;
-  }
-  return error ? JSON.stringify(error) : "RPC 请求失败";
-}
-
-/**
- * 函数 `throwIfBusinessError`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - payload: 参数 payload
- *
- * # 返回
- * 返回函数执行结果
- */
-function throwIfBusinessError(payload: unknown): void {
-  const msg = resolveBusinessErrorMessage(payload);
-  if (msg) throw new Error(msg);
-}
-
-/**
  * 函数 `invokeWebRpc`
  *
  * 作者: gaohongshun
@@ -510,19 +443,7 @@ async function postWebRpc<T>(
    * # 返回
    * 返回函数执行结果
    */
-  const payload = (await response.json()) as unknown;
-  const responseRecord = asRecord(payload);
-  if (responseRecord && "error" in responseRecord) {
-    throw new Error(resolveRpcErrorMessage(responseRecord.error));
-  }
-  if (responseRecord && "result" in responseRecord) {
-    const result = responseRecord.result as T;
-    throwIfBusinessError(result);
-    return result;
-  }
-
-  throwIfBusinessError(payload);
-  return payload as T;
+  return unwrapRpcPayload<T>((await response.json()) as unknown);
 }
 
 /**
@@ -576,28 +497,6 @@ export function withAddr(
     addr: addr || null,
     ...params,
   };
-}
-
-/**
- * 函数 `isCommandMissingError`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - err: 参数 err
- *
- * # 返回
- * 返回函数执行结果
- */
-export function isCommandMissingError(err: unknown): boolean {
-  const msg = getAppErrorMessage(err, "").toLowerCase();
-  return (
-    msg.includes("unknown command") ||
-    msg.includes("not found") ||
-    msg.includes("is not a registered")
-  );
 }
 
 /**
@@ -662,61 +561,7 @@ export async function invoke<T>(
     () => tauriInvoke(method, params || {}),
     options
   );
-
-  const responseRecord = asRecord(response);
-  if (responseRecord && "error" in responseRecord) {
-    const error = responseRecord.error;
-    throw new Error(
-      typeof error === "string"
-        ? error
-        : asRecord(error)?.message
-          ? String(asRecord(error)?.message)
-          : JSON.stringify(error)
-    );
-  }
-
-  if (responseRecord && "result" in responseRecord) {
-    const payload = responseRecord.result as T;
-    throwIfBusinessError(payload);
-    return payload;
-  }
-  
-  throwIfBusinessError(response);
-  return response as T;
-}
-
-/**
- * 函数 `resolveBusinessErrorMessage`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - payload: 参数 payload
- *
- * # 返回
- * 返回函数执行结果
- */
-function resolveBusinessErrorMessage(payload: unknown): string {
-  const source = asRecord(payload);
-  if (!source) return "";
-  const error = source.error;
-  if (source.ok === false) {
-    return typeof error === "string"
-      ? error
-      : asRecord(error)?.message
-        ? String(asRecord(error)?.message)
-        : "操作失败";
-  }
-  if (error) {
-    return typeof error === "string"
-      ? error
-      : asRecord(error)?.message
-        ? String(asRecord(error)?.message)
-        : "";
-  }
-  return "";
+  return unwrapRpcPayload<T>(response);
 }
 
 /**

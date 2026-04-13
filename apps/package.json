@@ -10,7 +10,7 @@
     "build:desktop": "next build",
     "test:e2e": "playwright test",
     "test:navigation": "playwright test tests/navigation-cache.spec.ts",
-    "test:runtime": "node --test tests/runtime-capabilities.test.mjs",
+    "test:runtime": "node --test tests/runtime-capabilities.test.mjs tests/transport-errors.test.mjs",
     "start": "next start",
     "lint": "eslint"
   },
