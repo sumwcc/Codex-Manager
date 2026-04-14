@@ -407,7 +407,12 @@ pub(super) fn build_local_validation_result(
     let (effective_model, effective_reasoning, effective_service_tier) =
         resolve_effective_request_overrides(&api_key);
     let preferred_prompt_cache_key = initial_request_meta.prompt_cache_key.clone().or_else(|| {
-        if client_request_meta.has_prompt_cache_key {
+        if effective_protocol_type == PROTOCOL_ANTHROPIC_NATIVE {
+            // 中文注释：Anthropic 协议适配阶段会基于 metadata.user_id 生成一个临时
+            // prompt_cache_key；这里不能把它当成原始客户端线程锚点，否则会和
+            // conversation_id / sticky conversation 冲突，导致首跳就把 turn-state 清掉。
+            None
+        } else if client_request_meta.has_prompt_cache_key {
             client_request_meta.prompt_cache_key.clone()
         } else {
             None

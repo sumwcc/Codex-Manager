@@ -1580,9 +1580,9 @@ fn passthrough_sse_reader_emits_keepalive_for_responses_stream() {
         &[
             (
                 "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_keepalive_1\"}}\n\n",
-                50,
+                0,
             ),
-            ("data: [DONE]\n\n", 0),
+            ("data: [DONE]\n\n", 50),
         ],
     );
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
@@ -1600,6 +1600,41 @@ fn passthrough_sse_reader_emits_keepalive_for_responses_stream() {
     super::reload_from_env();
 
     assert!(mapped.contains("\"type\":\"codexmanager.keepalive\""));
+    assert!(mapped.contains("\"type\":\"response.created\""));
+    assert!(mapped.contains("data: [DONE]"));
+}
+
+#[test]
+fn passthrough_sse_reader_waits_for_first_upstream_frame_before_keepalive() {
+    let _guard = crate::test_env_guard();
+    let _keepalive_guard = EnvGuard::set("CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS", "5");
+    super::reload_from_env();
+
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[
+            (
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_wait_first_frame\"}}\n\n",
+                25,
+            ),
+            ("data: [DONE]\n\n", 0),
+        ],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = PassthroughSseUsageReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        PassthroughSseProtocol::Generic,
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read passthrough sse without initial keepalive");
+    server.join().expect("join delayed first-frame upstream");
+    super::reload_from_env();
+
+    assert!(!mapped.contains("\"type\":\"codexmanager.keepalive\""));
     assert!(mapped.contains("\"type\":\"response.created\""));
     assert!(mapped.contains("data: [DONE]"));
 }
@@ -1709,6 +1744,10 @@ fn openai_chat_sse_reader_emits_keepalive_chunk_during_idle_gap() {
     let (upstream, server) = open_streaming_mock_http_response(
         "text/event-stream",
         &[
+            (
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_chat_keepalive_1\",\"created\":1,\"model\":\"gpt-5.3-codex\"}}\n\n",
+                0,
+            ),
             (
                 "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_chat_keepalive_1\",\"created\":1,\"model\":\"gpt-5.3-codex\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}]}}\n\n",
                 50,

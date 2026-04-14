@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_SSE_KEEPALIVE_INTERVAL_MS: u64 = 15_000;
 const ENV_SSE_KEEPALIVE_INTERVAL_MS: &str = "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS";
+const UPSTREAM_SSE_FRAME_CHANNEL_CAPACITY: usize = 128;
 
 static SSE_KEEPALIVE_INTERVAL_MS: AtomicU64 = AtomicU64::new(DEFAULT_SSE_KEEPALIVE_INTERVAL_MS);
 const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "连接中断（可能是网络波动或客户端主动取消）";
@@ -84,7 +85,8 @@ impl UpstreamSseFramePump {
     /// # 返回
     /// 返回函数执行结果
     pub(crate) fn new(upstream: reqwest::blocking::Response) -> Self {
-        let (tx, rx) = mpsc::sync_channel::<UpstreamSseFramePumpItem>(32);
+        let (tx, rx) =
+            mpsc::sync_channel::<UpstreamSseFramePumpItem>(UPSTREAM_SSE_FRAME_CHANNEL_CAPACITY);
         thread::spawn(move || {
             let mut reader = BufReader::new(upstream);
             let mut pending_frame_lines = Vec::new();
@@ -201,6 +203,10 @@ pub(super) fn stream_idle_timed_out(last_upstream_activity: Instant) -> bool {
 
 pub(super) fn stream_idle_timeout_message() -> String {
     STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE.to_string()
+}
+
+pub(super) fn should_emit_keepalive(saw_upstream_frame: bool) -> bool {
+    saw_upstream_frame
 }
 
 /// 函数 `current_sse_keepalive_interval_ms`

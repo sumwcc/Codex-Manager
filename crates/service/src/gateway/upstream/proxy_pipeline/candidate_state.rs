@@ -74,9 +74,9 @@ impl CandidateExecutionState {
         &mut self,
         account: &Account,
         idx: usize,
-        anthropic_has_prompt_cache_key: bool,
+        anthropic_has_thread_anchor: bool,
     ) -> bool {
-        if !anthropic_has_prompt_cache_key {
+        if !anthropic_has_thread_anchor {
             return idx > 0;
         }
         let candidate_scope = account
@@ -249,6 +249,7 @@ impl CandidateExecutionState {
 mod tests {
     use super::CandidateExecutionState;
     use bytes::Bytes;
+    use codexmanager_core::storage::Account;
 
     /// 函数 `body_for_attempt_rewrites_model_override`
     ///
@@ -272,7 +273,7 @@ mod tests {
             url_alt: None,
             candidate_count: 1,
             account_max_inflight: 1,
-            anthropic_has_prompt_cache_key: false,
+            anthropic_has_thread_anchor: false,
             has_sticky_fallback_session: false,
             has_sticky_fallback_conversation: false,
             has_body_encrypted_content: false,
@@ -315,7 +316,7 @@ mod tests {
             url_alt: None,
             candidate_count: 1,
             account_max_inflight: 1,
-            anthropic_has_prompt_cache_key: false,
+            anthropic_has_thread_anchor: false,
             has_sticky_fallback_session: false,
             has_sticky_fallback_conversation: false,
             has_body_encrypted_content: false,
@@ -339,5 +340,69 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("client-thread")
         );
+    }
+
+    #[test]
+    fn strip_session_affinity_preserves_same_workspace_when_thread_anchor_exists() {
+        let mut state = CandidateExecutionState::default();
+        let first = Account {
+            id: "acc-1".to_string(),
+            label: "acc-1".to_string(),
+            issuer: "https://auth.openai.com".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: Some("ws-same".to_string()),
+            group_name: None,
+            sort: 1,
+            status: "active".to_string(),
+            created_at: 0,
+            updated_at: 0,
+        };
+        let second = Account {
+            id: "acc-2".to_string(),
+            label: "acc-2".to_string(),
+            issuer: "https://auth.openai.com".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: Some("ws-same".to_string()),
+            group_name: None,
+            sort: 2,
+            status: "active".to_string(),
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        assert!(!state.strip_session_affinity(&first, 0, true));
+        assert!(!state.strip_session_affinity(&second, 1, true));
+    }
+
+    #[test]
+    fn strip_session_affinity_strips_cross_workspace_when_thread_anchor_exists() {
+        let mut state = CandidateExecutionState::default();
+        let first = Account {
+            id: "acc-1".to_string(),
+            label: "acc-1".to_string(),
+            issuer: "https://auth.openai.com".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: Some("ws-a".to_string()),
+            group_name: None,
+            sort: 1,
+            status: "active".to_string(),
+            created_at: 0,
+            updated_at: 0,
+        };
+        let second = Account {
+            id: "acc-2".to_string(),
+            label: "acc-2".to_string(),
+            issuer: "https://auth.openai.com".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: Some("ws-b".to_string()),
+            group_name: None,
+            sort: 2,
+            status: "active".to_string(),
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        assert!(!state.strip_session_affinity(&first, 0, true));
+        assert!(state.strip_session_affinity(&second, 1, true));
     }
 }
