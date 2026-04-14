@@ -1520,9 +1520,9 @@ export default function SettingsPage() {
               </div>
 
               <p className="text-[10px] text-muted-foreground">
-                {t("强兼容模式为默认值。")} <code>{GATEWAY_MODE_ENV_KEY}</code>{" "}
-                {t("在透传模式下会被写成")} <code>transparent</code>{" "}
-                {t("以显式关闭额外兼容改写。")}
+                {t("透传模式为默认值。")} <code>{GATEWAY_MODE_ENV_KEY}</code>{" "}
+                {t("在强兼容模式下会被写成")} <code>enhanced</code>{" "}
+                {t("以显式启用额外兼容改写。")}
               </p>
             </CardContent>
           </Card>

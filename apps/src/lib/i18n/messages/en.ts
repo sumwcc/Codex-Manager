@@ -90,11 +90,11 @@ export const EN_MESSAGES: MessageCatalog = {
     "Keep the original Codex request and response shape as much as possible, suitable for standard proxy flows.",
   "对请求参数与响应结构做更多兼容处理，适合兼容性优先场景。":
     "Apply more compatibility handling to request parameters and response structures, suitable when compatibility matters most.",
-  "强兼容模式为默认值。": "Strong compatibility mode is the default.",
-  "在透传模式下会被写成":
+  "透传模式为默认值。": "Passthrough mode is the default.",
+  "在强兼容模式下会被写成":
     "is written as",
-  "以显式关闭额外兼容改写。":
-    "to explicitly disable extra compatibility rewrites.",
+  "以显式启用额外兼容改写。":
+    "to explicitly enable extra compatibility rewrites.",
   界面语言: "Interface language",
   "切换应用界面语言，设置后会立即生效并持久化保存。":
     "Switch the UI language. Changes apply immediately and persist.",

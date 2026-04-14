@@ -129,8 +129,8 @@ fn reload_from_env_defaults_limits_to_unbounded_codex_friendly_values() {
     reload_from_env();
 
     assert_eq!(account_max_inflight_limit(), 0);
-    assert_eq!(current_gateway_mode(), "enhanced");
-    assert!(!transparent_gateway_mode_enabled());
+    assert_eq!(current_gateway_mode(), "transparent");
+    assert!(transparent_gateway_mode_enabled());
     assert!(!strict_request_param_allowlist_enabled());
     assert_eq!(request_gate_wait_timeout(), None);
     assert_eq!(front_proxy_max_body_bytes(), 0);

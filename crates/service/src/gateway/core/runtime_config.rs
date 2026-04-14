@@ -1005,7 +1005,7 @@ pub(super) fn reload_from_env() {
 
     let gateway_mode = env_non_empty(ENV_GATEWAY_MODE)
         .and_then(|value| parse_gateway_mode(value.as_str()))
-        .unwrap_or(GatewayMode::Enhanced);
+        .unwrap_or(GatewayMode::Transparent);
     let mut cached_gateway_mode =
         crate::lock_utils::write_recover(gateway_mode_cell(), "gateway_mode");
     *cached_gateway_mode = gateway_mode;
@@ -1199,7 +1199,7 @@ fn model_forward_rules_cell() -> &'static RwLock<Vec<ModelForwardRule>> {
 }
 
 fn gateway_mode_cell() -> &'static RwLock<GatewayMode> {
-    GATEWAY_MODE.get_or_init(|| RwLock::new(GatewayMode::Enhanced))
+    GATEWAY_MODE.get_or_init(|| RwLock::new(GatewayMode::Transparent))
 }
 
 /// 函数 `originator_cell`
