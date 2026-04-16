@@ -94,6 +94,19 @@ function formatUsageRefreshErrorMessage(
   return message;
 }
 
+function getAccountsAutoRefreshIntervalMs(
+  enabled: boolean,
+  intervalSecs: number,
+): number | false {
+  if (!enabled) {
+    return false;
+  }
+  if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+    return false;
+  }
+  return Math.max(1, intervalSecs) * 1000;
+}
+
 /**
  * 函数 `useAccounts`
  *
@@ -112,11 +125,16 @@ export function useAccounts() {
   const { t } = useI18n();
   const localDayRange = useLocalDayRange();
   const serviceStatus = useAppStore((state) => state.serviceStatus);
+  const backgroundTasks = useAppStore((state) => state.appSettings.backgroundTasks);
   const { canAccessManagementRpc } = useRuntimeCapabilities();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const isPageActive = useDesktopPageActive("/accounts/");
   const areAccountQueriesEnabled = useDeferredDesktopActivation(
     isServiceReady && isPageActive,
+  );
+  const accountsAutoRefreshIntervalMs = getAccountsAutoRefreshIntervalMs(
+    areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
+    backgroundTasks.usagePollIntervalSecs,
   );
   const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
     buildStartupSnapshotQueryKey(
@@ -155,6 +173,8 @@ export function useAccounts() {
     queryFn: () => accountClient.list(),
     enabled: areAccountQueriesEnabled,
     retry: 1,
+    refetchInterval: accountsAutoRefreshIntervalMs,
+    refetchIntervalInBackground: false,
     placeholderData: (previousData): AccountListResult | undefined =>
       previousData ||
       (startupAccounts.length > 0
@@ -172,6 +192,8 @@ export function useAccounts() {
     queryFn: () => accountClient.listUsage(),
     enabled: areAccountQueriesEnabled,
     retry: 1,
+    refetchInterval: accountsAutoRefreshIntervalMs,
+    refetchIntervalInBackground: false,
     placeholderData: (previousData) =>
       previousData || (startupUsages.length > 0 ? startupUsages : undefined),
   });
