@@ -28,7 +28,6 @@ import {
   DEFAULT_GATEWAY_MODE,
   GATEWAY_MODE_ENV_KEY,
   normalizeGatewayMode,
-  toGatewayModeOverride,
 } from "@/lib/gateway-mode";
 import { AppSettings, BackgroundTaskSettings } from "@/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -591,11 +590,8 @@ export default function SettingsPage() {
   const gatewayUserAgentVersionInput =
     gatewayUserAgentVersionDraft ??
     (snapshot?.gatewayUserAgentVersion || gatewayUserAgentVersionDefault);
-  const gatewayModeOverride = String(
-    snapshot?.envOverrides[GATEWAY_MODE_ENV_KEY] ?? "",
-  ).trim();
   const gatewayModeValue = normalizeGatewayMode(
-    gatewayModeOverride || DEFAULT_GATEWAY_MODE,
+    snapshot?.gatewayMode ?? DEFAULT_GATEWAY_MODE,
   );
   const transportInputValues = {
     sseKeepaliveIntervalMs:
@@ -1108,7 +1104,7 @@ export default function SettingsPage() {
                 <CardTitle className="text-base">{t("Gateway 模式")}</CardTitle>
               </div>
               <CardDescription>
-                {t("控制 Gateway 请求采用原始透传还是更激进的兼容改写。")}
+                {t("控制 Gateway 仅在非原生兼容链路中是否启用额外适配；原生 /v1/responses 默认始终优先保持最小改写。")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -1118,14 +1114,11 @@ export default function SettingsPage() {
                   value={gatewayModeValue}
                   onValueChange={(value) => {
                     const nextMode = normalizeGatewayMode(value);
-                    const nextOverride = toGatewayModeOverride(nextMode);
-                    if (nextOverride === gatewayModeOverride) {
+                    if (nextMode === gatewayModeValue) {
                       return;
                     }
                     updateSettings.mutate({
-                      envOverrides: {
-                        [GATEWAY_MODE_ENV_KEY]: nextOverride,
-                      },
+                      gatewayMode: nextMode,
                     });
                   }}
                 >
@@ -1158,12 +1151,14 @@ export default function SettingsPage() {
                 <p className="mt-3 text-xs text-muted-foreground">
                   {t(GATEWAY_MODE_HINTS[gatewayModeValue])}
                 </p>
+                <p className="mt-2 text-[10px] text-muted-foreground">
+                  {t("当前来源：")} <code>{snapshot?.gatewayModeSource || "default"}</code>
+                </p>
               </div>
 
               <p className="text-[10px] text-muted-foreground">
-                {t("透传模式为默认值。")} <code>{GATEWAY_MODE_ENV_KEY}</code>{" "}
-                {t("在强兼容模式下会被写成")} <code>enhanced</code>{" "}
-                {t("以显式启用额外兼容改写。")}
+                {t("透传模式为默认值。应用内优先使用结构化设置；")} <code>{GATEWAY_MODE_ENV_KEY}</code>{" "}
+                {t("仍可作为外部部署覆盖，但不再是设置页的主写入通道。")}
               </p>
             </CardContent>
           </Card>

@@ -110,6 +110,8 @@ mod runtime_config;
 mod selection;
 #[path = "request/session_affinity.rs"]
 mod session_affinity;
+#[path = "request/thread_anchor.rs"]
+mod thread_anchor;
 #[path = "auth/token_exchange.rs"]
 mod token_exchange;
 #[path = "observability/trace_log.rs"]
@@ -137,14 +139,21 @@ use protocol_adapter::{
 pub(super) use request_helpers::{
     inspect_service_tier_for_log, inspect_service_tier_value, is_html_content_type,
     is_upstream_challenge_response, normalize_models_path, parse_request_metadata,
+    validate_text_input_limit_for_path,
 };
 #[cfg(test)]
 use request_helpers::{should_drop_incoming_header, should_drop_incoming_header_for_failover};
 pub(crate) use request_log::{RequestLogTraceContext, RequestLogUsage};
+#[cfg(test)]
+use request_rewrite::apply_request_overrides_with_service_tier_and_prompt_cache_key;
 use request_rewrite::{
     apply_request_overrides_with_prompt_cache_key,
     apply_request_overrides_with_service_tier_and_forced_prompt_cache_key,
-    apply_request_overrides_with_service_tier_and_prompt_cache_key, compute_upstream_url,
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope, compute_upstream_url,
+};
+pub(super) use thread_anchor::{
+    clear_prompt_cache_key_when_native_anchor, resolve_fallback_thread_anchor,
+    resolve_local_conversation_id_with_sticky_fallback,
 };
 pub(crate) use trace_log::{
     log_client_service_tier, log_request_final, log_request_start, next_trace_id,
@@ -483,8 +492,16 @@ pub(crate) fn current_gateway_mode() -> String {
     runtime_config::current_gateway_mode()
 }
 
+pub(crate) fn default_gateway_mode() -> &'static str {
+    runtime_config::default_gateway_mode()
+}
+
 pub(crate) fn transparent_gateway_mode_enabled() -> bool {
     runtime_config::transparent_gateway_mode_enabled()
+}
+
+pub(crate) fn set_gateway_mode(mode: &str) -> Result<String, String> {
+    runtime_config::set_gateway_mode(mode)
 }
 
 /// 函数 `request_compression_enabled`
@@ -1011,14 +1028,8 @@ pub(crate) fn gateway_resolve_ws_prompt_cache_key(
     api_key: &codexmanager_core::storage::ApiKey,
     incoming_headers: &IncomingHeaderSnapshot,
 ) -> Result<(IncomingHeaderSnapshot, Option<String>), String> {
-    let local_conversation_id = incoming_headers
-        .conversation_id()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            upstream::header_profile::derive_sticky_conversation_id_from_headers(incoming_headers)
-        });
+    let local_conversation_id =
+        resolve_local_conversation_id_with_sticky_fallback(incoming_headers, true);
     let conversation_binding = conversation_binding::load_conversation_binding(
         storage,
         api_key.key_hash.as_str(),
@@ -1026,7 +1037,8 @@ pub(crate) fn gateway_resolve_ws_prompt_cache_key(
     )?;
     let incoming_headers =
         incoming_headers.with_conversation_id_override(local_conversation_id.as_deref());
-    let prompt_cache_key = conversation_binding::effective_thread_anchor(
+    let prompt_cache_key = resolve_fallback_thread_anchor(
+        &incoming_headers,
         local_conversation_id.as_deref(),
         conversation_binding.as_ref(),
     );
@@ -1065,7 +1077,7 @@ pub(crate) fn gateway_rewrite_ws_responses_body(
         .service_tier
         .as_deref()
         .and_then(crate::apikey::service_tier::normalize_service_tier);
-    apply_request_overrides_with_service_tier_and_prompt_cache_key(
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
         path,
         body,
         normalized_model,
@@ -1073,6 +1085,7 @@ pub(crate) fn gateway_rewrite_ws_responses_body(
         normalized_service_tier,
         api_key.upstream_base_url.as_deref(),
         prompt_cache_key,
+        false,
     )
 }
 

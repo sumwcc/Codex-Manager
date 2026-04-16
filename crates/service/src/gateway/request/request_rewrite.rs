@@ -437,7 +437,7 @@ pub(super) fn apply_request_overrides_with_service_tier(
     service_tier: Option<&str>,
     upstream_base_url: Option<&str>,
 ) -> Vec<u8> {
-    apply_request_overrides_with_service_tier_and_prompt_cache_key(
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
         path,
         body,
         model_slug,
@@ -445,6 +445,7 @@ pub(super) fn apply_request_overrides_with_service_tier(
         service_tier,
         upstream_base_url,
         None,
+        true,
     )
 }
 
@@ -468,7 +469,7 @@ pub(super) fn apply_request_overrides_with_prompt_cache_key(
     upstream_base_url: Option<&str>,
     prompt_cache_key: Option<&str>,
 ) -> Vec<u8> {
-    apply_request_overrides_with_service_tier_and_prompt_cache_key(
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
         path,
         body,
         model_slug,
@@ -476,6 +477,7 @@ pub(super) fn apply_request_overrides_with_prompt_cache_key(
         None,
         upstream_base_url,
         prompt_cache_key,
+        true,
     )
 }
 
@@ -490,6 +492,7 @@ pub(super) fn apply_request_overrides_with_prompt_cache_key(
 ///
 /// # 返回
 /// 返回函数执行结果
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key(
     path: &str,
     body: Vec<u8>,
@@ -498,6 +501,28 @@ pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key(
     service_tier: Option<&str>,
     upstream_base_url: Option<&str>,
     prompt_cache_key: Option<&str>,
+) -> Vec<u8> {
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+        path,
+        body,
+        model_slug,
+        reasoning_effort,
+        service_tier,
+        upstream_base_url,
+        prompt_cache_key,
+        true,
+    )
+}
+
+pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+    path: &str,
+    body: Vec<u8>,
+    model_slug: Option<&str>,
+    reasoning_effort: Option<&str>,
+    service_tier: Option<&str>,
+    upstream_base_url: Option<&str>,
+    prompt_cache_key: Option<&str>,
+    allow_codex_enhanced_rewrite: bool,
 ) -> Vec<u8> {
     apply_request_overrides_with_prompt_cache_key_mode(
         path,
@@ -508,6 +533,7 @@ pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key(
         prompt_cache_key,
         false,
         service_tier,
+        allow_codex_enhanced_rewrite,
     )
 }
 
@@ -571,6 +597,7 @@ pub(super) fn apply_request_overrides_with_service_tier_and_forced_prompt_cache_
         prompt_cache_key,
         true,
         service_tier,
+        true,
     )
 }
 
@@ -601,10 +628,11 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
     prompt_cache_key: Option<&str>,
     force_prompt_cache_key: bool,
     service_tier: Option<&str>,
+    allow_codex_enhanced_rewrite: bool,
 ) -> Vec<u8> {
     let use_codex_responses_compat = should_apply_codex_responses_compat(path, upstream_base_url);
-    let use_codex_enhanced_rewrite =
-        should_apply_codex_enhanced_rewrite(use_codex_responses_compat);
+    let use_codex_enhanced_rewrite = allow_codex_enhanced_rewrite
+        && should_apply_codex_enhanced_rewrite(use_codex_responses_compat);
     let normalized_model = model_slug.map(str::trim).filter(|v| !v.is_empty());
     let normalized_reasoning = reasoning_effort
         .and_then(crate::reasoning_effort::normalize_reasoning_effort)

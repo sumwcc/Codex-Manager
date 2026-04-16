@@ -40,7 +40,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .map(|params| params.unwrap_or_default())
                 .map(RequestLogListParams::normalized)
                 .map_err(|err| format!("invalid requestlog/summary params: {err}"));
-            super::value_or_error(params.and_then(requestlog_summary::read_request_log_filter_summary))
+            super::value_or_error(
+                params.and_then(requestlog_summary::read_request_log_filter_summary),
+            )
         }
         "requestlog/clear" => super::ok_or_error(requestlog_clear::clear_request_logs()),
         "requestlog/error_clear" => {

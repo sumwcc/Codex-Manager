@@ -87,7 +87,7 @@ pub(crate) enum GatewayMode {
 }
 
 impl GatewayMode {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Transparent => "transparent",
             Self::Enhanced => "enhanced",
@@ -509,10 +509,24 @@ pub(crate) fn current_gateway_mode() -> String {
         .to_string()
 }
 
+pub(crate) fn default_gateway_mode() -> &'static str {
+    GatewayMode::Transparent.as_str()
+}
+
 pub(crate) fn transparent_gateway_mode_enabled() -> bool {
     ensure_runtime_config_loaded();
     *crate::lock_utils::read_recover(gateway_mode_cell(), "gateway_mode")
         == GatewayMode::Transparent
+}
+
+pub(crate) fn set_gateway_mode(mode: &str) -> Result<String, String> {
+    ensure_runtime_config_loaded();
+    let normalized = parse_gateway_mode(mode)
+        .ok_or_else(|| "gatewayMode must be transparent or enhanced".to_string())?;
+    std::env::set_var(ENV_GATEWAY_MODE, normalized.as_str());
+    let mut cached = crate::lock_utils::write_recover(gateway_mode_cell(), "gateway_mode");
+    *cached = normalized;
+    Ok(normalized.as_str().to_string())
 }
 
 /// 函数 `resolve_forwarded_model`

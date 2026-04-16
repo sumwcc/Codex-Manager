@@ -952,9 +952,7 @@ pub(in super::super) fn proxy_aggregate_request(
                     upstream_request_id: bridge.upstream_request_id.as_deref(),
                     upstream_cf_ray: bridge.upstream_cf_ray.as_deref(),
                     upstream_auth_error: bridge.upstream_auth_error.as_deref(),
-                    upstream_identity_error_code: bridge
-                        .upstream_identity_error_code
-                        .as_deref(),
+                    upstream_identity_error_code: bridge.upstream_identity_error_code.as_deref(),
                     upstream_content_type: bridge.upstream_content_type.as_deref(),
                     last_sse_event_type: bridge.last_sse_event_type.as_deref(),
                 },

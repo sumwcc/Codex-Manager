@@ -10,6 +10,7 @@ pub(crate) enum ErrorCode {
     UnknownError,
     InvalidSettingsPayload,
     InvalidRequestPayload,
+    InputTooLarge,
     ProtocolMappingError,
     RequestBodyTooLarge,
     BackendProxyError,
@@ -32,6 +33,7 @@ impl ErrorCode {
             Self::UnknownError => "unknown_error",
             Self::InvalidSettingsPayload => "invalid_settings_payload",
             Self::InvalidRequestPayload => "invalid_request_payload",
+            Self::InputTooLarge => "input_too_large",
             Self::ProtocolMappingError => "protocol_mapping_error",
             Self::RequestBodyTooLarge => "request_body_too_large",
             Self::BackendProxyError => "backend_proxy_error",
@@ -93,6 +95,12 @@ pub(crate) fn classify_message(message: &str) -> ErrorCode {
     }
     if starts_with("invalid app settings payload:") {
         return ErrorCode::InvalidSettingsPayload;
+    }
+    if starts_with("input exceeds the maximum length of")
+        || starts_with("输入超过最大长度")
+        || starts_with("输入过大")
+    {
+        return ErrorCode::InputTooLarge;
     }
     if starts_with("request body too large") {
         return ErrorCode::RequestBodyTooLarge;
@@ -286,6 +294,10 @@ mod tests {
         assert_eq!(
             classify_message("invalid app settings payload: missing field"),
             ErrorCode::InvalidSettingsPayload
+        );
+        assert_eq!(
+            classify_message("Input exceeds the maximum length of 1048576 characters."),
+            ErrorCode::InputTooLarge
         );
         assert_eq!(
             classify_message("upstream total timeout exceeded"),

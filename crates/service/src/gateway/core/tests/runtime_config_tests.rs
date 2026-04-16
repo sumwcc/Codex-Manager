@@ -141,6 +141,24 @@ fn reload_from_env_defaults_limits_to_unbounded_codex_friendly_values() {
     assert!(request_compression_enabled());
 }
 
+#[test]
+fn set_gateway_mode_updates_env_and_cache() {
+    let _guard = crate::test_env_guard();
+    let _mode_guard = EnvGuard::clear(ENV_GATEWAY_MODE);
+
+    let applied = set_gateway_mode("enhanced").expect("set gateway mode");
+    assert_eq!(applied, "enhanced");
+    assert_eq!(current_gateway_mode(), "enhanced");
+    assert_eq!(
+        std::env::var(ENV_GATEWAY_MODE).ok().as_deref(),
+        Some("enhanced")
+    );
+
+    let reverted = set_gateway_mode("transparent").expect("reset gateway mode");
+    assert_eq!(reverted, "transparent");
+    assert!(transparent_gateway_mode_enabled());
+}
+
 /// 函数 `parse_proxy_list_env_limits_to_five_entries`
 ///
 /// 作者: gaohongshun

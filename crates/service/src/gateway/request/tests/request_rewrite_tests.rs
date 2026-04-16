@@ -1,6 +1,7 @@
 use super::{
     apply_request_overrides, apply_request_overrides_with_forced_prompt_cache_key,
     apply_request_overrides_with_prompt_cache_key, apply_request_overrides_with_service_tier,
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope,
 };
 use serde_json::json;
 
@@ -457,6 +458,46 @@ fn responses_transparent_mode_skips_request_rewrite_layer_prompt_cache_inference
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
     assert!(value.get("prompt_cache_key").is_none());
+}
+
+#[test]
+fn responses_enhanced_scope_disabled_preserves_native_codex_body_shape() {
+    let _guard = crate::test_env_guard();
+    let _mode_guard = RuntimeEnvGuard::set(GATEWAY_MODE_ENV, "enhanced");
+    let body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "hello",
+        "stream": false,
+        "store": true,
+        "reasoning": { "effort": "medium" },
+        "stream_passthrough": true
+    });
+    let out = apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+        Some("thread_123"),
+        false,
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    assert_eq!(
+        value.get("input").and_then(serde_json::Value::as_str),
+        Some("hello")
+    );
+    assert_eq!(
+        value.get("stream").and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        value.get("store").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert!(value.get("instructions").is_none());
+    assert!(value.get("prompt_cache_key").is_none());
+    assert!(value.get("stream_passthrough").is_none());
 }
 
 /// 函数 `responses_infers_prompt_cache_key_from_conversation_id_for_codex_backend`

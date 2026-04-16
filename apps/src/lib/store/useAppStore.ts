@@ -56,6 +56,9 @@ export const useAppStore = create<AppState>((set) => ({
     serviceListenModeOptions: ["loopback", "all_interfaces"],
     routeStrategy: "ordered",
     routeStrategyOptions: ["ordered", "balanced"],
+    gatewayMode: "transparent",
+    gatewayModeDefault: "transparent",
+    gatewayModeSource: "default",
     freeAccountMaxModel: "auto",
     freeAccountMaxModelOptions: [
       "auto",
@@ -83,7 +86,7 @@ export const useAppStore = create<AppState>((set) => ({
     pluginMarketMode: "builtin",
     pluginMarketSourceUrl: "",
     upstreamProxyUrl: "",
-    upstreamStreamTimeoutMs: 600000,
+    upstreamStreamTimeoutMs: 300000,
     sseKeepaliveIntervalMs: 15000,
     backgroundTasks: {
       usagePollingEnabled: true,

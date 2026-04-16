@@ -1540,6 +1540,9 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     routeStrategyOptions: asArray(source.routeStrategyOptions).map((item) =>
       asString(item)
     ),
+    gatewayMode: asString(source.gatewayMode) || "transparent",
+    gatewayModeDefault: asString(source.gatewayModeDefault) || "transparent",
+    gatewayModeSource: asString(source.gatewayModeSource) || "default",
     freeAccountMaxModel: asString(source.freeAccountMaxModel) || "auto",
     freeAccountMaxModelOptions: asArray(source.freeAccountMaxModelOptions).map((item) =>
       asString(item)
@@ -1562,7 +1565,7 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     pluginMarketMode: asString(source.pluginMarketMode ?? source.plugin_market_mode) || "builtin",
     pluginMarketSourceUrl: asString(source.pluginMarketSourceUrl ?? source.plugin_market_source_url),
     upstreamProxyUrl: asString(source.upstreamProxyUrl),
-    upstreamStreamTimeoutMs: asInteger(source.upstreamStreamTimeoutMs, 600_000, 0),
+    upstreamStreamTimeoutMs: asInteger(source.upstreamStreamTimeoutMs, 300_000, 0),
     sseKeepaliveIntervalMs: asInteger(source.sseKeepaliveIntervalMs, 15_000, 1),
     backgroundTasks: normalizeBackgroundTasks(source.backgroundTasks),
     envOverrides: normalizeStringRecord(source.envOverrides),

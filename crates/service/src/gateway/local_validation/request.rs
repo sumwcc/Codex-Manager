@@ -233,21 +233,11 @@ fn resolve_local_conversation_id(
     incoming_headers: &super::super::IncomingHeaderSnapshot,
     client_has_prompt_cache_key: bool,
 ) -> Option<String> {
-    incoming_headers
-        .conversation_id()
-        .map(str::to_string)
-        .or_else(|| {
-            if client_has_prompt_cache_key
-                || !should_derive_compat_conversation_anchor(protocol_type, normalized_path)
-            {
-                return None;
-            }
-            // 中文注释：Claude / chat.completions 兼容请求通常不会自带稳定线程锚点；
-            // 这里退化到平台密钥派生出的 sticky conversation，确保 prompt cache key 跨轮次稳定。
-            super::super::upstream::header_profile::derive_sticky_conversation_id_from_headers(
-                incoming_headers,
-            )
-        })
+    super::super::resolve_local_conversation_id_with_sticky_fallback(
+        incoming_headers,
+        !client_has_prompt_cache_key
+            && should_derive_compat_conversation_anchor(protocol_type, normalized_path),
+    )
 }
 
 /// 函数 `apply_passthrough_request_overrides`
@@ -280,7 +270,7 @@ fn apply_passthrough_request_overrides(
     let (effective_model, effective_reasoning, effective_service_tier) =
         resolve_effective_request_overrides(api_key);
     let rewritten_body =
-        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key(
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
             path,
             body,
             effective_model.as_deref(),
@@ -288,6 +278,7 @@ fn apply_passthrough_request_overrides(
             effective_service_tier.as_deref(),
             api_key.upstream_base_url.as_deref(),
             None,
+            false,
         );
     let request_meta = super::super::parse_request_metadata(&rewritten_body);
     (
@@ -365,6 +356,8 @@ pub(super) fn build_local_validation_result(
             &api_key,
             initial_request_meta.service_tier.clone(),
         );
+        super::super::validate_text_input_limit_for_path(&normalized_path, &rewritten_body)
+            .map_err(|err| LocalValidationError::new(400, err.message()))?;
         let incoming_headers = incoming_headers
             .with_conversation_id_override(initial_local_conversation_id.as_deref());
         return Ok(LocalValidationResult {
@@ -444,13 +437,16 @@ pub(super) fn build_local_validation_result(
         &client_request_meta,
     );
     let local_conversation_id = initial_local_conversation_id.clone();
+    let allow_codex_enhanced_rewrite =
+        allow_compat_responses_path_rewrite(effective_protocol_type, normalized_path.as_str());
     let conversation_binding = super::super::conversation_binding::load_conversation_binding(
         &storage,
         api_key.key_hash.as_str(),
         local_conversation_id.as_deref(),
     )
     .map_err(|err| LocalValidationError::new(500, err))?;
-    let effective_thread_anchor = super::super::conversation_binding::effective_thread_anchor(
+    let effective_thread_anchor = super::super::resolve_fallback_thread_anchor(
+        &incoming_headers,
         local_conversation_id.as_deref(),
         conversation_binding.as_ref(),
     );
@@ -465,7 +461,7 @@ pub(super) fn build_local_validation_result(
             path.as_str(),
         );
     body = if preferred_prompt_cache_key.is_some() {
-        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key(
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
             &path,
             body,
             effective_model.as_deref(),
@@ -473,6 +469,7 @@ pub(super) fn build_local_validation_result(
             effective_service_tier.as_deref(),
             api_key.upstream_base_url.as_deref(),
             preferred_prompt_cache_key.as_deref(),
+            allow_codex_enhanced_rewrite,
         )
     } else if effective_thread_anchor.is_some() {
         super::super::apply_request_overrides_with_service_tier_and_forced_prompt_cache_key(
@@ -485,7 +482,7 @@ pub(super) fn build_local_validation_result(
             effective_thread_anchor.as_deref(),
         )
     } else {
-        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key(
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
             &path,
             body,
             effective_model.as_deref(),
@@ -493,11 +490,15 @@ pub(super) fn build_local_validation_result(
             effective_service_tier.as_deref(),
             api_key.upstream_base_url.as_deref(),
             None,
+            allow_codex_enhanced_rewrite,
         )
     };
     if should_normalize_compat_service_tier {
         body = normalize_compat_service_tier_for_codex_backend(body);
     }
+    body = super::super::clear_prompt_cache_key_when_native_anchor(&path, body, &incoming_headers);
+    super::super::validate_text_input_limit_for_path(&path, &body)
+        .map_err(|err| LocalValidationError::new(400, err.message()))?;
 
     let request_meta = super::super::parse_request_metadata(&body);
     let model_for_log = request_meta.model.or(api_key.model_slug.clone());

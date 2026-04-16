@@ -47,9 +47,9 @@ export const GATEWAY_MODE_LABELS: Record<GatewayMode, string> = {
 
 export const GATEWAY_MODE_HINTS: Record<GatewayMode, string> = {
   transparent:
-    "尽量保持原始 Codex 请求与响应形态；不做额外兼容改写，但仍会保留显式或会话层稳定线程锚点。",
+    "尽量保持原始 Codex 请求与响应形态；原生 /v1/responses 只走最小改写主链，兼容协议也只做必要适配。",
   enhanced:
-    "对请求参数与响应结构做更多兼容处理，并在兼容链路中补齐稳定线程锚点，适合兼容性优先场景。",
+    "仅在非原生兼容协议进入前置适配层时启用额外兼容处理；不会再改写原生 /v1/responses 请求。",
 };
 
 export const RESIDENCY_REQUIREMENT_LABELS: Record<string, string> = {

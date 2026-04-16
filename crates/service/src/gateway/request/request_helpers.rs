@@ -2,6 +2,8 @@ use reqwest::header::HeaderValue;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+pub(crate) const MAX_TEXT_INPUT_CHARS: usize = 1_048_576;
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ParsedRequestMetadata {
     pub(crate) model: Option<String>,
@@ -18,6 +20,24 @@ pub(crate) struct ServiceTierLogDiagnostic {
     pub(crate) has_field: bool,
     pub(crate) raw_value: Option<String>,
     pub(crate) normalized_value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InputSizeLimitError {
+    pub(crate) actual_chars: usize,
+    pub(crate) max_chars: usize,
+}
+
+impl InputSizeLimitError {
+    pub(crate) fn message(&self) -> String {
+        crate::gateway::bilingual_error(
+            format!("输入超过最大长度 {} 个字符", self.max_chars),
+            format!(
+                "Input exceeds the maximum length of {} characters.",
+                self.max_chars
+            ),
+        )
+    }
 }
 
 /// 函数 `parse_request_metadata`
@@ -101,6 +121,132 @@ pub(crate) fn inspect_service_tier_for_log(body: &[u8]) -> ServiceTierLogDiagnos
         return ServiceTierLogDiagnostic::default();
     };
     inspect_service_tier_value(value.get("service_tier"))
+}
+
+pub(crate) fn validate_text_input_limit_for_path(
+    path: &str,
+    body: &[u8],
+) -> Result<(), InputSizeLimitError> {
+    if body.is_empty() || !is_text_input_limit_path(path) {
+        return Ok(());
+    }
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return Ok(());
+    };
+    let actual_chars = count_path_text_input_chars(path, &value);
+    if actual_chars > MAX_TEXT_INPUT_CHARS {
+        return Err(InputSizeLimitError {
+            actual_chars,
+            max_chars: MAX_TEXT_INPUT_CHARS,
+        });
+    }
+    Ok(())
+}
+
+fn is_text_input_limit_path(path: &str) -> bool {
+    path.starts_with("/v1/responses")
+        || path.starts_with("/v1/chat/completions")
+        || path.starts_with("/v1/completions")
+        || path.starts_with("/v1/messages")
+}
+
+fn count_path_text_input_chars(path: &str, value: &Value) -> usize {
+    let Some(object) = value.as_object() else {
+        return 0;
+    };
+    let mut total = 0;
+    if let Some(instructions) = object.get("instructions") {
+        total += count_stringish_chars(instructions);
+    }
+    if path.starts_with("/v1/responses") {
+        if let Some(input) = object.get("input") {
+            total += count_response_input_chars(input);
+        }
+        return total;
+    }
+    if path.starts_with("/v1/chat/completions") || path.starts_with("/v1/messages") {
+        if let Some(messages) = object.get("messages") {
+            total += count_message_list_chars(messages);
+        }
+        return total;
+    }
+    if path.starts_with("/v1/completions") {
+        if let Some(prompt) = object.get("prompt") {
+            total += count_stringish_chars(prompt);
+        }
+    }
+    total
+}
+
+fn count_response_input_chars(value: &Value) -> usize {
+    match value {
+        Value::String(text) => text.chars().count(),
+        Value::Array(items) => items.iter().map(count_response_input_chars).sum(),
+        Value::Object(object) => {
+            let mut total = 0;
+            if let Some(text) = object.get("text") {
+                total += count_stringish_chars(text);
+            }
+            if let Some(input_text) = object.get("input_text") {
+                total += count_stringish_chars(input_text);
+            }
+            if let Some(content) = object.get("content") {
+                total += count_response_input_chars(content);
+            }
+            if let Some(input) = object.get("input") {
+                total += count_response_input_chars(input);
+            }
+            total
+        }
+        _ => 0,
+    }
+}
+
+fn count_message_list_chars(value: &Value) -> usize {
+    match value {
+        Value::Array(items) => items.iter().map(count_message_list_chars).sum(),
+        Value::Object(object) => object
+            .get("content")
+            .map(count_message_content_chars)
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn count_message_content_chars(value: &Value) -> usize {
+    match value {
+        Value::String(text) => text.chars().count(),
+        Value::Array(items) => items.iter().map(count_message_content_chars).sum(),
+        Value::Object(object) => {
+            let mut total = 0;
+            if let Some(text) = object.get("text") {
+                total += count_stringish_chars(text);
+            }
+            if let Some(content) = object.get("content") {
+                total += count_message_content_chars(content);
+            }
+            total
+        }
+        _ => 0,
+    }
+}
+
+fn count_stringish_chars(value: &Value) -> usize {
+    match value {
+        Value::String(text) => text.chars().count(),
+        Value::Array(items) => items.iter().map(count_stringish_chars).sum(),
+        Value::Object(object) => {
+            let mut total = 0;
+            if let Some(text) = object.get("text") {
+                total += count_stringish_chars(text);
+            }
+            if let Some(content) = object.get("content") {
+                total += count_stringish_chars(content);
+            }
+            total
+        }
+        _ => 0,
+    }
 }
 
 pub(crate) fn inspect_service_tier_value(value: Option<&Value>) -> ServiceTierLogDiagnostic {
@@ -306,3 +452,7 @@ pub(crate) fn normalize_models_path(path: &str) -> String {
     }
     path.to_string()
 }
+
+#[cfg(test)]
+#[path = "tests/request_helpers_tests.rs"]
+mod tests;

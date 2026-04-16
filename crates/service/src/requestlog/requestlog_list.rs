@@ -68,12 +68,7 @@ pub(crate) fn read_request_log_page(
     let (start_ts, end_ts) = normalize_time_range(params.start_ts, params.end_ts);
     let page_size = normalize_page_size(params.page_size);
     let total = storage
-        .count_request_logs(
-            query.as_deref(),
-            status_filter.as_deref(),
-            start_ts,
-            end_ts,
-        )
+        .count_request_logs(query.as_deref(), status_filter.as_deref(), start_ts, end_ts)
         .map_err(|err| format!("count request logs failed: {err}"))?;
     let page = clamp_page(params.page, total, page_size);
     let offset = (page - 1) * page_size;

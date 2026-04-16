@@ -104,7 +104,7 @@ export function readGatewayTransportSettings(
     upstreamStreamTimeoutMs: readNumberField(
       payload,
       "upstreamStreamTimeoutMs",
-      600_000
+      300_000
     ),
     envKeys:
       readStringArrayField(payload, "envKeys").length > 0

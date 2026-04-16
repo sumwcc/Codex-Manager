@@ -736,6 +736,22 @@ fn rewrite_client_frame(
         &context.api_key,
         context.prompt_cache_key.as_deref(),
     );
+    let rewritten_body = crate::gateway::clear_prompt_cache_key_when_native_anchor(
+        RESPONSES_PATH,
+        rewritten_body,
+        &context.incoming_headers,
+    );
+    crate::gateway::validate_text_input_limit_for_path(RESPONSES_PATH, &rewritten_body).map_err(
+        |err| {
+            WsSessionError::bad_request_bilingual(
+                format!("输入超过最大长度 {} 个字符", err.max_chars),
+                format!(
+                    "Input exceeds the maximum length of {} characters.",
+                    err.max_chars
+                ),
+            )
+        },
+    )?;
     let rewritten_value = serde_json::from_slice::<Value>(&rewritten_body).map_err(|err| {
         WsSessionError::bad_request_bilingual(
             "解析改写后的 WebSocket 请求失败",
@@ -1474,8 +1490,82 @@ impl From<String> for WsSessionError {
 
 #[cfg(test)]
 mod tests {
-    use super::{infer_ws_terminal_status, inspect_ws_terminal_event};
+    use super::{
+        infer_ws_terminal_status, inspect_ws_terminal_event, rewrite_client_frame, WsRequestContext,
+    };
+    use axum::http::{HeaderMap, HeaderValue};
+    use codexmanager_core::storage::ApiKey;
     use serde_json::json;
+
+    struct RuntimeEnvGuard {
+        name: &'static str,
+        previous_value: Option<String>,
+    }
+
+    impl RuntimeEnvGuard {
+        fn set(name: &'static str, value: &str) -> Self {
+            let previous_value = std::env::var(name).ok();
+            std::env::set_var(name, value);
+            crate::gateway::reload_runtime_config_from_env();
+            Self {
+                name,
+                previous_value,
+            }
+        }
+    }
+
+    impl Drop for RuntimeEnvGuard {
+        fn drop(&mut self) {
+            match self.previous_value.as_deref() {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+            crate::gateway::reload_runtime_config_from_env();
+        }
+    }
+
+    fn sample_api_key() -> ApiKey {
+        ApiKey {
+            id: "gk_test".to_string(),
+            name: Some("test".to_string()),
+            model_slug: None,
+            reasoning_effort: None,
+            service_tier: None,
+            client_type: "codex".to_string(),
+            protocol_type: crate::apikey_profile::PROTOCOL_OPENAI_COMPAT.to_string(),
+            auth_scheme: "authorization_bearer".to_string(),
+            upstream_base_url: Some("https://chatgpt.com/backend-api/codex".to_string()),
+            static_headers_json: None,
+            key_hash: "hash".to_string(),
+            status: "active".to_string(),
+            created_at: 0,
+            last_used_at: None,
+            rotation_strategy: crate::apikey_profile::ROTATION_ACCOUNT.to_string(),
+            aggregate_api_id: None,
+            aggregate_api_url: None,
+            account_plan_filter: None,
+        }
+    }
+
+    fn sample_incoming_headers(
+        conversation_id: Option<&str>,
+        turn_state: Option<&str>,
+    ) -> crate::gateway::IncomingHeaderSnapshot {
+        let mut headers = HeaderMap::new();
+        if let Some(conversation_id) = conversation_id {
+            headers.insert(
+                "conversation_id",
+                HeaderValue::from_str(conversation_id).expect("conversation header"),
+            );
+        }
+        if let Some(turn_state) = turn_state {
+            headers.insert(
+                "x-codex-turn-state",
+                HeaderValue::from_str(turn_state).expect("turn-state header"),
+            );
+        }
+        crate::gateway::IncomingHeaderSnapshot::from_http_headers(&headers)
+    }
 
     #[test]
     fn inspect_ws_terminal_event_infers_usage_limit_status_without_explicit_status() {
@@ -1505,5 +1595,69 @@ mod tests {
             infer_ws_terminal_status(&payload, payload["error"]["message"].as_str(),),
             403
         );
+    }
+
+    #[test]
+    fn gateway_ws_rewrite_keeps_native_responses_shape_in_enhanced_mode() {
+        let _guard = crate::test_env_guard();
+        let _mode_guard = RuntimeEnvGuard::set("CODEXMANAGER_GATEWAY_MODE", "enhanced");
+        let body = json!({
+            "model": "gpt-5.3-codex",
+            "input": "hello",
+            "stream": false,
+            "store": true,
+            "stream_passthrough": true
+        });
+        let rewritten = crate::gateway::gateway_rewrite_ws_responses_body(
+            "/v1/responses",
+            serde_json::to_vec(&body).expect("serialize ws request"),
+            &sample_api_key(),
+            Some("thread_123"),
+        );
+        let payload: serde_json::Value =
+            serde_json::from_slice(&rewritten).expect("parse ws rewritten body");
+
+        assert_eq!(
+            payload.get("input").and_then(serde_json::Value::as_str),
+            Some("hello")
+        );
+        assert_eq!(
+            payload.get("stream").and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            payload.get("store").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+        assert!(payload.get("instructions").is_none());
+        assert!(payload.get("prompt_cache_key").is_none());
+        assert!(payload.get("stream_passthrough").is_none());
+    }
+
+    #[test]
+    fn websocket_frame_drops_prompt_cache_key_when_native_conversation_anchor_exists() {
+        let _guard = crate::test_env_guard();
+        let context = WsRequestContext {
+            api_key: sample_api_key(),
+            incoming_headers: sample_incoming_headers(Some("conversation-1"), None),
+            prompt_cache_key: Some("sticky-thread".to_string()),
+            effective_upstream_base: "https://chatgpt.com/backend-api/codex".to_string(),
+            include_timing_metrics: false,
+            prefer_raw_errors: false,
+        };
+        let prepared = rewrite_client_frame(
+            r#"{
+                "type":"response.create",
+                "model":"gpt-5.4",
+                "input":"hello",
+                "prompt_cache_key":"client-thread"
+            }"#,
+            &context,
+        )
+        .unwrap_or_else(|_| panic!("rewrite websocket frame failed"));
+        let value: serde_json::Value =
+            serde_json::from_str(&prepared.text).expect("parse prepared websocket frame");
+
+        assert!(value.get("prompt_cache_key").is_none());
     }
 }
