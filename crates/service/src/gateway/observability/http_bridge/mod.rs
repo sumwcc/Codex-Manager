@@ -1,5 +1,7 @@
 use tiny_http::{Header, Request};
 
+use crate::gateway::upstream::GatewayUpstreamResponse;
+
 mod aggregate;
 mod openai;
 pub(crate) use aggregate::PassthroughSseProtocol;
@@ -131,7 +133,7 @@ mod stream_readers;
 /// 返回函数执行结果
 pub(super) fn respond_with_upstream(
     request: Request,
-    upstream: reqwest::blocking::Response,
+    upstream: GatewayUpstreamResponse,
     inflight_guard: super::AccountInFlightGuard,
     response_adapter: super::ResponseAdapter,
     passthrough_sse_protocol: Option<PassthroughSseProtocol>,
@@ -144,21 +146,38 @@ pub(super) fn respond_with_upstream(
     fallback_model: Option<&str>,
     request_started_at: std::time::Instant,
 ) -> Result<UpstreamResponseBridgeResult, String> {
-    delivery::respond_with_upstream(
-        request,
-        upstream,
-        inflight_guard,
-        response_adapter,
-        passthrough_sse_protocol,
-        gemini_stream_output_mode,
-        request_path,
-        tool_name_restore_map,
-        is_stream,
-        allow_failover_for_deactivation,
-        trace_id,
-        fallback_model,
-        request_started_at,
-    )
+    match upstream {
+        GatewayUpstreamResponse::Blocking(upstream) => delivery::respond_with_upstream(
+            request,
+            upstream,
+            inflight_guard,
+            response_adapter,
+            passthrough_sse_protocol,
+            gemini_stream_output_mode,
+            request_path,
+            tool_name_restore_map,
+            is_stream,
+            allow_failover_for_deactivation,
+            trace_id,
+            fallback_model,
+            request_started_at,
+        ),
+        GatewayUpstreamResponse::Stream(upstream) => delivery::respond_with_stream_upstream(
+            request,
+            upstream,
+            inflight_guard,
+            response_adapter,
+            passthrough_sse_protocol,
+            gemini_stream_output_mode,
+            request_path,
+            tool_name_restore_map,
+            is_stream,
+            allow_failover_for_deactivation,
+            trace_id,
+            fallback_model,
+            request_started_at,
+        ),
+    }
 }
 pub(super) use stream_readers::{
     AnthropicSseReader, GeminiSseReader, OpenAIChatCompletionsSseReader,

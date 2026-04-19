@@ -4,4 +4,7 @@ pub(super) mod header_profile;
 pub(super) mod protocol;
 pub(super) mod proxy;
 pub(super) mod proxy_pipeline;
+pub(super) mod response;
 pub(super) mod support;
+
+pub(super) use response::{GatewayByteStream, GatewayByteStreamItem, GatewayStreamResponse, GatewayUpstreamResponse};

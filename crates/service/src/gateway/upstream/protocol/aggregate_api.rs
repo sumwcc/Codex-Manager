@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::time::Instant;
 use tiny_http::Request;
 
+use super::super::GatewayUpstreamResponse;
 use crate::aggregate_api::{
     AGGREGATE_API_AUTH_APIKEY, AGGREGATE_API_AUTH_USERPASS, AGGREGATE_API_PROVIDER_CLAUDE,
     AGGREGATE_API_PROVIDER_CODEX,
@@ -917,7 +918,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 request
                     .take()
                     .expect("request should be available before bridge"),
-                upstream,
+                GatewayUpstreamResponse::Blocking(upstream),
                 inflight_guard,
                 response_adapter,
                 passthrough_sse_protocol,

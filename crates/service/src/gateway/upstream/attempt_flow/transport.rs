@@ -3,6 +3,8 @@ use codexmanager_core::storage::Account;
 use std::time::Instant;
 use tiny_http::Request;
 
+use super::super::GatewayUpstreamResponse;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RequestCompression {
     None,
@@ -228,6 +230,12 @@ fn should_retry_transport_without_compression(
         && super::super::config::is_chatgpt_backend_base(target_url)
 }
 
+fn should_wrap_upstream_as_stream_response(request_path: &str, is_stream: bool) -> bool {
+    is_stream
+        && request_path.starts_with("/v1/responses")
+        && !is_compact_request_path(request_path)
+}
+
 /// 函数 `encode_request_body`
 ///
 /// 作者: gaohongshun
@@ -309,7 +317,7 @@ pub(in super::super) fn send_upstream_request(
     auth_token: &str,
     account: &Account,
     strip_session_affinity: bool,
-) -> Result<reqwest::blocking::Response, reqwest::Error> {
+) -> Result<GatewayUpstreamResponse, reqwest::Error> {
     send_upstream_request_with_compression_override(
         client,
         method,
@@ -349,7 +357,7 @@ pub(in super::super) fn send_upstream_request_without_compression(
     auth_token: &str,
     account: &Account,
     strip_session_affinity: bool,
-) -> Result<reqwest::blocking::Response, reqwest::Error> {
+) -> Result<GatewayUpstreamResponse, reqwest::Error> {
     send_upstream_request_with_compression_override(
         client,
         method,
@@ -390,7 +398,7 @@ fn send_upstream_request_with_compression_override(
     account: &Account,
     strip_session_affinity: bool,
     compression_override: Option<RequestCompression>,
-) -> Result<reqwest::blocking::Response, reqwest::Error> {
+) -> Result<GatewayUpstreamResponse, reqwest::Error> {
     let attempt_started_at = Instant::now();
     let prompt_cache_key = extract_prompt_cache_key(body.as_ref());
     let is_compact_request = is_compact_request_path(request_ctx.request_path);
@@ -495,7 +503,15 @@ fn send_upstream_request_with_compression_override(
 
     let result = match build_request(client, upstream_headers.as_slice(), &body_for_request).send()
     {
-        Ok(resp) => Ok(resp),
+        Ok(resp) => {
+            if should_wrap_upstream_as_stream_response(request_ctx.request_path, is_stream) {
+                Ok(GatewayUpstreamResponse::Stream(
+                    super::super::GatewayStreamResponse::from_blocking_response(resp),
+                ))
+            } else {
+                Ok(resp.into())
+            }
+        }
         Err(first_err) => {
             let fresh = super::super::super::fresh_upstream_client_for_account(account.id.as_str());
             if should_retry_transport_without_compression(
@@ -519,7 +535,16 @@ fn send_upstream_request_with_compression_override(
                             account.id,
                             target_url
                         );
-                        Ok(resp)
+                        if should_wrap_upstream_as_stream_response(
+                            request_ctx.request_path,
+                            is_stream,
+                        ) {
+                            Ok(GatewayUpstreamResponse::Stream(
+                                super::super::GatewayStreamResponse::from_blocking_response(resp),
+                            ))
+                        } else {
+                            Ok(resp.into())
+                        }
                     }
                     Err(second_err) => {
                         log::warn!(
@@ -544,7 +569,16 @@ fn send_upstream_request_with_compression_override(
                             account.id,
                             target_url
                         );
-                        Ok(resp)
+                        if should_wrap_upstream_as_stream_response(
+                            request_ctx.request_path,
+                            is_stream,
+                        ) {
+                            Ok(GatewayUpstreamResponse::Stream(
+                                super::super::GatewayStreamResponse::from_blocking_response(resp),
+                            ))
+                        } else {
+                            Ok(resp.into())
+                        }
                     }
                     Err(second_err) => {
                         log::warn!(
@@ -570,7 +604,8 @@ fn send_upstream_request_with_compression_override(
 mod tests {
     use super::{
         encode_request_body, resolve_request_compression_with_flag,
-        should_retry_transport_without_compression, RequestCompression,
+        should_retry_transport_without_compression, should_wrap_upstream_as_stream_response,
+        RequestCompression,
     };
     use bytes::Bytes;
 
@@ -701,6 +736,30 @@ mod tests {
             "/v1/responses",
             true,
             RequestCompression::None
+        ));
+    }
+
+    #[test]
+    fn transport_wraps_non_compact_responses_streams_into_stream_variant() {
+        assert!(should_wrap_upstream_as_stream_response(
+            "/v1/responses",
+            true
+        ));
+        assert!(should_wrap_upstream_as_stream_response(
+            "/v1/responses?stream=false",
+            true
+        ));
+        assert!(!should_wrap_upstream_as_stream_response(
+            "/v1/responses/compact",
+            true
+        ));
+        assert!(!should_wrap_upstream_as_stream_response(
+            "/v1/chat/completions",
+            true
+        ));
+        assert!(!should_wrap_upstream_as_stream_response(
+            "/v1/responses",
+            false
         ));
     }
 }

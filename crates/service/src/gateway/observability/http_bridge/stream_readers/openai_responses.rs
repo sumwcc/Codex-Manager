@@ -5,7 +5,7 @@ use super::{
     upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, PassthroughSseCollector,
     Read, SseKeepAliveFrame, SseTerminal,
 };
-use bytes::Bytes;
+use crate::gateway::upstream::{GatewayByteStream, GatewayByteStreamItem, GatewayStreamResponse};
 use eventsource_stream::{Event, Eventsource};
 use futures_util::pin_mut;
 use futures_util::stream::unfold;
@@ -17,7 +17,6 @@ use std::thread;
 use std::time::Instant;
 
 const OPENAI_RESPONSES_SSE_CHANNEL_CAPACITY: usize = 128;
-const OPENAI_RESPONSES_SSE_READ_CHUNK_BYTES: usize = 8 * 1024;
 
 #[derive(Debug)]
 enum OpenAIResponsesSsePumpItem {
@@ -31,20 +30,17 @@ struct OpenAIResponsesSsePump {
 }
 
 impl OpenAIResponsesSsePump {
-    fn new(upstream: reqwest::blocking::Response) -> Self {
+    fn new(byte_stream: GatewayByteStream) -> Self {
         let (tx, rx) =
             mpsc::sync_channel::<OpenAIResponsesSsePumpItem>(OPENAI_RESPONSES_SSE_CHANNEL_CAPACITY);
         thread::spawn(move || {
-            let byte_stream = unfold(Some(upstream), |state| async move {
-                let mut upstream = state?;
-                let mut buffer = vec![0_u8; OPENAI_RESPONSES_SSE_READ_CHUNK_BYTES];
-                match upstream.read(&mut buffer) {
-                    Ok(0) => None,
-                    Ok(read) => {
-                        buffer.truncate(read);
-                        Some((Ok(Bytes::from(buffer)), Some(upstream)))
-                    }
-                    Err(err) => Some((Err(err.to_string()), None)),
+            let byte_stream = unfold(Some(byte_stream), |state| async move {
+                let byte_stream = state?;
+                match byte_stream.recv() {
+                    Ok(GatewayByteStreamItem::Chunk(bytes)) => Some((Ok(bytes), Some(byte_stream))),
+                    Ok(GatewayByteStreamItem::Eof) => None,
+                    Ok(GatewayByteStreamItem::Error(err)) => Some((Err(err), None)),
+                    Err(_) => None,
                 }
             });
 
@@ -124,8 +120,22 @@ impl OpenAIResponsesPassthroughSseReader {
         keepalive_frame: SseKeepAliveFrame,
         request_started_at: Instant,
     ) -> Self {
+        Self::from_stream_response(
+            GatewayStreamResponse::from_blocking_response(upstream),
+            usage_collector,
+            keepalive_frame,
+            request_started_at,
+        )
+    }
+
+    pub(crate) fn from_stream_response(
+        upstream: GatewayStreamResponse,
+        usage_collector: Arc<Mutex<PassthroughSseCollector>>,
+        keepalive_frame: SseKeepAliveFrame,
+        request_started_at: Instant,
+    ) -> Self {
         Self {
-            upstream: OpenAIResponsesSsePump::new(upstream),
+            upstream: OpenAIResponsesSsePump::new(upstream.into_body()),
             out_cursor: Cursor::new(Vec::new()),
             usage_collector,
             keepalive_frame,

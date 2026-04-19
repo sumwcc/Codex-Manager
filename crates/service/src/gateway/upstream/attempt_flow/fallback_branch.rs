@@ -4,6 +4,8 @@ use codexmanager_core::storage::{Account, Storage, Token};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 
+use super::super::GatewayUpstreamResponse;
+
 const REQUEST_ID_HEADER: &str = "x-request-id";
 const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";
 const CF_RAY_HEADER: &str = "cf-ray";
@@ -11,7 +13,7 @@ const AUTH_ERROR_HEADER: &str = "x-openai-authorization-error";
 
 pub(super) enum FallbackBranchResult {
     NotTriggered,
-    RespondUpstream(reqwest::blocking::Response),
+    RespondUpstream(GatewayUpstreamResponse),
     Failover,
     Terminal { status_code: u16, message: String },
 }
@@ -383,7 +385,7 @@ where
             if resp.status().is_success() {
                 super::super::super::clear_account_cooldown(&account.id);
                 log_gateway_result(Some(fallback_base), resp.status().as_u16(), None);
-                return FallbackBranchResult::RespondUpstream(resp);
+                return FallbackBranchResult::RespondUpstream(resp.into());
             }
             let fallback_status = resp.status().as_u16();
             super::super::super::mark_account_cooldown_for_status(&account.id, fallback_status);
@@ -416,7 +418,7 @@ where
                     fallback_status,
                     Some(fallback_error.as_str()),
                 );
-                FallbackBranchResult::RespondUpstream(resp)
+                FallbackBranchResult::RespondUpstream(resp.into())
             }
         }
         Ok(None) => {

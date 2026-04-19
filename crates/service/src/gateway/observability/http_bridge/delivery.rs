@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use tiny_http::{Header, Request, Response, StatusCode};
 
 use crate::gateway::error_log::GatewayErrorLogInput;
+use crate::gateway::upstream::GatewayStreamResponse;
 
 use super::super::{
     adapt_upstream_response_with_tool_name_restore_map, build_anthropic_error_body,
@@ -1812,6 +1813,475 @@ pub(crate) fn respond_with_upstream(
                 None,
             ))
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn respond_with_stream_upstream(
+    request: Request,
+    upstream: GatewayStreamResponse,
+    _inflight_guard: super::super::AccountInFlightGuard,
+    response_adapter: ResponseAdapter,
+    _passthrough_sse_protocol: Option<PassthroughSseProtocol>,
+    _gemini_stream_output_mode: Option<GeminiStreamOutputMode>,
+    request_path: &str,
+    _tool_name_restore_map: Option<&ToolNameRestoreMap>,
+    is_stream: bool,
+    _allow_failover_for_deactivation: bool,
+    trace_id: Option<&str>,
+    _fallback_model: Option<&str>,
+    request_started_at: std::time::Instant,
+) -> Result<UpstreamResponseBridgeResult, String> {
+    let keepalive_frame = resolve_stream_keepalive_frame(response_adapter, request_path);
+    let upstream_request_id =
+        first_upstream_header(upstream.headers(), REQUEST_ID_HEADER_CANDIDATES);
+    let upstream_cf_ray = first_upstream_header(upstream.headers(), &[CF_RAY_HEADER_NAME]);
+    let upstream_auth_error = first_upstream_header(upstream.headers(), &[AUTH_ERROR_HEADER_NAME]);
+    let upstream_identity_error_code =
+        crate::gateway::extract_identity_error_code_from_headers(upstream.headers());
+    let upstream_content_type = upstream
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_string());
+
+    match response_adapter {
+        ResponseAdapter::Passthrough => {
+            let status = StatusCode(upstream.status().as_u16());
+            let mut headers = Vec::new();
+            for (name, value) in upstream.headers().iter() {
+                let name_str = name.as_str();
+                if name_str.eq_ignore_ascii_case("transfer-encoding")
+                    || name_str.eq_ignore_ascii_case("content-length")
+                    || name_str.eq_ignore_ascii_case("connection")
+                {
+                    continue;
+                }
+                if let Ok(header) = Header::from_bytes(name_str.as_bytes(), value.as_bytes()) {
+                    headers.push(header);
+                }
+            }
+            if let Some(trace_id) = trace_id {
+                push_trace_id_header(&mut headers, trace_id);
+            }
+            let is_sse = upstream_content_type
+                .as_deref()
+                .map(|value| value.to_ascii_lowercase().starts_with("text/event-stream"))
+                .unwrap_or(false);
+            let is_json = upstream_content_type
+                .as_deref()
+                .map(|value| value.to_ascii_lowercase().contains("application/json"))
+                .unwrap_or(false);
+
+            if !is_stream {
+                let upstream_body = upstream
+                    .read_all_bytes()
+                    .map_err(|err| format!("read upstream body failed: {err}"))?;
+                let detected_sse =
+                    is_sse || (!is_json && looks_like_sse_payload(upstream_body.as_ref()));
+                let is_compact_request = is_compact_request_path(request_path);
+                if detected_sse {
+                    let (synthesized_body, mut usage) =
+                        collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
+                    let synthesized_response = synthesized_body.is_some();
+                    let body = synthesized_body.unwrap_or_else(|| upstream_body.to_vec());
+                    if let Ok(value) = serde_json::from_slice::<Value>(&body) {
+                        merge_usage(&mut usage, parse_usage_from_json(&value));
+                    }
+                    let upstream_error_hint = with_upstream_debug_suffix(
+                        extract_error_hint_from_body(status.0, &body),
+                        None,
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
+                        upstream_identity_error_code.as_deref(),
+                    );
+                    if should_suppress_deactivation_delivery(
+                        upstream_error_hint.as_deref(),
+                        _allow_failover_for_deactivation,
+                    ) {
+                        return Ok(with_bridge_debug_meta(
+                            UpstreamResponseBridgeResult {
+                                usage,
+                                stream_terminal_seen: true,
+                                stream_terminal_error: None,
+                                delivery_error: None,
+                                upstream_error_hint,
+                                delivered_status_code: None,
+                                upstream_request_id: None,
+                                upstream_cf_ray: None,
+                                upstream_auth_error: None,
+                                upstream_identity_error_code: None,
+                                upstream_content_type: None,
+                                last_sse_event_type: None,
+                            },
+                            &upstream_request_id,
+                            &upstream_cf_ray,
+                            &upstream_auth_error,
+                            &upstream_identity_error_code,
+                            &upstream_content_type,
+                            None,
+                        ));
+                    }
+                    if synthesized_response {
+                        headers.retain(|header| {
+                            !header
+                                .field
+                                .as_str()
+                                .as_str()
+                                .eq_ignore_ascii_case("Content-Type")
+                        });
+                        if let Ok(content_type_header) = Header::from_bytes(
+                            b"Content-Type".as_slice(),
+                            b"application/json".as_slice(),
+                        ) {
+                            headers.push(content_type_header);
+                        }
+                    }
+                    if status.0 < 400
+                        && is_compact_request
+                        && !compact_success_body_is_valid(body.as_ref())
+                    {
+                        return Ok(respond_invalid_compact_success_body(
+                            request,
+                            usage,
+                            body.as_ref(),
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                            trace_id,
+                        ));
+                    }
+                    if is_compact_request
+                        && compact_non_success_body_should_be_normalized(
+                            status.0,
+                            upstream_content_type.as_deref(),
+                            body.as_ref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                        )
+                    {
+                        return Ok(respond_invalid_compact_non_success_body(
+                            request,
+                            status.0,
+                            usage,
+                            body.as_ref(),
+                            upstream_content_type.as_deref(),
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                            trace_id,
+                        ));
+                    }
+                    if status.0 >= 400
+                        && non_success_body_should_be_normalized(
+                            status.0,
+                            upstream_content_type.as_deref(),
+                            body.as_ref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                        )
+                    {
+                        return Ok(respond_normalized_passthrough_non_success_body(
+                            request,
+                            usage,
+                            body.as_ref(),
+                            upstream_content_type.as_deref(),
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                            trace_id,
+                        ));
+                    }
+                    let len = Some(body.len());
+                    let response =
+                        Response::new(status, headers, std::io::Cursor::new(body), len, None);
+                    let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                    return Ok(with_bridge_debug_meta(
+                        UpstreamResponseBridgeResult {
+                            usage,
+                            stream_terminal_seen: true,
+                            stream_terminal_error: None,
+                            delivery_error,
+                            upstream_error_hint,
+                            delivered_status_code: None,
+                            upstream_request_id: None,
+                            upstream_cf_ray: None,
+                            upstream_auth_error: None,
+                            upstream_identity_error_code: None,
+                            upstream_content_type: None,
+                            last_sse_event_type: None,
+                        },
+                        &upstream_request_id,
+                        &upstream_cf_ray,
+                        &upstream_auth_error,
+                        &upstream_identity_error_code,
+                        &upstream_content_type,
+                        None,
+                    ));
+                }
+
+                let (_, sse_usage) = collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
+                let usage = if is_json {
+                    serde_json::from_slice::<Value>(upstream_body.as_ref())
+                        .ok()
+                        .map(|value| parse_usage_from_json(&value))
+                        .unwrap_or_default()
+                } else if usage_has_signal(&sse_usage) {
+                    sse_usage
+                } else {
+                    UpstreamResponseUsage::default()
+                };
+                if status.0 >= 400
+                    && non_success_body_should_be_normalized(
+                        status.0,
+                        upstream_content_type.as_deref(),
+                        upstream_body.as_ref(),
+                        upstream_auth_error.as_deref(),
+                        upstream_identity_error_code.as_deref(),
+                    )
+                {
+                    return Ok(respond_normalized_passthrough_non_success_body(
+                        request,
+                        usage,
+                        upstream_body.as_ref(),
+                        upstream_content_type.as_deref(),
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
+                        upstream_identity_error_code.as_deref(),
+                        trace_id,
+                    ));
+                }
+                let upstream_error_hint = with_upstream_debug_suffix(
+                    extract_error_hint_from_body(status.0, upstream_body.as_ref()),
+                    None,
+                    upstream_request_id.as_deref(),
+                    upstream_cf_ray.as_deref(),
+                    upstream_auth_error.as_deref(),
+                    upstream_identity_error_code.as_deref(),
+                );
+                if should_suppress_deactivation_delivery(
+                    upstream_error_hint.as_deref(),
+                    _allow_failover_for_deactivation,
+                ) {
+                    return Ok(with_bridge_debug_meta(
+                        UpstreamResponseBridgeResult {
+                            usage,
+                            stream_terminal_seen: true,
+                            stream_terminal_error: None,
+                            delivery_error: None,
+                            upstream_error_hint,
+                            delivered_status_code: None,
+                            upstream_request_id: None,
+                            upstream_cf_ray: None,
+                            upstream_auth_error: None,
+                            upstream_identity_error_code: None,
+                            upstream_content_type: None,
+                            last_sse_event_type: None,
+                        },
+                        &upstream_request_id,
+                        &upstream_cf_ray,
+                        &upstream_auth_error,
+                        &upstream_identity_error_code,
+                        &upstream_content_type,
+                        None,
+                    ));
+                }
+                let len = Some(upstream_body.len());
+                let response = Response::new(
+                    status,
+                    headers,
+                    std::io::Cursor::new(upstream_body.to_vec()),
+                    len,
+                    None,
+                );
+                let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                return Ok(with_bridge_debug_meta(
+                    UpstreamResponseBridgeResult {
+                        usage,
+                        stream_terminal_seen: true,
+                        stream_terminal_error: None,
+                        delivery_error,
+                        upstream_error_hint,
+                        delivered_status_code: None,
+                        upstream_request_id: None,
+                        upstream_cf_ray: None,
+                        upstream_auth_error: None,
+                        upstream_identity_error_code: None,
+                        upstream_content_type: None,
+                        last_sse_event_type: None,
+                    },
+                    &upstream_request_id,
+                    &upstream_cf_ray,
+                    &upstream_auth_error,
+                    &upstream_identity_error_code,
+                    &upstream_content_type,
+                    None,
+                ));
+            }
+
+            if is_stream && !is_sse && status.0 >= 400 {
+                let upstream_body = upstream
+                    .read_all_bytes()
+                    .map_err(|err| format!("read upstream body failed: {err}"))?;
+                let usage = UpstreamResponseUsage::default();
+                if non_success_body_should_be_normalized(
+                    status.0,
+                    upstream_content_type.as_deref(),
+                    upstream_body.as_ref(),
+                    upstream_auth_error.as_deref(),
+                    upstream_identity_error_code.as_deref(),
+                ) {
+                    return Ok(respond_normalized_passthrough_non_success_body(
+                        request,
+                        usage,
+                        upstream_body.as_ref(),
+                        upstream_content_type.as_deref(),
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
+                        upstream_identity_error_code.as_deref(),
+                        trace_id,
+                    ));
+                }
+                let upstream_error_hint = with_upstream_debug_suffix(
+                    extract_error_hint_from_body(status.0, upstream_body.as_ref()),
+                    None,
+                    upstream_request_id.as_deref(),
+                    upstream_cf_ray.as_deref(),
+                    upstream_auth_error.as_deref(),
+                    upstream_identity_error_code.as_deref(),
+                );
+                let len = Some(upstream_body.len());
+                let response = Response::new(
+                    status,
+                    headers,
+                    std::io::Cursor::new(upstream_body.to_vec()),
+                    len,
+                    None,
+                );
+                let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                return Ok(with_bridge_debug_meta(
+                    UpstreamResponseBridgeResult {
+                        usage,
+                        stream_terminal_seen: true,
+                        stream_terminal_error: None,
+                        delivery_error,
+                        upstream_error_hint,
+                        delivered_status_code: None,
+                        upstream_request_id: None,
+                        upstream_cf_ray: None,
+                        upstream_auth_error: None,
+                        upstream_identity_error_code: None,
+                        upstream_content_type: None,
+                        last_sse_event_type: None,
+                    },
+                    &upstream_request_id,
+                    &upstream_cf_ray,
+                    &upstream_auth_error,
+                    &upstream_identity_error_code,
+                    &upstream_content_type,
+                    None,
+                ));
+            }
+
+            if is_sse || is_stream {
+                let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+                let response_body: Box<dyn std::io::Read + Send> =
+                    if request_path.starts_with("/v1/responses") {
+                        Box::new(OpenAIResponsesPassthroughSseReader::from_stream_response(
+                            upstream,
+                            Arc::clone(&usage_collector),
+                            keepalive_frame,
+                            request_started_at,
+                        ))
+                    } else {
+                        return Err(format!(
+                            "stream upstream response is not supported for path {request_path}"
+                        ));
+                    };
+                let response = Response::new(status, headers, response_body, None, None);
+                let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                let collector = usage_collector
+                    .lock()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_default();
+                let last_sse_event_type = collector.last_event_type.clone();
+                let result = with_bridge_debug_meta(
+                    UpstreamResponseBridgeResult {
+                        usage: collector.usage,
+                        stream_terminal_seen: collector.saw_terminal,
+                        stream_terminal_error: collector.terminal_error,
+                        delivery_error,
+                        upstream_error_hint: with_upstream_debug_suffix(
+                            collector.upstream_error_hint,
+                            None,
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                        ),
+                        delivered_status_code: None,
+                        upstream_request_id: None,
+                        upstream_cf_ray: None,
+                        upstream_auth_error: None,
+                        upstream_identity_error_code: None,
+                        upstream_content_type: None,
+                        last_sse_event_type: None,
+                    },
+                    &upstream_request_id,
+                    &upstream_cf_ray,
+                    &upstream_auth_error,
+                    &upstream_identity_error_code,
+                    &upstream_content_type,
+                    last_sse_event_type,
+                );
+                log_bridge_stream_diagnostics(response_adapter, request_path, &result);
+                return Ok(result);
+            }
+
+            let upstream_body = upstream
+                .read_all_bytes()
+                .map_err(|err| format!("read upstream body failed: {err}"))?;
+            let len = Some(upstream_body.len());
+            let response = Response::new(
+                status,
+                headers,
+                std::io::Cursor::new(upstream_body.to_vec()),
+                len,
+                None,
+            );
+            let delivery_error = request.respond(response).err().map(|err| err.to_string());
+            Ok(with_bridge_debug_meta(
+                UpstreamResponseBridgeResult {
+                    usage: UpstreamResponseUsage::default(),
+                    stream_terminal_seen: true,
+                    stream_terminal_error: None,
+                    delivery_error,
+                    upstream_error_hint: None,
+                    delivered_status_code: None,
+                    upstream_request_id: None,
+                    upstream_cf_ray: None,
+                    upstream_auth_error: None,
+                    upstream_identity_error_code: None,
+                    upstream_content_type: None,
+                    last_sse_event_type: None,
+                },
+                &upstream_request_id,
+                &upstream_cf_ray,
+                &upstream_auth_error,
+                &upstream_identity_error_code,
+                &upstream_content_type,
+                None,
+            ))
+        }
+        _ => Err(format!(
+            "stream upstream response is not supported for adapter {response_adapter:?}"
+        )),
     }
 }
 

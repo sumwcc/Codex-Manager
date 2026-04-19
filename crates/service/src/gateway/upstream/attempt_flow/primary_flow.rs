@@ -3,16 +3,17 @@ use codexmanager_core::storage::{Account, Storage, Token};
 use reqwest::header::CONTENT_TYPE;
 use std::time::Instant;
 
+use super::super::GatewayUpstreamResponse;
 use super::fallback_branch::{handle_openai_fallback_branch, FallbackBranchResult};
 use super::primary_attempt::{run_primary_upstream_attempt, PrimaryAttemptResult};
 use super::transport::UpstreamRequestContext;
 
 pub(super) enum PrimaryFlowDecision {
     Continue {
-        upstream: reqwest::blocking::Response,
+        upstream: GatewayUpstreamResponse,
         auth_token: String,
     },
-    RespondUpstream(reqwest::blocking::Response),
+    RespondUpstream(GatewayUpstreamResponse),
     Failover,
     Terminal {
         status_code: u16,

@@ -1,6 +1,7 @@
 use tiny_http::Request;
 
 use super::super::super::request_log::RequestLogUsage;
+use super::super::GatewayUpstreamResponse;
 use super::execution_context::GatewayUpstreamExecutionContext;
 
 pub(super) enum FinalizeUpstreamResponseOutcome {
@@ -181,7 +182,7 @@ pub(super) fn finalize_terminal_candidate(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn finalize_upstream_response(
     request: Request,
-    response: reqwest::blocking::Response,
+    response: GatewayUpstreamResponse,
     inflight_guard: super::super::super::AccountInFlightGuard,
     context: &GatewayUpstreamExecutionContext<'_>,
     account_id: &str,

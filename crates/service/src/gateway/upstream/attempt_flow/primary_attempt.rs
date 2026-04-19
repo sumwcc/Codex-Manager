@@ -2,11 +2,12 @@ use bytes::Bytes;
 use codexmanager_core::storage::Account;
 use std::time::Instant;
 
+use super::super::GatewayUpstreamResponse;
 use super::super::support::deadline;
 use super::transport::UpstreamRequestContext;
 
 pub(super) enum PrimaryAttemptResult {
-    Upstream(reqwest::blocking::Response),
+    Upstream(GatewayUpstreamResponse),
     Failover,
     Terminal { status_code: u16, message: String },
 }

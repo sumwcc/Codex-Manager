@@ -5,6 +5,7 @@ use std::time::Instant;
 use crate::account_status::mark_account_unavailable_for_refresh_token_error;
 use crate::gateway::error_log::GatewayErrorLogInput;
 
+use super::super::GatewayUpstreamResponse;
 use super::super::support::backoff;
 use super::super::support::outcome::{decide_upstream_outcome, UpstreamOutcomeDecision};
 use super::super::support::retry::{retry_with_alternate_path, AltPathRetryResult};
@@ -121,7 +122,7 @@ fn retry_upstream_server_error_once(
     strip_session_affinity: bool,
     debug: bool,
     status: reqwest::StatusCode,
-) -> Result<Option<reqwest::blocking::Response>, ()> {
+) -> Result<Option<GatewayUpstreamResponse>, ()> {
     if status.as_u16() != 500 {
         return Ok(None);
     }
@@ -197,7 +198,7 @@ fn retry_chatgpt_challenge_without_compression(
     status: reqwest::StatusCode,
     upstream_content_type: Option<&reqwest::header::HeaderValue>,
     upstream_cf_ray: Option<&str>,
-) -> Result<Option<reqwest::blocking::Response>, ()> {
+) -> Result<Option<GatewayUpstreamResponse>, ()> {
     if !super::super::config::is_chatgpt_backend_base(upstream_base) {
         return Ok(None);
     }
@@ -275,7 +276,7 @@ fn retry_chatgpt_challenge_without_compression(
 pub(super) enum PostRetryFlowDecision {
     Failover,
     Terminal { status_code: u16, message: String },
-    RespondUpstream(reqwest::blocking::Response),
+    RespondUpstream(GatewayUpstreamResponse),
 }
 
 /// 函数 `process_upstream_post_retry_flow`
@@ -312,7 +313,7 @@ pub(super) fn process_upstream_post_retry_flow<F>(
     allow_openai_fallback: bool,
     disable_challenge_stateless_retry: bool,
     has_more_candidates: bool,
-    mut upstream: reqwest::blocking::Response,
+    mut upstream: GatewayUpstreamResponse,
     mut log_gateway_result: F,
 ) -> PostRetryFlowDecision
 where
@@ -601,9 +602,7 @@ where
         &mut log_gateway_result,
     ) {
         UpstreamOutcomeDecision::Failover => PostRetryFlowDecision::Failover,
-        UpstreamOutcomeDecision::RespondUpstream => {
-            PostRetryFlowDecision::RespondUpstream(upstream)
-        }
+        UpstreamOutcomeDecision::RespondUpstream => PostRetryFlowDecision::RespondUpstream(upstream),
     }
 }
 

@@ -67,6 +67,12 @@ fn exhausted_gateway_error_for_log(
     parts.join("; ")
 }
 
+fn resolve_upstream_is_stream(client_is_stream: bool, path: &str) -> bool {
+    let is_compact_path =
+        path == "/v1/responses/compact" || path.starts_with("/v1/responses/compact?");
+    client_is_stream || (path.starts_with("/v1/responses") && !is_compact_path)
+}
+
 /// 函数 `proxy_validated_request`
 ///
 /// 作者: gaohongshun
@@ -113,12 +119,9 @@ pub(in super::super) fn proxy_validated_request(
     } = validated;
     let started_at = Instant::now();
     let client_is_stream = is_stream;
-    let is_compact_path =
-        path == "/v1/responses/compact" || path.starts_with("/v1/responses/compact?");
     // 中文注释：对齐 Codex 上游协议：/v1/responses 固定走 SSE。
     // 下游是否流式仍由客户端 `stream` 参数决定（在 response bridge 层聚合/透传）。
-    let upstream_is_stream =
-        client_is_stream || (path.starts_with("/v1/responses") && !is_compact_path);
+    let upstream_is_stream = resolve_upstream_is_stream(client_is_stream, path.as_str());
     let request_deadline = super::support::deadline::request_deadline(started_at, client_is_stream);
 
     super::super::trace_log::log_request_start(
@@ -375,7 +378,7 @@ pub(in super::super) fn proxy_validated_request(
 
 #[cfg(test)]
 mod tests {
-    use super::exhausted_gateway_error_for_log;
+    use super::{exhausted_gateway_error_for_log, resolve_upstream_is_stream};
 
     /// 函数 `exhausted_gateway_error_includes_attempts_skips_and_last_error`
     ///
@@ -420,5 +423,14 @@ mod tests {
         let message = exhausted_gateway_error_for_log(&[], 2, 0, None);
 
         assert!(message.contains("kind=no_available_account_cooldown"));
+    }
+
+    #[test]
+    fn resolve_upstream_is_stream_keeps_non_compact_responses_on_sse_upstream() {
+        assert!(resolve_upstream_is_stream(false, "/v1/responses"));
+        assert!(resolve_upstream_is_stream(false, "/v1/responses?stream=false"));
+        assert!(!resolve_upstream_is_stream(false, "/v1/responses/compact"));
+        assert!(!resolve_upstream_is_stream(false, "/v1/chat/completions"));
+        assert!(resolve_upstream_is_stream(true, "/v1/chat/completions"));
     }
 }

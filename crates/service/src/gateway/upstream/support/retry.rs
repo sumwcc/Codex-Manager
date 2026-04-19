@@ -3,12 +3,13 @@ use codexmanager_core::storage::Account;
 use reqwest::StatusCode;
 use std::time::{Duration, Instant};
 
+use super::super::GatewayUpstreamResponse;
 use super::super::attempt_flow::transport::send_upstream_request;
 use super::super::attempt_flow::transport::UpstreamRequestContext;
 
 pub(in super::super) enum AltPathRetryResult {
     NotTriggered,
-    Upstream(reqwest::blocking::Response),
+    Upstream(GatewayUpstreamResponse),
     Failover,
     Terminal { status_code: u16, message: String },
 }

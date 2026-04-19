@@ -2,6 +2,7 @@ use bytes::Bytes;
 use codexmanager_core::storage::{Account, Storage, Token};
 use std::time::Instant;
 
+use super::super::GatewayUpstreamResponse;
 use super::super::support::deadline;
 use super::openai_base::{handle_openai_base_attempt, OpenAiAttemptResult};
 use super::postprocess::{process_upstream_post_retry_flow, PostRetryFlowDecision};
@@ -9,7 +10,7 @@ use super::primary_flow::{run_primary_upstream_flow, PrimaryFlowDecision};
 use super::transport::UpstreamRequestContext;
 
 pub(in super::super) enum CandidateUpstreamDecision {
-    RespondUpstream(reqwest::blocking::Response),
+    RespondUpstream(GatewayUpstreamResponse),
     Failover,
     Terminal { status_code: u16, message: String },
 }

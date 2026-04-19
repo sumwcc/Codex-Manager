@@ -2,10 +2,11 @@ use bytes::Bytes;
 use codexmanager_core::storage::{Account, Storage, Token};
 use reqwest::header::CONTENT_TYPE;
 
+use super::super::GatewayUpstreamResponse;
 use super::super::support::outcome::{decide_upstream_outcome, UpstreamOutcomeDecision};
 
 pub(super) enum OpenAiAttemptResult {
-    Upstream(reqwest::blocking::Response),
+    Upstream(GatewayUpstreamResponse),
     Failover,
     Terminal { status_code: u16, message: String },
 }
@@ -64,7 +65,7 @@ where
             &mut log_gateway_result,
         ) {
             UpstreamOutcomeDecision::Failover => OpenAiAttemptResult::Failover,
-            UpstreamOutcomeDecision::RespondUpstream => OpenAiAttemptResult::Upstream(resp),
+            UpstreamOutcomeDecision::RespondUpstream => OpenAiAttemptResult::Upstream(resp.into()),
         },
         Ok(None) => {
             super::super::super::mark_account_cooldown(
