@@ -7,4 +7,6 @@ pub(super) mod proxy_pipeline;
 pub(super) mod response;
 pub(super) mod support;
 
-pub(super) use response::{GatewayByteStream, GatewayByteStreamItem, GatewayStreamResponse, GatewayUpstreamResponse};
+pub(super) use response::{
+    GatewayByteStream, GatewayByteStreamItem, GatewayStreamResponse, GatewayUpstreamResponse,
+};

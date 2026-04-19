@@ -5,10 +5,10 @@ use std::time::Instant;
 use crate::account_status::mark_account_unavailable_for_refresh_token_error;
 use crate::gateway::error_log::GatewayErrorLogInput;
 
-use super::super::GatewayUpstreamResponse;
 use super::super::support::backoff;
 use super::super::support::outcome::{decide_upstream_outcome, UpstreamOutcomeDecision};
 use super::super::support::retry::{retry_with_alternate_path, AltPathRetryResult};
+use super::super::GatewayUpstreamResponse;
 use super::fallback_branch::{handle_openai_fallback_branch, FallbackBranchResult};
 use super::stateless_retry::{retry_stateless_then_optional_alt, StatelessRetryResult};
 use super::transport::UpstreamRequestContext;
@@ -602,7 +602,9 @@ where
         &mut log_gateway_result,
     ) {
         UpstreamOutcomeDecision::Failover => PostRetryFlowDecision::Failover,
-        UpstreamOutcomeDecision::RespondUpstream => PostRetryFlowDecision::RespondUpstream(upstream),
+        UpstreamOutcomeDecision::RespondUpstream => {
+            PostRetryFlowDecision::RespondUpstream(upstream)
+        }
     }
 }
 

@@ -428,7 +428,10 @@ mod tests {
     #[test]
     fn resolve_upstream_is_stream_keeps_non_compact_responses_on_sse_upstream() {
         assert!(resolve_upstream_is_stream(false, "/v1/responses"));
-        assert!(resolve_upstream_is_stream(false, "/v1/responses?stream=false"));
+        assert!(resolve_upstream_is_stream(
+            false,
+            "/v1/responses?stream=false"
+        ));
         assert!(!resolve_upstream_is_stream(false, "/v1/responses/compact"));
         assert!(!resolve_upstream_is_stream(false, "/v1/chat/completions"));
         assert!(resolve_upstream_is_stream(true, "/v1/chat/completions"));

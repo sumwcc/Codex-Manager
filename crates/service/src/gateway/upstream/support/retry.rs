@@ -3,9 +3,9 @@ use codexmanager_core::storage::Account;
 use reqwest::StatusCode;
 use std::time::{Duration, Instant};
 
-use super::super::GatewayUpstreamResponse;
 use super::super::attempt_flow::transport::send_upstream_request;
 use super::super::attempt_flow::transport::UpstreamRequestContext;
+use super::super::GatewayUpstreamResponse;
 
 pub(in super::super) enum AltPathRetryResult {
     NotTriggered,

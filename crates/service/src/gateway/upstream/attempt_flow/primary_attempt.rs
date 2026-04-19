@@ -2,8 +2,8 @@ use bytes::Bytes;
 use codexmanager_core::storage::Account;
 use std::time::Instant;
 
-use super::super::GatewayUpstreamResponse;
 use super::super::support::deadline;
+use super::super::GatewayUpstreamResponse;
 use super::transport::UpstreamRequestContext;
 
 pub(super) enum PrimaryAttemptResult {

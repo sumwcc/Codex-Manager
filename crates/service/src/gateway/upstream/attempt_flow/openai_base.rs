@@ -2,8 +2,8 @@ use bytes::Bytes;
 use codexmanager_core::storage::{Account, Storage, Token};
 use reqwest::header::CONTENT_TYPE;
 
-use super::super::GatewayUpstreamResponse;
 use super::super::support::outcome::{decide_upstream_outcome, UpstreamOutcomeDecision};
+use super::super::GatewayUpstreamResponse;
 
 pub(super) enum OpenAiAttemptResult {
     Upstream(GatewayUpstreamResponse),

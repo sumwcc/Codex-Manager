@@ -3,8 +3,8 @@ use codexmanager_core::storage::Account;
 use reqwest::StatusCode;
 use std::time::{Duration, Instant};
 
-use super::super::GatewayUpstreamResponse;
 use super::super::support::{backoff, deadline};
+use super::super::GatewayUpstreamResponse;
 use super::transport::{send_upstream_request, UpstreamRequestContext};
 
 pub(super) enum StatelessRetryResult {
