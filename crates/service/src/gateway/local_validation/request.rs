@@ -57,8 +57,7 @@ fn resolve_effective_request_overrides(
 }
 
 fn is_removed_openai_compat_request_path(normalized_path: &str) -> bool {
-    normalized_path.starts_with("/v1/chat/completions")
-        || normalized_path.starts_with("/v1/completions")
+    normalized_path.starts_with("/v1/completions")
 }
 
 /// 函数 `ensure_anthropic_model_is_listed`
@@ -645,7 +644,7 @@ mod removed_path_tests {
     fn identifies_removed_openai_compat_paths() {
         assert!(!is_removed_openai_compat_request_path("/v1/responses"));
         assert!(!is_removed_openai_compat_request_path("/v1/responses/compact"));
-        assert!(is_removed_openai_compat_request_path("/v1/chat/completions"));
+        assert!(!is_removed_openai_compat_request_path("/v1/chat/completions"));
         assert!(is_removed_openai_compat_request_path("/v1/completions"));
         assert!(!is_removed_openai_compat_request_path("/v1/messages"));
         assert!(!is_removed_openai_compat_request_path(
