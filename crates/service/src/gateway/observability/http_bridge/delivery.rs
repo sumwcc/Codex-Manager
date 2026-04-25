@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::sync::{Arc, Mutex};
 use tiny_http::{Header, Request, Response, StatusCode};
 
@@ -7,12 +7,12 @@ use crate::gateway::upstream::GatewayStreamResponse;
 
 use super::super::{GeminiStreamOutputMode, ResponseAdapter, ToolNameRestoreMap};
 use super::{
-    AnthropicSseReader, GeminiSseReader,
     collect_non_stream_json_from_sse_bytes, extract_error_hint_from_body,
     extract_error_message_from_json, looks_like_sse_payload, merge_usage, parse_usage_from_json,
-    push_trace_id_header, usage_has_signal, OpenAIResponsesPassthroughSseReader,
-    PassthroughSseCollector, PassthroughSseProtocol, PassthroughSseUsageReader,
-    SseKeepAliveFrame, UpstreamResponseBridgeResult, UpstreamResponseUsage,
+    push_trace_id_header, usage_has_signal, AnthropicSseReader, GeminiSseReader,
+    OpenAIResponsesPassthroughSseReader, PassthroughSseCollector, PassthroughSseProtocol,
+    PassthroughSseUsageReader, SseKeepAliveFrame, UpstreamResponseBridgeResult,
+    UpstreamResponseUsage,
 };
 
 const REQUEST_ID_HEADER_CANDIDATES: &[&str] = &["x-request-id", "x-oai-request-id"];
@@ -307,7 +307,11 @@ fn convert_responses_body_to_anthropic_messages(
             let Some(item_obj) = item.as_object() else {
                 continue;
             };
-            match item_obj.get("type").and_then(Value::as_str).unwrap_or_default() {
+            match item_obj
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+            {
                 "reasoning" => {
                     let thinking = item_obj
                         .get("summary")
@@ -319,7 +323,12 @@ fn convert_responses_body_to_anthropic_messages(
                                 .collect::<String>()
                         })
                         .filter(|text| !text.trim().is_empty())
-                        .or_else(|| item_obj.get("content").and_then(Value::as_str).map(str::to_string))
+                        .or_else(|| {
+                            item_obj
+                                .get("content")
+                                .and_then(Value::as_str)
+                                .map(str::to_string)
+                        })
                         .unwrap_or_default();
                     if !thinking.trim().is_empty() {
                         let mut block = json!({
@@ -355,7 +364,7 @@ fn convert_responses_body_to_anthropic_messages(
                         }
                     }
                 }
-                "function_call" => {
+                "function_call" | "custom_tool_call" => {
                     stop_reason = "tool_use";
                     content.push(json!({
                         "type": "tool_use",
@@ -403,7 +412,11 @@ fn convert_responses_body_to_gemini_generate_content(
             let Some(item_obj) = item.as_object() else {
                 continue;
             };
-            match item_obj.get("type").and_then(Value::as_str).unwrap_or_default() {
+            match item_obj
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+            {
                 "reasoning" => {
                     let thinking = item_obj
                         .get("summary")
@@ -426,7 +439,8 @@ fn convert_responses_body_to_gemini_generate_content(
                                 content_item.get("type").and_then(Value::as_str),
                                 Some("output_text" | "text")
                             ) {
-                                if let Some(text) = content_item.get("text").and_then(Value::as_str) {
+                                if let Some(text) = content_item.get("text").and_then(Value::as_str)
+                                {
                                     if !text.trim().is_empty() {
                                         parts.push(json!({ "text": text }));
                                     }
@@ -435,30 +449,48 @@ fn convert_responses_body_to_gemini_generate_content(
                         }
                     }
                 }
-                "function_call" => {
-                    parts.push(json!({
-                        "functionCall": {
-                            "name": item_obj
+                "function_call" | "custom_tool_call" => {
+                    let mut function_call = Map::new();
+                    function_call.insert(
+                        "name".to_string(),
+                        Value::String(
+                            item_obj
                                 .get("name")
                                 .and_then(Value::as_str)
                                 .map(|name| restore_tool_name(name, tool_name_restore_map))
                                 .unwrap_or_else(|| "tool".to_string()),
-                            "args": parse_json_string_or_value(
-                                item_obj.get("arguments").or_else(|| item_obj.get("input"))
-                            ),
-                            "id": item_obj
-                                .get("call_id")
-                                .or_else(|| item_obj.get("id"))
-                                .and_then(Value::as_str)
-                                .unwrap_or(""),
-                        }
-                    }));
+                        ),
+                    );
+                    function_call.insert(
+                        "args".to_string(),
+                        parse_json_string_or_value(
+                            item_obj.get("arguments").or_else(|| item_obj.get("input")),
+                        ),
+                    );
+                    let id_key = if item_obj.get("type").and_then(Value::as_str)
+                        == Some("custom_tool_call")
+                    {
+                        "id"
+                    } else {
+                        "call_id"
+                    };
+                    if let Some(call_id) = item_obj
+                        .get(id_key)
+                        .or_else(|| item_obj.get("call_id"))
+                        .or_else(|| item_obj.get("id"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|current| !current.is_empty())
+                    {
+                        function_call.insert("id".to_string(), Value::String(call_id.to_string()));
+                    }
+                    parts.push(json!({ "functionCall": Value::Object(function_call) }));
                 }
                 _ => {}
             }
         }
     }
-    let payload = json!({
+    let mut payload = json!({
         "candidates": [{
             "content": {
                 "role": "model",
@@ -469,6 +501,22 @@ fn convert_responses_body_to_gemini_generate_content(
         }],
         "usageMetadata": gemini_usage_from_responses(&value),
     });
+    if let Some(model) = value.get("model").and_then(Value::as_str) {
+        payload["modelVersion"] = Value::String(model.to_string());
+    }
+    if let Some(response_id) = value.get("id").and_then(Value::as_str) {
+        payload["responseId"] = Value::String(response_id.to_string());
+    }
+    if let Some(create_time) = value
+        .get("created_at")
+        .and_then(Value::as_i64)
+        .and_then(format_unix_timestamp_rfc3339)
+    {
+        payload["createTime"] = Value::String(create_time);
+    }
+    if let Some(function_calls) = build_gemini_function_calls(&parts) {
+        payload["functionCalls"] = function_calls;
+    }
     let body = if wrap_response_envelope {
         json!({ "response": payload })
     } else {
@@ -477,12 +525,71 @@ fn convert_responses_body_to_gemini_generate_content(
     serde_json::to_vec(&body).ok()
 }
 
+fn build_gemini_function_calls(parts: &[Value]) -> Option<Value> {
+    let mut function_calls = Vec::new();
+    for part in parts {
+        let Some(function_call) = part.get("functionCall").and_then(Value::as_object) else {
+            continue;
+        };
+        let Some(name) = function_call
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|current| !current.is_empty())
+        else {
+            continue;
+        };
+        let mut item = Map::new();
+        item.insert("name".to_string(), Value::String(name.to_string()));
+        item.insert(
+            "args".to_string(),
+            function_call
+                .get("args")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
+        if let Some(call_id) = function_call
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|current| !current.is_empty())
+        {
+            item.insert("id".to_string(), Value::String(call_id.to_string()));
+        }
+        function_calls.push(Value::Object(item));
+    }
+    (!function_calls.is_empty()).then(|| Value::Array(function_calls))
+}
+
+fn format_unix_timestamp_rfc3339(seconds: i64) -> Option<String> {
+    chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, 0).map(|value| value.to_rfc3339())
+}
+
 fn parse_json_string_or_value(value: Option<&Value>) -> Value {
     match value {
-        Some(Value::String(text)) => serde_json::from_str::<Value>(text).unwrap_or_else(|_| Value::String(text.clone())),
+        Some(Value::String(text)) => {
+            parse_json_string_lenient(text).unwrap_or_else(|| Value::String(text.clone()))
+        }
         Some(other) => other.clone(),
         None => json!({}),
     }
+}
+
+fn parse_json_string_lenient(raw: &str) -> Option<Value> {
+    let mut current = raw.trim().to_string();
+    for _ in 0..3 {
+        let parsed = serde_json::from_str::<Value>(&current).ok()?;
+        if let Value::String(inner) = parsed {
+            let trimmed = inner.trim();
+            if trimmed.is_empty() || trimmed == current {
+                return Some(Value::String(inner));
+            }
+            current = trimmed.to_string();
+        } else {
+            return Some(parsed);
+        }
+    }
+    None
 }
 
 fn convert_upstream_error_to_anthropic_body(message: &str) -> Vec<u8> {
@@ -493,7 +600,10 @@ fn convert_upstream_error_to_anthropic_body(message: &str) -> Vec<u8> {
             "message": message,
         }
     }))
-    .unwrap_or_else(|_| b"{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"unknown error\"}}".to_vec())
+    .unwrap_or_else(|_| {
+        b"{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"unknown error\"}}"
+            .to_vec()
+    })
 }
 
 fn convert_upstream_error_to_gemini_body(message: &str) -> Vec<u8> {
@@ -528,11 +638,13 @@ fn convert_success_body_for_adapter(
         ResponseAdapter::AnthropicMessagesFromResponses => {
             convert_responses_body_to_anthropic_messages(body, tool_name_restore_map)
         }
-        ResponseAdapter::GeminiGenerateContentFromResponses => convert_responses_body_to_gemini_generate_content(
-            body,
-            request_path.starts_with("/v1internal:"),
-            tool_name_restore_map,
-        ),
+        ResponseAdapter::GeminiGenerateContentFromResponses => {
+            convert_responses_body_to_gemini_generate_content(
+                body,
+                request_path.starts_with("/v1internal:"),
+                tool_name_restore_map,
+            )
+        }
         ResponseAdapter::Passthrough => None,
     }
 }
@@ -1230,7 +1342,8 @@ pub(crate) fn respond_with_upstream(
             let upstream_body = upstream
                 .bytes()
                 .map_err(|err| format!("read upstream body failed: {err}"))?;
-            let detected_sse = is_sse || (!is_json && looks_like_sse_payload(upstream_body.as_ref()));
+            let detected_sse =
+                is_sse || (!is_json && looks_like_sse_payload(upstream_body.as_ref()));
             let (body, usage) = if detected_sse {
                 let (synthesized, mut usage) =
                     collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
@@ -1265,12 +1378,17 @@ pub(crate) fn respond_with_upstream(
                     request_path,
                     tool_name_restore_map,
                 )
-                    .unwrap_or_else(|| body.clone())
+                .unwrap_or_else(|| body.clone())
             };
             replace_content_type_header(&mut headers, "application/json");
             let len = Some(response_body.len());
-            let response =
-                Response::new(status, headers, std::io::Cursor::new(response_body), len, None);
+            let response = Response::new(
+                status,
+                headers,
+                std::io::Cursor::new(response_body),
+                len,
+                None,
+            );
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
             return Ok(with_bridge_debug_meta(
                 UpstreamResponseBridgeResult {
@@ -1313,8 +1431,13 @@ pub(crate) fn respond_with_upstream(
             let response_body = convert_error_body_for_adapter(response_adapter, &message);
             replace_content_type_header(&mut headers, "application/json");
             let len = Some(response_body.len());
-            let response =
-                Response::new(status, headers, std::io::Cursor::new(response_body), len, None);
+            let response = Response::new(
+                status,
+                headers,
+                std::io::Cursor::new(response_body),
+                len,
+                None,
+            );
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
             return Ok(with_bridge_debug_meta(
                 UpstreamResponseBridgeResult {
@@ -1347,16 +1470,20 @@ pub(crate) fn respond_with_upstream(
         match response_adapter {
             ResponseAdapter::AnthropicMessagesFromResponses => {
                 let usage_collector = Arc::new(Mutex::new(UpstreamResponseUsage::default()));
-                let response_body: Box<dyn std::io::Read + Send> = Box::new(AnthropicSseReader::new(
-                    upstream,
-                    Arc::clone(&usage_collector),
-                    fallback_model,
-                    tool_name_restore_map.cloned(),
-                    request_started_at,
-                ));
+                let response_body: Box<dyn std::io::Read + Send> =
+                    Box::new(AnthropicSseReader::new(
+                        upstream,
+                        Arc::clone(&usage_collector),
+                        fallback_model,
+                        tool_name_restore_map.cloned(),
+                        request_started_at,
+                    ));
                 let response = Response::new(status, headers, response_body, None, None);
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
-                let usage = usage_collector.lock().map(|guard| guard.clone()).unwrap_or_default();
+                let usage = usage_collector
+                    .lock()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_default();
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
@@ -1955,7 +2082,8 @@ pub(crate) fn respond_with_stream_upstream(
             let upstream_body = upstream
                 .read_all_bytes()
                 .map_err(|err| format!("read upstream body failed: {err}"))?;
-            let detected_sse = is_sse || (!is_json && looks_like_sse_payload(upstream_body.as_ref()));
+            let detected_sse =
+                is_sse || (!is_json && looks_like_sse_payload(upstream_body.as_ref()));
             let (body, usage) = if detected_sse {
                 let (synthesized, mut usage) =
                     collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
@@ -1990,12 +2118,17 @@ pub(crate) fn respond_with_stream_upstream(
                     request_path,
                     tool_name_restore_map,
                 )
-                    .unwrap_or_else(|| body.clone())
+                .unwrap_or_else(|| body.clone())
             };
             replace_content_type_header(&mut headers, "application/json");
             let len = Some(response_body.len());
-            let response =
-                Response::new(status, headers, std::io::Cursor::new(response_body), len, None);
+            let response = Response::new(
+                status,
+                headers,
+                std::io::Cursor::new(response_body),
+                len,
+                None,
+            );
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
             return Ok(with_bridge_debug_meta(
                 UpstreamResponseBridgeResult {
@@ -2038,8 +2171,13 @@ pub(crate) fn respond_with_stream_upstream(
             let response_body = convert_error_body_for_adapter(response_adapter, &message);
             replace_content_type_header(&mut headers, "application/json");
             let len = Some(response_body.len());
-            let response =
-                Response::new(status, headers, std::io::Cursor::new(response_body), len, None);
+            let response = Response::new(
+                status,
+                headers,
+                std::io::Cursor::new(response_body),
+                len,
+                None,
+            );
             let delivery_error = request.respond(response).err().map(|err| err.to_string());
             return Ok(with_bridge_debug_meta(
                 UpstreamResponseBridgeResult {
@@ -2075,16 +2213,20 @@ pub(crate) fn respond_with_stream_upstream(
                     .read_all_bytes()
                     .map_err(|err| format!("read upstream body failed: {err}"))?;
                 let usage_collector = Arc::new(Mutex::new(UpstreamResponseUsage::default()));
-                let response_body: Box<dyn std::io::Read + Send> = Box::new(AnthropicSseReader::from_reader(
-                    std::io::Cursor::new(upstream_body.to_vec()),
-                    Arc::clone(&usage_collector),
-                    fallback_model,
-                    tool_name_restore_map.cloned(),
-                    request_started_at,
-                ));
+                let response_body: Box<dyn std::io::Read + Send> =
+                    Box::new(AnthropicSseReader::from_reader(
+                        std::io::Cursor::new(upstream_body.to_vec()),
+                        Arc::clone(&usage_collector),
+                        fallback_model,
+                        tool_name_restore_map.cloned(),
+                        request_started_at,
+                    ));
                 let response = Response::new(status, headers, response_body, None, None);
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
-                let usage = usage_collector.lock().map(|guard| guard.clone()).unwrap_or_default();
+                let usage = usage_collector
+                    .lock()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_default();
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
@@ -2113,14 +2255,15 @@ pub(crate) fn respond_with_stream_upstream(
                     .read_all_bytes()
                     .map_err(|err| format!("read upstream body failed: {err}"))?;
                 let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
-                let response_body: Box<dyn std::io::Read + Send> = Box::new(GeminiSseReader::from_reader(
-                    std::io::Cursor::new(upstream_body.to_vec()),
-                    Arc::clone(&usage_collector),
-                    tool_name_restore_map.cloned(),
-                    gemini_stream_output_mode.unwrap_or(GeminiStreamOutputMode::Sse),
-                    request_path.starts_with("/v1internal:"),
-                    request_started_at,
-                ));
+                let response_body: Box<dyn std::io::Read + Send> =
+                    Box::new(GeminiSseReader::from_reader(
+                        std::io::Cursor::new(upstream_body.to_vec()),
+                        Arc::clone(&usage_collector),
+                        tool_name_restore_map.cloned(),
+                        gemini_stream_output_mode.unwrap_or(GeminiStreamOutputMode::Sse),
+                        request_path.starts_with("/v1internal:"),
+                        request_started_at,
+                    ));
                 let response = Response::new(status, headers, response_body, None, None);
                 let delivery_error = request.respond(response).err().map(|err| err.to_string());
                 let collector = usage_collector
@@ -2624,7 +2767,11 @@ fn resolve_stream_keepalive_frame(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_compact_non_success_kind, compact_non_success_body_should_be_normalized};
+    use super::{
+        classify_compact_non_success_kind, compact_non_success_body_should_be_normalized,
+        convert_responses_body_to_gemini_generate_content,
+    };
+    use serde_json::json;
 
     /// 函数 `compact_header_only_identity_error_is_normalized_and_classified`
     ///
@@ -2683,5 +2830,64 @@ mod tests {
             ),
             "cloudflare_edge"
         );
+    }
+
+    #[test]
+    fn non_stream_gemini_response_preserves_function_call_id_and_top_level_function_calls() {
+        let body = json!({
+            "id": "resp_non_stream_tool",
+            "model": "gpt-5.4",
+            "output": [{
+                "type": "function_call",
+                "call_id": "call_non_stream_write",
+                "name": "write_file",
+                "arguments": "{\"path\":\"plan.md\"}"
+            }],
+            "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
+        });
+
+        let mapped = convert_responses_body_to_gemini_generate_content(
+            serde_json::to_vec(&body).expect("body").as_slice(),
+            false,
+            None,
+        )
+        .expect("convert gemini body");
+        let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse mapped body");
+
+        assert_eq!(
+            value["candidates"][0]["content"]["parts"][0]["functionCall"]["id"],
+            "call_non_stream_write"
+        );
+        assert_eq!(value["functionCalls"][0]["id"], "call_non_stream_write");
+        assert_eq!(value["functionCalls"][0]["args"]["path"], "plan.md");
+    }
+
+    #[test]
+    fn non_stream_gemini_response_decodes_double_encoded_function_call_arguments() {
+        let body = json!({
+            "id": "resp_non_stream_double_encoded_tool",
+            "model": "gpt-5.4",
+            "output": [{
+                "type": "function_call",
+                "call_id": "call_non_stream_double_encoded_write",
+                "name": "write_file",
+                "arguments": "\"{\\\"file_path\\\":\\\"C:/Users/test/Desktop/test/gemini/plan.md\\\",\\\"content\\\":\\\"plan\\\"}\""
+            }],
+            "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
+        });
+
+        let mapped = convert_responses_body_to_gemini_generate_content(
+            serde_json::to_vec(&body).expect("body").as_slice(),
+            false,
+            None,
+        )
+        .expect("convert gemini body");
+        let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse mapped body");
+
+        assert_eq!(
+            value["candidates"][0]["content"]["parts"][0]["functionCall"]["args"]["file_path"],
+            "C:/Users/test/Desktop/test/gemini/plan.md"
+        );
+        assert_eq!(value["functionCalls"][0]["args"]["content"], "plan");
     }
 }

@@ -1,7 +1,6 @@
+use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{AdaptedGatewayRequest, GeminiStreamOutputMode, ResponseAdapter, ToolNameRestoreMap};
 use crate::apikey_profile::{
@@ -44,6 +43,7 @@ fn adapt_anthropic_messages_request(
     let mut tool_name_restore_map = ToolNameRestoreMap::new();
     let short_name_map = declared_short_name_map_for_anthropic_tools(obj.get("tools"));
     copy_string_field(obj, &mut rewritten, "model");
+    rewritten.insert("instructions".to_string(), Value::String(String::new()));
 
     if let Some(system_message) = anthropic_system_to_developer_message(obj.get("system")) {
         push_input_item(&mut rewritten, system_message);
@@ -69,15 +69,16 @@ fn adapt_anthropic_messages_request(
         "parallel_tool_calls".to_string(),
         Value::Bool(anthropic_parallel_tool_calls(obj.get("tool_choice"))),
     );
-    let reasoning =
-        anthropic_reasoning_to_responses(obj.get("thinking"), obj.get("output_config"))
-            .unwrap_or_else(|| json!({ "effort": "medium", "summary": "auto" }));
+    let reasoning = anthropic_reasoning_to_responses(obj.get("thinking"), obj.get("output_config"))
+        .unwrap_or_else(|| json!({ "effort": "medium", "summary": "auto" }));
     rewritten.insert("reasoning".to_string(), reasoning);
     rewritten.insert("stream".to_string(), Value::Bool(true));
     rewritten.insert("store".to_string(), Value::Bool(false));
     rewritten.insert(
         "include".to_string(),
-        Value::Array(vec![Value::String("reasoning.encrypted_content".to_string())]),
+        Value::Array(vec![Value::String(
+            "reasoning.encrypted_content".to_string(),
+        )]),
     );
 
     Ok(AdaptedGatewayRequest {
@@ -99,11 +100,13 @@ fn adapt_gemini_generate_content_request(
     let obj = payload
         .as_object()
         .ok_or_else(|| "gemini request body must be an object".to_string())?;
+    let request_obj = gemini_request_payload_object(obj);
 
     let mut rewritten = Map::new();
     let mut tool_name_restore_map = ToolNameRestoreMap::new();
-    let short_name_map = declared_short_name_map_for_gemini_tools(obj.get("tools"));
+    let short_name_map = declared_short_name_map_for_gemini_tools(request_obj.get("tools"));
     let mut pending_tool_call_ids = VecDeque::new();
+    rewritten.insert("instructions".to_string(), Value::String(String::new()));
     let model = obj
         .get("model")
         .and_then(Value::as_str)
@@ -116,15 +119,15 @@ fn adapt_gemini_generate_content_request(
     }
 
     if let Some(system_message) = gemini_system_instruction_to_developer_message(
-        obj.get("systemInstruction")
-            .or_else(|| obj.get("system_instruction")),
-    )
-    {
+        request_obj
+            .get("systemInstruction")
+            .or_else(|| request_obj.get("system_instruction")),
+    ) {
         push_input_item(&mut rewritten, system_message);
     }
 
     if let Some(input) = gemini_contents_to_input(
-        obj.get("contents"),
+        request_obj.get("contents"),
         &short_name_map,
         &mut pending_tool_call_ids,
         &mut tool_name_restore_map,
@@ -133,15 +136,19 @@ fn adapt_gemini_generate_content_request(
     }
 
     if let Some(tools) = gemini_tools_to_responses(
-        obj.get("tools"),
+        request_obj.get("tools"),
         &short_name_map,
         &mut tool_name_restore_map,
     )? {
         rewritten.insert("tools".to_string(), tools);
-        rewritten.insert("tool_choice".to_string(), Value::String("auto".to_string()));
+        rewritten.insert(
+            "tool_choice".to_string(),
+            gemini_tool_choice_to_responses(request_obj, &short_name_map),
+        );
     }
-    let reasoning = obj
+    let reasoning = request_obj
         .get("generationConfig")
+        .or_else(|| request_obj.get("generation_config"))
         .and_then(Value::as_object)
         .and_then(gemini_reasoning_to_responses)
         .unwrap_or_else(|| json!({ "effort": "medium", "summary": "auto" }));
@@ -151,11 +158,16 @@ fn adapt_gemini_generate_content_request(
     rewritten.insert("store".to_string(), Value::Bool(false));
     rewritten.insert(
         "include".to_string(),
-        Value::Array(vec![Value::String("reasoning.encrypted_content".to_string())]),
+        Value::Array(vec![Value::String(
+            "reasoning.encrypted_content".to_string(),
+        )]),
     );
 
+    let normalized_path = path.split('?').next().unwrap_or(path);
     let gemini_stream_output_mode = if path.contains(":streamGenerateContent") {
-        if path.to_ascii_lowercase().contains("alt=sse") {
+        if normalized_path == "/v1internal:streamGenerateContent"
+            || path.to_ascii_lowercase().contains("alt=sse")
+        {
             Some(GeminiStreamOutputMode::Sse)
         } else {
             Some(GeminiStreamOutputMode::Raw)
@@ -172,6 +184,10 @@ fn adapt_gemini_generate_content_request(
         gemini_stream_output_mode,
         tool_name_restore_map,
     })
+}
+
+fn gemini_request_payload_object<'a>(obj: &'a Map<String, Value>) -> &'a Map<String, Value> {
+    obj.get("request").and_then(Value::as_object).unwrap_or(obj)
 }
 
 fn copy_string_field(source: &Map<String, Value>, target: &mut Map<String, Value>, key: &str) {
@@ -203,6 +219,14 @@ fn extend_input_items(target: &mut Map<String, Value>, items: Value) {
     for item in items {
         push_input_item(target, item);
     }
+}
+
+fn responses_message(role: &str, content: Value) -> Value {
+    json!({
+        "type": "message",
+        "role": role,
+        "content": content,
+    })
 }
 
 fn anthropic_system_to_developer_message(system: Option<&Value>) -> Option<Value> {
@@ -255,10 +279,10 @@ fn anthropic_messages_to_input(
         match message.get("content") {
             Some(Value::String(text)) => {
                 if let Some(text) = normalize_text(text) {
-                    out.push(json!({
-                        "role": role,
-                        "content": [{ "type": "input_text", "text": text }],
-                    }));
+                    out.push(responses_message(
+                        role,
+                        json!([{ "type": "input_text", "text": text }]),
+                    ));
                 }
             }
             Some(Value::Array(content_items)) => {
@@ -274,23 +298,18 @@ fn anthropic_messages_to_input(
                         .unwrap_or("text");
                     match kind {
                         "text" | "input_text" | "image" => {
-                            if let Some(part) =
-                                anthropic_content_block_to_responses(
-                                    content_item,
-                                    role,
-                                    short_name_map,
-                                    tool_name_restore_map,
-                                )
-                            {
+                            if let Some(part) = anthropic_content_block_to_responses(
+                                content_item,
+                                role,
+                                short_name_map,
+                                tool_name_restore_map,
+                            ) {
                                 content_parts.push(part);
                             }
                         }
                         "tool_use" | "tool_result" => {
                             if !content_parts.is_empty() {
-                                out.push(json!({
-                                    "role": role,
-                                    "content": content_parts,
-                                }));
+                                out.push(responses_message(role, Value::Array(content_parts)));
                                 content_parts = Vec::new();
                             }
                             if let Some(mapped) = anthropic_content_block_to_responses(
@@ -306,10 +325,7 @@ fn anthropic_messages_to_input(
                     }
                 }
                 if !content_parts.is_empty() {
-                    out.push(json!({
-                        "role": role,
-                        "content": content_parts,
-                    }));
+                    out.push(responses_message(role, Value::Array(content_parts)));
                 }
             }
             Some(Value::Object(_)) => {
@@ -320,10 +336,7 @@ fn anthropic_messages_to_input(
                     tool_name_restore_map,
                 )? {
                     if matches!(content, Value::Array(_)) {
-                        out.push(json!({
-                            "role": role,
-                            "content": content,
-                        }));
+                        out.push(responses_message(role, content));
                     } else {
                         out.push(content);
                     }
@@ -351,14 +364,12 @@ fn anthropic_message_content_to_responses(
         Some(Value::Array(items)) => {
             let mut out = Vec::new();
             for item in items {
-                if let Some(mapped) =
-                    anthropic_content_block_to_responses(
-                        item,
-                        role,
-                        short_name_map,
-                        tool_name_restore_map,
-                    )
-                {
+                if let Some(mapped) = anthropic_content_block_to_responses(
+                    item,
+                    role,
+                    short_name_map,
+                    tool_name_restore_map,
+                ) {
                     out.push(mapped);
                 }
             }
@@ -419,11 +430,9 @@ fn anthropic_content_block_to_responses(
                 })
             }),
         "image" => anthropic_image_block_to_responses(block),
-        "tool_use" => anthropic_tool_use_block_to_responses(
-            block,
-            short_name_map,
-            tool_name_restore_map,
-        ),
+        "tool_use" => {
+            anthropic_tool_use_block_to_responses(block, short_name_map, tool_name_restore_map)
+        }
         "tool_result" => anthropic_tool_result_block_to_responses(block),
         _ => None,
     }
@@ -453,7 +462,11 @@ fn anthropic_tools_to_responses(
             out.push(json!({ "type": "web_search" }));
             continue;
         }
-        let Some(name) = tool.get("name").and_then(Value::as_str).and_then(normalize_text) else {
+        let Some(name) = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .and_then(normalize_text)
+        else {
             continue;
         };
         let short_name = resolve_short_tool_name(name.as_str(), short_name_map);
@@ -469,7 +482,10 @@ fn anthropic_tools_to_responses(
             mapped.insert("description".to_string(), Value::String(description));
         }
         if let Some(schema) = tool.get("input_schema") {
-            mapped.insert("parameters".to_string(), normalize_tool_schema(schema.clone()));
+            mapped.insert(
+                "parameters".to_string(),
+                normalize_tool_schema(schema.clone()),
+            );
         }
         mapped.insert("strict".to_string(), Value::Bool(false));
         out.push(Value::Object(mapped));
@@ -564,7 +580,9 @@ fn gemini_reasoning_to_responses(config: &Map<String, Value>) -> Option<Value> {
     Some(json!({ "effort": effort, "summary": "auto" }))
 }
 
-fn gemini_system_instruction_to_developer_message(system_instruction: Option<&Value>) -> Option<Value> {
+fn gemini_system_instruction_to_developer_message(
+    system_instruction: Option<&Value>,
+) -> Option<Value> {
     gemini_system_instruction_to_text(system_instruction).map(|text| {
         json!({
             "type": "message",
@@ -620,6 +638,10 @@ fn gemini_contents_to_input(
                         Some("functionCall")
                     } else if obj.contains_key("functionResponse") {
                         Some("functionResponse")
+                    } else if obj.get("thought").and_then(Value::as_bool) == Some(true)
+                        && obj.contains_key("text")
+                    {
+                        Some("reasoning")
                     } else if obj.contains_key("text") {
                         Some("text")
                     } else {
@@ -636,12 +658,9 @@ fn gemini_contents_to_input(
             ) {
                 match kind {
                     "text" => mapped_parts.push(mapped),
-                    "functionCall" | "functionResponse" => {
+                    "reasoning" | "functionCall" | "functionResponse" => {
                         if !mapped_parts.is_empty() {
-                            out.push(json!({
-                                "role": role,
-                                "content": mapped_parts,
-                            }));
+                            out.push(responses_message(role, Value::Array(mapped_parts)));
                             mapped_parts = Vec::new();
                         }
                         out.push(mapped);
@@ -651,10 +670,7 @@ fn gemini_contents_to_input(
             }
         }
         if !mapped_parts.is_empty() {
-            out.push(json!({
-                "role": role,
-                "content": mapped_parts,
-            }));
+            out.push(responses_message(role, Value::Array(mapped_parts)));
         }
     }
     Ok((!out.is_empty()).then(|| Value::Array(out)))
@@ -662,7 +678,9 @@ fn gemini_contents_to_input(
 
 fn gemini_part_to_text(value: &Value) -> Option<String> {
     let part = value.as_object()?;
-    part.get("text").and_then(Value::as_str).and_then(normalize_text)
+    part.get("text")
+        .and_then(Value::as_str)
+        .and_then(normalize_text)
 }
 
 fn gemini_part_to_responses(
@@ -673,7 +691,35 @@ fn gemini_part_to_responses(
     tool_name_restore_map: &mut ToolNameRestoreMap,
 ) -> Option<Value> {
     let part = value.as_object()?;
-    if let Some(text) = part.get("text").and_then(Value::as_str).and_then(normalize_text) {
+    if let Some(text) = part
+        .get("text")
+        .and_then(Value::as_str)
+        .and_then(normalize_text)
+    {
+        if part.get("thought").and_then(Value::as_bool) == Some(true) {
+            let mut reasoning = Map::new();
+            reasoning.insert("type".to_string(), Value::String("reasoning".to_string()));
+            reasoning.insert(
+                "summary".to_string(),
+                Value::Array(vec![json!({
+                    "type": "summary_text",
+                    "text": text,
+                })]),
+            );
+            if let Some(signature) = part
+                .get("thoughtSignature")
+                .or_else(|| part.get("thought_signature"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                reasoning.insert(
+                    "encrypted_content".to_string(),
+                    Value::String(signature.to_string()),
+                );
+            }
+            return Some(Value::Object(reasoning));
+        }
         return Some(json!({
             "type": text_content_type_for_role(role),
             "text": text,
@@ -686,7 +732,11 @@ fn gemini_part_to_responses(
             .and_then(normalize_text)?;
         let short_name = resolve_short_tool_name(name.as_str(), short_name_map);
         tool_name_restore_map.insert(short_name.clone(), name);
-        let call_id = generate_tool_call_id();
+        let call_id = function_call
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(normalize_text)
+            .unwrap_or_else(generate_tool_call_id);
         pending_tool_call_ids.push_back(call_id.clone());
         return Some(json!({
             "type": "function_call",
@@ -696,13 +746,9 @@ fn gemini_part_to_responses(
         }));
     }
     if let Some(function_response) = part.get("functionResponse").and_then(Value::as_object) {
-        let output = function_response
-            .get("response")
-            .and_then(|response| response.get("result").cloned().or_else(|| Some(response.clone())))
-            .unwrap_or_else(|| Value::String(String::new()));
-        let call_id = pending_tool_call_ids
-            .pop_front()
-            .unwrap_or_else(generate_tool_call_id);
+        let output = gemini_function_response_output(function_response);
+        let call_id =
+            resolve_gemini_function_response_call_id(function_response, pending_tool_call_ids);
         return Some(json!({
             "type": "function_call_output",
             "call_id": call_id,
@@ -710,6 +756,29 @@ fn gemini_part_to_responses(
         }));
     }
     None
+}
+
+fn resolve_gemini_function_response_call_id(
+    function_response: &Map<String, Value>,
+    pending_tool_call_ids: &mut VecDeque<String>,
+) -> String {
+    if let Some(id) = function_response
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(normalize_text)
+    {
+        if let Some(position) = pending_tool_call_ids
+            .iter()
+            .position(|pending| pending == id.as_str())
+        {
+            pending_tool_call_ids.remove(position);
+            return id;
+        }
+        return id;
+    }
+    pending_tool_call_ids
+        .pop_front()
+        .unwrap_or_else(generate_tool_call_id)
 }
 
 fn gemini_tools_to_responses(
@@ -728,7 +797,7 @@ fn gemini_tools_to_responses(
         let Some(tool) = item.as_object() else {
             continue;
         };
-        let Some(declarations) = tool.get("functionDeclarations").and_then(Value::as_array) else {
+        let Some(declarations) = gemini_function_declarations(tool) else {
             continue;
         };
         for declaration in declarations {
@@ -744,26 +813,92 @@ fn gemini_tools_to_responses(
             };
             let short_name = resolve_short_tool_name(name.as_str(), short_name_map);
             tool_name_restore_map.insert(short_name.clone(), name);
-            let mapped = json!({
-                "type": "function",
-                "name": short_name,
-                "description": function
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .and_then(normalize_text),
-                "parameters": normalize_tool_schema(
-                    function
-                        .get("parameters")
-                        .or_else(|| function.get("parametersJsonSchema"))
-                        .cloned()
-                        .unwrap_or_else(|| json!({ "type": "object", "properties": {} })),
-                ),
-                "strict": false,
-            });
-            out.push(mapped);
+            let mut mapped = Map::new();
+            mapped.insert("type".to_string(), Value::String("function".to_string()));
+            mapped.insert("name".to_string(), Value::String(short_name));
+            if let Some(description) = function
+                .get("description")
+                .and_then(Value::as_str)
+                .and_then(normalize_text)
+            {
+                mapped.insert("description".to_string(), Value::String(description));
+            }
+            if let Some(parameters) = function
+                .get("parameters")
+                .or_else(|| function.get("parametersJsonSchema"))
+                .cloned()
+            {
+                mapped.insert(
+                    "parameters".to_string(),
+                    normalize_gemini_tool_schema_like_cpa(parameters),
+                );
+            }
+            mapped.insert("strict".to_string(), Value::Bool(false));
+            out.push(Value::Object(mapped));
         }
     }
     Ok((!out.is_empty()).then(|| Value::Array(out)))
+}
+
+fn gemini_tool_choice_to_responses(
+    request_obj: &Map<String, Value>,
+    short_name_map: &BTreeMap<String, String>,
+) -> Value {
+    let config = request_obj
+        .get("toolConfig")
+        .or_else(|| request_obj.get("tool_config"))
+        .and_then(Value::as_object)
+        .and_then(|tool_config| {
+            tool_config
+                .get("functionCallingConfig")
+                .or_else(|| tool_config.get("function_calling_config"))
+        })
+        .and_then(Value::as_object);
+    let Some(config) = config else {
+        return Value::String("auto".to_string());
+    };
+    let mode = config
+        .get("mode")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    match mode.as_str() {
+        "NONE" => Value::String("none".to_string()),
+        "ANY" => {
+            let allowed = config
+                .get("allowedFunctionNames")
+                .or_else(|| config.get("allowed_function_names"))
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().and_then(normalize_text))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if allowed.len() == 1 {
+                let name = resolve_short_tool_name(allowed[0].as_str(), short_name_map);
+                json!({ "type": "function", "name": name })
+            } else {
+                Value::String("required".to_string())
+            }
+        }
+        _ => Value::String("auto".to_string()),
+    }
+}
+
+fn gemini_function_response_output(function_response: &Map<String, Value>) -> Value {
+    let Some(response) = function_response.get("response") else {
+        return Value::String(String::new());
+    };
+    if let Some(result) = response.get("result") {
+        return match result {
+            Value::String(text) => Value::String(text.clone()),
+            other => Value::String(other.to_string()),
+        };
+    }
+    Value::String(response.to_string())
 }
 
 fn normalize_text(value: &str) -> Option<String> {
@@ -811,7 +946,10 @@ fn anthropic_tool_use_block_to_responses(
     short_name_map: &BTreeMap<String, String>,
     tool_name_restore_map: &mut ToolNameRestoreMap,
 ) -> Option<Value> {
-    let name = block.get("name").and_then(Value::as_str).and_then(normalize_text)?;
+    let name = block
+        .get("name")
+        .and_then(Value::as_str)
+        .and_then(normalize_text)?;
     let short_name = resolve_short_tool_name(name.as_str(), short_name_map);
     tool_name_restore_map.insert(short_name.clone(), name);
     Some(json!({
@@ -831,7 +969,11 @@ fn anthropic_tool_result_block_to_responses(block: &Map<String, Value>) -> Optio
         Some(Value::Array(items)) => {
             let mut parts = Vec::new();
             for item in items {
-                if let Some(text) = item.get("text").and_then(Value::as_str).and_then(normalize_text) {
+                if let Some(text) = item
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .and_then(normalize_text)
+                {
                     parts.push(json!({ "type": "input_text", "text": text }));
                 } else if let Some(obj) = item.as_object() {
                     if let Some(image) = anthropic_image_block_to_responses(obj) {
@@ -920,15 +1062,17 @@ fn build_short_name_map(names: &[String]) -> BTreeMap<String, String> {
     mapped
 }
 
-fn declared_short_name_map_for_anthropic_tools(
-    tools: Option<&Value>,
-) -> BTreeMap<String, String> {
+fn declared_short_name_map_for_anthropic_tools(tools: Option<&Value>) -> BTreeMap<String, String> {
     let names = tools
         .and_then(Value::as_array)
         .map(|items| {
             items
                 .iter()
-                .filter_map(|item| item.get("name").and_then(Value::as_str).and_then(normalize_text))
+                .filter_map(|item| {
+                    item.get("name")
+                        .and_then(Value::as_str)
+                        .and_then(normalize_text)
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -939,7 +1083,10 @@ fn declared_short_name_map_for_gemini_tools(tools: Option<&Value>) -> BTreeMap<S
     let mut names = Vec::new();
     if let Some(items) = tools.and_then(Value::as_array) {
         for item in items {
-            if let Some(declarations) = item.get("functionDeclarations").and_then(Value::as_array) {
+            let Some(tool) = item.as_object() else {
+                continue;
+            };
+            if let Some(declarations) = gemini_function_declarations(tool) {
                 for declaration in declarations {
                     if let Some(name) = declaration
                         .get("name")
@@ -953,6 +1100,12 @@ fn declared_short_name_map_for_gemini_tools(tools: Option<&Value>) -> BTreeMap<S
         }
     }
     build_short_name_map(&names)
+}
+
+fn gemini_function_declarations(tool: &Map<String, Value>) -> Option<&Vec<Value>> {
+    tool.get("functionDeclarations")
+        .or_else(|| tool.get("function_declarations"))
+        .and_then(Value::as_array)
 }
 
 fn normalize_tool_schema(mut schema: Value) -> Value {
@@ -974,18 +1127,44 @@ fn normalize_tool_schema(mut schema: Value) -> Value {
     schema
 }
 
+fn normalize_gemini_tool_schema_like_cpa(mut schema: Value) -> Value {
+    normalize_gemini_schema_types_like_cpa(&mut schema);
+    if let Some(obj) = schema.as_object_mut() {
+        obj.remove("$schema");
+        obj.insert("additionalProperties".to_string(), Value::Bool(false));
+    }
+    schema
+}
+
+fn normalize_gemini_schema_types_like_cpa(value: &mut Value) {
+    match value {
+        Value::Object(obj) => {
+            for (key, child) in obj.iter_mut() {
+                if key == "type" {
+                    if let Some(kind) = child.as_str() {
+                        *child = Value::String(kind.to_ascii_lowercase());
+                    }
+                } else {
+                    normalize_gemini_schema_types_like_cpa(child);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                normalize_gemini_schema_types_like_cpa(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn generate_tool_call_id() -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(1);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_nanos())
-        .unwrap_or_default();
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!(
-        "call_{:016x}{:016x}",
-        (nanos as u64),
-        seq
-    )
+    let suffix: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(24)
+        .map(char::from)
+        .collect();
+    format!("call_{suffix}")
 }
 
 #[cfg(test)]
@@ -998,9 +1177,8 @@ mod tests {
     fn anthropic_messages_are_rewritten_to_responses() {
         let body = br#"{"model":"claude-3-7-sonnet","system":"be helpful","messages":[{"role":"user","content":"hi"}],"stream":true}"#.to_vec();
 
-        let adapted =
-            adapt_request_for_protocol(PROTOCOL_ANTHROPIC_NATIVE, "/v1/messages", body)
-                .expect("adapt anthropic request");
+        let adapted = adapt_request_for_protocol(PROTOCOL_ANTHROPIC_NATIVE, "/v1/messages", body)
+            .expect("adapt anthropic request");
 
         assert_eq!(adapted.path, "/v1/responses");
         assert_eq!(
@@ -1010,8 +1188,11 @@ mod tests {
         let payload: serde_json::Value =
             serde_json::from_slice(&adapted.body).expect("parse adapted body");
         assert_eq!(payload["model"], "claude-3-7-sonnet");
+        assert_eq!(payload["instructions"], "");
+        assert_eq!(payload["input"][0]["type"], "message");
         assert_eq!(payload["input"][0]["role"], "developer");
         assert_eq!(payload["input"][0]["content"][0]["text"], "be helpful");
+        assert_eq!(payload["input"][1]["type"], "message");
         assert_eq!(payload["input"][1]["role"], "user");
         assert_eq!(payload["stream"], true);
         assert_eq!(payload["reasoning"]["effort"], "medium");
@@ -1039,10 +1220,107 @@ mod tests {
         let payload: serde_json::Value =
             serde_json::from_slice(&adapted.body).expect("parse adapted body");
         assert_eq!(payload["model"], "gemini-2.5-pro");
+        assert_eq!(payload["instructions"], "");
+        assert_eq!(payload["input"][0]["type"], "message");
         assert_eq!(payload["input"][0]["role"], "user");
         assert_eq!(payload["reasoning"]["effort"], "medium");
         assert_eq!(payload["include"][0], "reasoning.encrypted_content");
         assert_eq!(payload["parallel_tool_calls"], true);
+        assert!(payload.get("tools").is_none());
+    }
+
+    #[test]
+    fn gemini_cli_wrapped_generate_content_rewrites_request_tools_and_history() {
+        let body = serde_json::json!({
+            "model": "gpt-5.4",
+            "request": {
+                "systemInstruction": {
+                    "parts": [{ "text": "use tools when writing files" }]
+                },
+                "contents": [
+                    { "role": "user", "parts": [{ "text": "write the plan" }] },
+                    {
+                        "role": "model",
+                        "parts": [{
+                            "functionCall": {
+                                "id": "WriteFile_1",
+                                "name": "WriteFile",
+                                "args": { "file_path": "plans/site.md", "content": "plan" }
+                            }
+                        }]
+                    },
+                    {
+                        "role": "user",
+                        "parts": [{
+                            "functionResponse": {
+                                "id": "WriteFile_1",
+                                "name": "WriteFile",
+                                "response": { "output": "ok" }
+                            }
+                        }]
+                    }
+                ],
+                "tools": [{
+                    "function_declarations": [{
+                        "name": "WriteFile",
+                        "description": "Write a file",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_path": { "type": "STRING" },
+                                "content": { "type": "STRING" }
+                            }
+                        }
+                    }]
+                }],
+                "generationConfig": {
+                    "thinkingConfig": { "thinkingBudget": 1024 }
+                }
+            }
+        });
+
+        let adapted = adapt_request_for_protocol(
+            PROTOCOL_GEMINI_NATIVE,
+            "/v1internal:streamGenerateContent?alt=sse",
+            serde_json::to_vec(&body).expect("body"),
+        )
+        .expect("adapt gemini cli request");
+
+        assert_eq!(adapted.path, "/v1/responses");
+        assert_eq!(
+            adapted.response_adapter,
+            ResponseAdapter::GeminiGenerateContentFromResponses
+        );
+        assert_eq!(
+            adapted.gemini_stream_output_mode,
+            Some(GeminiStreamOutputMode::Sse)
+        );
+        let payload: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("parse adapted body");
+        assert_eq!(payload["model"], "gpt-5.4");
+        assert_eq!(payload["input"][0]["role"], "developer");
+        assert_eq!(payload["input"][1]["role"], "user");
+        assert_eq!(payload["input"][2]["type"], "function_call");
+        assert_eq!(payload["input"][2]["name"], "WriteFile");
+        assert_eq!(payload["input"][3]["type"], "function_call_output");
+        assert_eq!(
+            payload["input"][3]["call_id"],
+            payload["input"][2]["call_id"]
+        );
+        assert_eq!(payload["tools"][0]["type"], "function");
+        assert_eq!(payload["tools"][0]["name"], "WriteFile");
+        assert_eq!(
+            payload["tools"][0]["parameters"]["additionalProperties"],
+            false
+        );
+        assert_eq!(payload["tools"][0]["parameters"]["type"], "object");
+        assert_eq!(
+            payload["tools"][0]["parameters"]["properties"]["file_path"]["type"],
+            "string"
+        );
+        assert_eq!(payload["tools"].as_array().expect("tools").len(), 1);
+        assert_eq!(payload["tool_choice"], "auto");
+        assert_eq!(payload["reasoning"]["effort"], "low");
     }
 
     #[test]
@@ -1063,6 +1341,23 @@ mod tests {
     }
 
     #[test]
+    fn gemini_cli_internal_stream_defaults_to_sse_wrapped_mode() {
+        let body = br#"{"model":"gpt-5.4","request":{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}}"#.to_vec();
+
+        let adapted = adapt_request_for_protocol(
+            PROTOCOL_GEMINI_NATIVE,
+            "/v1internal:streamGenerateContent",
+            body,
+        )
+        .expect("adapt gemini cli request");
+
+        assert_eq!(
+            adapted.gemini_stream_output_mode,
+            Some(GeminiStreamOutputMode::Sse)
+        );
+    }
+
+    #[test]
     fn anthropic_tool_use_and_result_are_rewritten_as_responses_tool_items() {
         let long_tool_name = "mcp__context7__query_docs_with_a_very_long_suffix_that_exceeds_sixty_four_chars_for_restore";
         let body = br#"{
@@ -1074,9 +1369,8 @@ mod tests {
             "tools":[{"name":"mcp__context7__query_docs_with_a_very_long_suffix_that_exceeds_sixty_four_chars_for_restore","input_schema":{"type":"object","properties":{"q":{"type":"string"}}}}]
         }"#.to_vec();
 
-        let adapted =
-            adapt_request_for_protocol(PROTOCOL_ANTHROPIC_NATIVE, "/v1/messages", body)
-                .expect("adapt anthropic request");
+        let adapted = adapt_request_for_protocol(PROTOCOL_ANTHROPIC_NATIVE, "/v1/messages", body)
+            .expect("adapt anthropic request");
 
         let payload: serde_json::Value =
             serde_json::from_slice(&adapted.body).expect("parse adapted body");
@@ -1118,9 +1412,13 @@ mod tests {
             serde_json::from_slice(&adapted.body).expect("parse adapted body");
         assert_eq!(payload["input"][0]["type"], "function_call");
         assert_eq!(payload["input"][1]["type"], "function_call_output");
-        assert_eq!(payload["input"][0]["call_id"], payload["input"][1]["call_id"]);
+        assert_eq!(
+            payload["input"][0]["call_id"],
+            payload["input"][1]["call_id"]
+        );
         assert_eq!(payload["tools"][0]["type"], "function");
         assert_ne!(payload["tools"][0]["name"], long_tool_name);
+        assert_eq!(payload["tools"].as_array().expect("tools").len(), 1);
         assert_eq!(payload["tool_choice"], "auto");
         assert_eq!(
             adapted
@@ -1131,9 +1429,123 @@ mod tests {
     }
 
     #[test]
+    fn gemini_function_call_id_pairs_exactly_with_function_response_id() {
+        let body = serde_json::json!({
+            "contents": [
+                {
+                    "role": "model",
+                    "parts": [{
+                        "functionCall": {
+                            "id": "call_exact_from_gemini",
+                            "name": "ReadFolder",
+                            "args": { "path": "." }
+                        }
+                    }]
+                },
+                {
+                    "role": "user",
+                    "parts": [{
+                        "functionResponse": {
+                            "id": "call_exact_from_gemini",
+                            "name": "ReadFolder",
+                            "response": { "output": "Directory is empty." }
+                        }
+                    }]
+                }
+            ]
+        });
+
+        let adapted = adapt_request_for_protocol(
+            PROTOCOL_GEMINI_NATIVE,
+            "/v1beta/models/gpt-5.4:streamGenerateContent?alt=sse",
+            serde_json::to_vec(&body).expect("body"),
+        )
+        .expect("adapt gemini request");
+
+        let payload: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("parse adapted body");
+        assert_eq!(payload["input"][0]["type"], "function_call");
+        assert_eq!(payload["input"][1]["type"], "function_call_output");
+        assert_eq!(
+            payload["input"][1]["call_id"],
+            payload["input"][0]["call_id"]
+        );
+        assert_eq!(payload["input"][0]["call_id"], "call_exact_from_gemini");
+        assert_eq!(
+            payload["input"][1]["output"],
+            "{\"output\":\"Directory is empty.\"}"
+        );
+    }
+
+    #[test]
+    fn gemini_function_response_without_id_uses_fifo_for_user_and_function_roles() {
+        let body = serde_json::json!({
+            "contents": [
+                {
+                    "role": "model",
+                    "parts": [{
+                        "functionCall": {
+                            "id": "call_user_role",
+                            "name": "ReadFile",
+                            "args": { "path": "a.md" }
+                        }
+                    }]
+                },
+                {
+                    "role": "user",
+                    "parts": [{
+                        "functionResponse": {
+                            "name": "",
+                            "response": { "result": "A" }
+                        }
+                    }]
+                },
+                {
+                    "role": "model",
+                    "parts": [{
+                        "functionCall": {
+                            "id": "call_function_role",
+                            "name": "ReadFile",
+                            "args": { "path": "b.md" }
+                        }
+                    }]
+                },
+                {
+                    "role": "function",
+                    "parts": [{
+                        "functionResponse": {
+                            "response": { "result": "B" }
+                        }
+                    }]
+                }
+            ]
+        });
+
+        let adapted = adapt_request_for_protocol(
+            PROTOCOL_GEMINI_NATIVE,
+            "/v1internal:streamGenerateContent",
+            serde_json::to_vec(&body).expect("body"),
+        )
+        .expect("adapt gemini request");
+
+        let payload: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("parse adapted body");
+        assert_eq!(payload["input"][0]["call_id"], "call_user_role");
+        assert_eq!(payload["input"][1]["type"], "function_call_output");
+        assert_eq!(payload["input"][1]["call_id"], "call_user_role");
+        assert_eq!(payload["input"][2]["call_id"], "call_function_role");
+        assert_eq!(payload["input"][3]["type"], "function_call_output");
+        assert_eq!(payload["input"][3]["call_id"], "call_function_role");
+        assert_eq!(payload["input"][1]["output"], "A");
+        assert_eq!(payload["input"][3]["output"], "B");
+    }
+
+    #[test]
     fn anthropic_disable_parallel_tool_use_and_unique_short_names_follow_cpa_shape() {
-        let tool_a = "mcp__workspace__ThisIsAnExtremelyLongToolNameThatNeedsToBeShortenedForCodexRouteAlpha";
-        let tool_b = "mcp__workspace__ThisIsAnExtremelyLongToolNameThatNeedsToBeShortenedForCodexRouteBeta";
+        let tool_a =
+            "mcp__workspace__ThisIsAnExtremelyLongToolNameThatNeedsToBeShortenedForCodexRouteAlpha";
+        let tool_b =
+            "mcp__workspace__ThisIsAnExtremelyLongToolNameThatNeedsToBeShortenedForCodexRouteBeta";
         let body = serde_json::json!({
             "model": "claude-sonnet",
             "tool_choice": {
@@ -1171,8 +1583,7 @@ mod tests {
 
     #[test]
     fn gemini_any_mode_allowed_function_name_maps_to_specific_function_tool_choice() {
-        let long_tool_name =
-            "mcp__workspace__ReadFileLongLongLongLongLongLongLongLongLongLong";
+        let long_tool_name = "mcp__workspace__ReadFileLongLongLongLongLongLongLongLongLongLong";
         let body = serde_json::json!({
             "tools": [{
                 "functionDeclarations": [{
@@ -1198,9 +1609,72 @@ mod tests {
 
         let payload: serde_json::Value =
             serde_json::from_slice(&adapted.body).expect("parse adapted body");
-        assert_eq!(payload["tool_choice"], "auto");
-        assert_eq!(payload["tools"][0]["parameters"]["type"], "object");
-        assert!(payload["tools"][0]["parameters"]["properties"].is_object());
+        assert_eq!(payload["tool_choice"]["type"], "function");
+        assert_eq!(payload["tool_choice"]["name"], payload["tools"][0]["name"]);
+        assert_eq!(payload["tools"][0]["parameters"]["description"], "x");
+        assert_eq!(
+            payload["tools"][0]["parameters"]["additionalProperties"],
+            false
+        );
+        assert!(payload["tools"][0]["parameters"].get("type").is_none());
+        assert!(payload["tools"][0]["parameters"]
+            .get("properties")
+            .is_none());
+        assert_eq!(payload["tools"].as_array().expect("tools").len(), 1);
+    }
+
+    #[test]
+    fn gemini_any_mode_without_single_allowed_function_requires_tool_call() {
+        let body = serde_json::json!({
+            "tools": [{
+                "functionDeclarations": [{
+                    "name": "WriteFile",
+                    "parameters": {"type":"object","properties":{}}
+                }]
+            }],
+            "toolConfig": {
+                "functionCallingConfig": { "mode": "ANY" }
+            },
+            "contents": [{"role":"user","parts":[{"text":"write it"}]}]
+        });
+
+        let adapted = adapt_request_for_protocol(
+            PROTOCOL_GEMINI_NATIVE,
+            "/v1internal:streamGenerateContent",
+            serde_json::to_vec(&body).expect("body"),
+        )
+        .expect("adapt gemini request");
+
+        let payload: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("parse adapted body");
+        assert_eq!(payload["tool_choice"], "required");
+    }
+
+    #[test]
+    fn gemini_none_mode_disables_tool_choice() {
+        let body = serde_json::json!({
+            "tools": [{
+                "functionDeclarations": [{
+                    "name": "WriteFile",
+                    "parameters": {"type":"object","properties":{}}
+                }]
+            }],
+            "toolConfig": {
+                "functionCallingConfig": { "mode": "NONE" }
+            },
+            "contents": [{"role":"user","parts":[{"text":"do not use tools"}]}]
+        });
+
+        let adapted = adapt_request_for_protocol(
+            PROTOCOL_GEMINI_NATIVE,
+            "/v1internal:streamGenerateContent",
+            serde_json::to_vec(&body).expect("body"),
+        )
+        .expect("adapt gemini request");
+
+        let payload: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("parse adapted body");
+        assert_eq!(payload["tool_choice"], "none");
     }
 
     #[test]
@@ -1288,6 +1762,33 @@ mod tests {
             serde_json::from_slice(&adapted.body).expect("parse adapted body");
         assert_eq!(payload["input"][0]["role"], "assistant");
         assert_eq!(payload["input"][0]["content"][0]["type"], "output_text");
+    }
+
+    #[test]
+    fn gemini_thought_text_maps_to_reasoning_history_not_visible_output() {
+        let body = serde_json::json!({
+            "contents": [{
+                "role":"model",
+                "parts":[{
+                    "text":"internal plan",
+                    "thought":true,
+                    "thoughtSignature":"sig_reasoning"
+                }]
+            }]
+        });
+
+        let adapted = adapt_request_for_protocol(
+            PROTOCOL_GEMINI_NATIVE,
+            "/v1beta/models/gemini-2.5-pro:generateContent",
+            serde_json::to_vec(&body).expect("body"),
+        )
+        .expect("adapt gemini request");
+
+        let payload: serde_json::Value =
+            serde_json::from_slice(&adapted.body).expect("parse adapted body");
+        assert_eq!(payload["input"][0]["type"], "reasoning");
+        assert_eq!(payload["input"][0]["summary"][0]["text"], "internal plan");
+        assert_eq!(payload["input"][0]["encrypted_content"], "sig_reasoning");
     }
 
     #[test]

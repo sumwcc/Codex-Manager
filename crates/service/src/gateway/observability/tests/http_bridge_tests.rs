@@ -1,11 +1,11 @@
+use super::openai::{
+    apply_openai_stream_meta_defaults, extract_openai_completed_output_text, OpenAIStreamMeta,
+};
 use super::{
     collect_non_stream_json_from_sse_bytes, inspect_sse_frame, parse_sse_frame_json,
     parse_usage_from_json, parse_usage_from_sse_frame, GeminiSseReader,
     OpenAIResponsesPassthroughSseReader, PassthroughSseCollector, PassthroughSseProtocol,
     PassthroughSseUsageReader, SseKeepAliveFrame,
-};
-use super::openai::{
-    apply_openai_stream_meta_defaults, extract_openai_completed_output_text, OpenAIStreamMeta,
 };
 use crate::gateway::GeminiStreamOutputMode;
 use serde_json::json;
@@ -901,7 +901,6 @@ fn parse_sse_frame_json_supports_json_lines_without_data_prefix() {
     assert_eq!(value["delta"], "hi");
 }
 
-
 #[test]
 fn gemini_sse_reader_waits_for_completed_full_arguments_before_emitting_tool_call() {
     let upstream = open_mock_http_response(
@@ -935,16 +934,43 @@ fn gemini_sse_reader_waits_for_completed_full_arguments_before_emitting_tool_cal
         .collect::<Vec<_>>();
     let tool_events = events
         .iter()
-        .filter(|event| event["functionCalls"].is_array())
+        .filter(|event| {
+            event["candidates"][0]["content"]["parts"]
+                .as_array()
+                .is_some_and(|parts| {
+                    parts
+                        .iter()
+                        .any(|part| part.get("functionCall").is_some_and(|call| !call.is_null()))
+                })
+        })
         .collect::<Vec<_>>();
     assert_eq!(tool_events.len(), 1);
+    assert_eq!(
+        tool_events[0]["candidates"][0]["content"]["parts"][0]["functionCall"]["name"],
+        "chrome_devtools_new_page"
+    );
+    assert_eq!(
+        tool_events[0]["candidates"][0]["content"]["parts"][0]["functionCall"]["args"]["url"],
+        "https://linux.do"
+    );
+    assert_eq!(
+        tool_events[0]["candidates"][0]["content"]["parts"][0]["functionCall"]["id"],
+        "call_linux_do_1"
+    );
+    assert_eq!(tool_events[0]["functionCalls"][0]["id"], "call_linux_do_1");
     assert_eq!(
         tool_events[0]["functionCalls"][0]["name"],
         "chrome_devtools_new_page"
     );
     assert_eq!(
-        tool_events[0]["functionCalls"][0]["args"]["url"],
-        "https://linux.do"
+        tool_events[0]["candidates"][0]["finishReason"], "STOP",
+        "Gemini CLI expects the tool-call chunk to also close the model turn"
+    );
+    assert_eq!(tool_events[0]["modelVersion"], "gpt-5.4");
+    assert_eq!(tool_events[0]["responseId"], "resp_gemini_reader_1");
+    assert_eq!(
+        tool_events[0]["usageMetadata"]["trafficType"],
+        "PROVISIONED_THROUGHPUT"
     );
 
     let collector = usage_collector
@@ -959,6 +985,59 @@ fn gemini_sse_reader_waits_for_completed_full_arguments_before_emitting_tool_cal
     assert_eq!(usage.output_tokens, Some(5));
     assert_eq!(usage.reasoning_output_tokens, Some(1));
     assert_eq!(usage.total_tokens, Some(9));
+}
+
+#[test]
+fn gemini_sse_reader_prefers_completed_full_arguments_over_partial_stream_arguments() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"type\":\"response.output_item.added\",\"response_id\":\"resp_gemini_reader_partial_args_1\",\"model\":\"gpt-5.4\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_write_plan_1\",\"name\":\"write_file\"}}\n\n",
+            "data: {\"type\":\"response.output_item.done\",\"response_id\":\"resp_gemini_reader_partial_args_1\",\"model\":\"gpt-5.4\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_write_plan_1\",\"call_id\":\"call_write_plan_partial_1\",\"name\":\"write_file\",\"arguments\":\"{\\\"file_path\\\":\\\"C:/Users/test/Desktop/test/gemini/plan.md\\\"}\"}}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_gemini_reader_partial_args_1\",\"model\":\"gpt-5.4\",\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"id\":\"fc_write_plan_1\",\"call_id\":\"call_write_plan_partial_1\",\"name\":\"write_file\",\"arguments\":\"{\\\"file_path\\\":\\\"C:/Users/test/Desktop/test/gemini/plan.md\\\",\\\"content\\\":\\\"plan body\\\"}\"}],\"usage\":{\"input_tokens\":4,\"output_tokens\":5,\"total_tokens\":9}}}\n\n",
+            "data: [DONE]\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = GeminiSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        GeminiStreamOutputMode::Sse,
+        true,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read gemini mapped sse");
+
+    let event = mapped
+        .split("\n\n")
+        .filter_map(|frame| frame.strip_prefix("data: "))
+        .filter(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
+        .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
+        .find(|event| {
+            event["response"]["candidates"][0]["content"]["parts"]
+                .as_array()
+                .is_some_and(|parts| {
+                    parts
+                        .iter()
+                        .any(|part| part.get("functionCall").is_some_and(|call| !call.is_null()))
+                })
+        })
+        .expect("tool event");
+    let function_call = &event["response"]["candidates"][0]["content"]["parts"][0]["functionCall"];
+    assert_eq!(function_call["id"], "call_write_plan_partial_1");
+    assert_eq!(
+        function_call["args"]["file_path"],
+        "C:/Users/test/Desktop/test/gemini/plan.md"
+    );
+    assert_eq!(function_call["args"]["content"], "plan body");
+    assert_eq!(
+        event["response"]["functionCalls"][0]["args"]["content"],
+        "plan body"
+    );
 }
 
 #[test]
@@ -1155,6 +1234,187 @@ fn gemini_cli_sse_reader_does_not_emit_comment_keepalive_frames() {
 
     assert!(!mapped.contains(": keep-alive"));
     assert!(mapped.contains("\"response\""));
+}
+
+#[test]
+fn gemini_cli_sse_reader_synthesizes_stop_when_done_follows_text_without_completed() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"type\":\"response.output_text.delta\",\"response_id\":\"resp_gemini_partial_text_1\",\"model\":\"gpt-5.4\",\"delta\":\"我会写入计划。\"}\n\n",
+            "data: [DONE]\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = GeminiSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        GeminiStreamOutputMode::Sse,
+        true,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read gemini partial text stream");
+
+    let events = mapped
+        .split("\n\n")
+        .filter_map(|frame| frame.strip_prefix("data: "))
+        .filter(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
+        .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        events[0]["response"]["candidates"][0]["content"]["parts"][0]["text"],
+        "我会写入计划。"
+    );
+    assert_eq!(
+        events.last().expect("final event")["response"]["candidates"][0]["finishReason"],
+        "STOP"
+    );
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(collector.saw_terminal);
+    assert_eq!(collector.terminal_error, None);
+    assert_eq!(
+        collector.usage.output_text.as_deref(),
+        Some("我会写入计划。")
+    );
+}
+
+#[test]
+fn gemini_cli_sse_reader_synthesizes_tool_call_when_done_follows_function_call_without_completed() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"type\":\"response.output_item.done\",\"response_id\":\"resp_gemini_partial_tool_1\",\"model\":\"gpt-5.4\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_write_plan_1\",\"name\":\"write_file\",\"arguments\":\"{\\\"file_path\\\":\\\"plans/site.md\\\",\\\"content\\\":\\\"plan\\\"}\"}}\n\n",
+            "data: [DONE]\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = GeminiSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        GeminiStreamOutputMode::Sse,
+        true,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read gemini partial tool stream");
+
+    let event = mapped
+        .split("\n\n")
+        .filter_map(|frame| frame.strip_prefix("data: "))
+        .find(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
+        .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
+        .expect("tool event");
+    let part = &event["response"]["candidates"][0]["content"]["parts"][0]["functionCall"];
+    assert_eq!(part["name"], "write_file");
+    assert_eq!(part["id"], "call_write_plan_1");
+    assert_eq!(part["args"]["file_path"], "plans/site.md");
+    assert_eq!(
+        event["response"]["functionCalls"][0]["id"],
+        "call_write_plan_1"
+    );
+    assert_eq!(event["response"]["candidates"][0]["finishReason"], "STOP");
+
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert!(collector.saw_terminal);
+    assert_eq!(collector.terminal_error, None);
+}
+
+#[test]
+fn gemini_cli_sse_reader_decodes_double_encoded_tool_arguments() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"type\":\"response.output_item.done\",\"response_id\":\"resp_gemini_double_encoded_tool_1\",\"model\":\"gpt-5.4\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_write_plan_2\",\"name\":\"write_file\",\"arguments\":\"\\\"{\\\\\\\"file_path\\\\\\\":\\\\\\\"C:/Users/test/Desktop/test/gemini/plan.md\\\\\\\",\\\\\\\"content\\\\\\\":\\\\\\\"plan\\\\\\\"}\\\"\"}}\n\n",
+            "data: [DONE]\n\n"
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = GeminiSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        GeminiStreamOutputMode::Sse,
+        true,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read gemini double encoded tool stream");
+
+    let event = mapped
+        .split("\n\n")
+        .filter_map(|frame| frame.strip_prefix("data: "))
+        .find(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
+        .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
+        .expect("tool event");
+    let part = &event["response"]["candidates"][0]["content"]["parts"][0]["functionCall"];
+    assert_eq!(part["id"], "call_write_plan_2");
+    assert_eq!(
+        part["args"]["file_path"],
+        "C:/Users/test/Desktop/test/gemini/plan.md"
+    );
+    assert_eq!(part["args"]["content"], "plan");
+    assert_eq!(
+        event["response"]["functionCalls"][0]["args"]["file_path"],
+        "C:/Users/test/Desktop/test/gemini/plan.md"
+    );
+}
+
+#[test]
+fn gemini_cli_sse_reader_merges_custom_tool_call_input_events() {
+    let upstream = open_mock_http_response(
+        "text/event-stream",
+        concat!(
+            "data: {\"type\":\"response.output_item.added\",\"response_id\":\"resp_gemini_custom_tool_1\",\"model\":\"gpt-5.4\",\"output_index\":0,\"item\":{\"type\":\"custom_tool_call\",\"id\":\"call_write_plan_custom_1\",\"name\":\"write_file\"}}\n\n",
+            "data: {\"type\":\"response.custom_tool_call_input.delta\",\"response_id\":\"resp_gemini_custom_tool_1\",\"output_index\":0,\"item_id\":\"call_write_plan_custom_1\",\"delta\":\"{\\\"file_path\\\":\\\"plans/site.md\\\",\"}\n\n",
+            "data: {\"type\":\"response.custom_tool_call_input.done\",\"response_id\":\"resp_gemini_custom_tool_1\",\"output_index\":0,\"item_id\":\"call_write_plan_custom_1\",\"input\":\"{\\\"file_path\\\":\\\"plans/site.md\\\",\\\"content\\\":\\\"plan\\\"}\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_gemini_custom_tool_1\",\"model\":\"gpt-5.4\",\"status\":\"completed\",\"output\":[{\"type\":\"custom_tool_call\",\"id\":\"call_write_plan_custom_1\",\"name\":\"write_file\"}],\"usage\":{\"input_tokens\":4,\"output_tokens\":5,\"total_tokens\":9}}}\n\n",
+        ),
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = GeminiSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        GeminiStreamOutputMode::Sse,
+        true,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read gemini custom tool stream");
+
+    let event = mapped
+        .split("\n\n")
+        .filter_map(|frame| frame.strip_prefix("data: "))
+        .find(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
+        .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
+        .expect("tool event");
+    let part = &event["response"]["candidates"][0]["content"]["parts"][0]["functionCall"];
+    assert_eq!(part["name"], "write_file");
+    assert_eq!(part["id"], "call_write_plan_custom_1");
+    assert_eq!(part["args"]["file_path"], "plans/site.md");
+    assert_eq!(part["args"]["content"], "plan");
+    assert_eq!(
+        event["response"]["functionCalls"][0]["args"]["file_path"],
+        "plans/site.md"
+    );
 }
 
 #[test]
