@@ -1557,6 +1557,45 @@ fn gemini_cli_sse_error_frame_leaves_no_unconsumed_event_prefix() {
 }
 
 #[test]
+fn gemini_sse_reader_converts_raw_html_challenge_to_data_error_frame() {
+    let upstream = open_mock_http_response(
+        "text/html",
+        "<html><head><title>Just a moment...</title></head><body>Cloudflare</body></html>",
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = GeminiSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        GeminiStreamOutputMode::Sse,
+        true,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read gemini raw html challenge");
+
+    assert!(mapped.starts_with("data: "));
+    assert!(mapped.ends_with("\n\n"));
+    assert!(!mapped.contains("event:"));
+    assert!(!mapped.contains("<html"));
+    assert!(mapped.contains("Cloudflare"));
+    let collector = usage_collector
+        .lock()
+        .expect("lock usage collector")
+        .clone();
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("Cloudflare 安全验证页（title=Just a moment...）")
+    );
+    assert_eq!(
+        collector.upstream_error_hint.as_deref(),
+        Some("Cloudflare 安全验证页（title=Just a moment...）")
+    );
+}
+
+#[test]
 fn gemini_raw_reader_emits_plain_json_error_for_incomplete_stream() {
     let upstream = open_mock_http_response("text/event-stream", "data: [DONE]\n\n");
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));

@@ -1,6 +1,7 @@
 use super::{
     append_output_text, classify_upstream_stream_read_error, collect_output_text_from_event_fields,
-    json, mark_collector_terminal_success, mark_first_response_ms, stream_idle_timed_out,
+    extract_error_hint_from_body, extract_error_message_from_json, json,
+    mark_collector_terminal_success, mark_first_response_ms, stream_idle_timed_out,
     stream_idle_timeout_message, stream_reader_disconnected_message, stream_wait_timeout,
     upstream_hint_or_stream_incomplete_message, Arc, Cursor, Map, Mutex, PassthroughSseCollector,
     Read, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
@@ -155,6 +156,7 @@ impl GeminiSseReader {
             }
         }
         if data_lines.is_empty() {
+            self.capture_raw_non_sse_error_frame(lines);
             return Vec::new();
         }
         let data = data_lines.join("\n");
@@ -167,6 +169,17 @@ impl GeminiSseReader {
             Err(_) => return Vec::new(),
         };
         self.consume_openai_event(&value)
+    }
+
+    fn capture_raw_non_sse_error_frame(&self, lines: &[String]) {
+        let raw = lines.iter().map(String::as_str).collect::<String>();
+        let Some(message) = raw_non_sse_error_hint(raw.as_str()) else {
+            return;
+        };
+        if let Ok(mut collector) = self.usage_collector.lock() {
+            collector.upstream_error_hint.get_or_insert(message.clone());
+            collector.terminal_error.get_or_insert(message);
+        }
     }
 
     fn consume_openai_event(&mut self, value: &Value) -> Vec<u8> {
@@ -707,6 +720,26 @@ impl Read for GeminiSseReader {
             self.out_cursor = Cursor::new(next);
         }
     }
+}
+
+fn raw_non_sse_error_hint(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.starts_with(':') || trimmed.starts_with("event:") {
+        return None;
+    }
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        extract_error_message_from_json(&value)?;
+        return extract_error_hint_from_body(502, trimmed.as_bytes());
+    }
+    let normalized = trimmed.to_ascii_lowercase();
+    if normalized.contains("<html")
+        || normalized.contains("<!doctype")
+        || normalized.contains("cloudflare")
+        || normalized.contains("just a moment")
+    {
+        return extract_error_hint_from_body(502, trimmed.as_bytes());
+    }
+    None
 }
 
 fn append_gemini_sse_event(buffer: &mut String, payload: &Value) {

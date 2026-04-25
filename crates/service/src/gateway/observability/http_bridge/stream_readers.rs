@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use super::{
     append_output_text, collect_output_text_from_event_fields, collect_response_output_text,
-    merge_usage,
+    extract_error_hint_from_body, extract_error_message_from_json, merge_usage,
 };
 use super::{
     inspect_sse_frame_for_protocol, OpenAIResponsesEvent, PassthroughSseProtocol, SseTerminal,
