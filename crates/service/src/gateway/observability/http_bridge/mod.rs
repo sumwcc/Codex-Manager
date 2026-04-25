@@ -176,8 +176,8 @@ pub(super) fn respond_with_upstream(
     }
 }
 pub(super) use stream_readers::{
-    OpenAIResponsesPassthroughSseReader, PassthroughSseCollector, PassthroughSseUsageReader,
-    SseKeepAliveFrame,
+    ChatCompletionsFromResponsesSseReader, OpenAIResponsesPassthroughSseReader,
+    PassthroughSseCollector, PassthroughSseUsageReader, SseKeepAliveFrame,
 };
 
 pub(super) use stream_readers::{AnthropicSseReader, GeminiSseReader};

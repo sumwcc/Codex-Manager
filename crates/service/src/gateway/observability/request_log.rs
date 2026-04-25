@@ -246,6 +246,7 @@ fn response_adapter_label(value: super::ResponseAdapter) -> &'static str {
     match value {
         super::ResponseAdapter::Passthrough => "Passthrough",
         super::ResponseAdapter::AnthropicMessagesFromResponses => "AnthropicMessagesFromResponses",
+        super::ResponseAdapter::ChatCompletionsFromResponses => "ChatCompletionsFromResponses",
         super::ResponseAdapter::GeminiJson => "GeminiJson",
         super::ResponseAdapter::GeminiSse => "GeminiSse",
         super::ResponseAdapter::GeminiCliJson => "GeminiCliJson",

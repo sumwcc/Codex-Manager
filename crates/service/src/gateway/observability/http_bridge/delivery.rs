@@ -9,10 +9,10 @@ use super::super::{GeminiStreamOutputMode, ResponseAdapter, ToolNameRestoreMap};
 use super::{
     collect_non_stream_json_from_sse_bytes, extract_error_hint_from_body,
     extract_error_message_from_json, looks_like_sse_payload, merge_usage, parse_usage_from_json,
-    push_trace_id_header, usage_has_signal, AnthropicSseReader, GeminiSseReader,
-    OpenAIResponsesPassthroughSseReader, PassthroughSseCollector, PassthroughSseProtocol,
-    PassthroughSseUsageReader, SseKeepAliveFrame, UpstreamResponseBridgeResult,
-    UpstreamResponseUsage,
+    push_trace_id_header, usage_has_signal, AnthropicSseReader,
+    ChatCompletionsFromResponsesSseReader, GeminiSseReader, OpenAIResponsesPassthroughSseReader,
+    PassthroughSseCollector, PassthroughSseProtocol, PassthroughSseUsageReader, SseKeepAliveFrame,
+    UpstreamResponseBridgeResult, UpstreamResponseUsage,
 };
 
 const REQUEST_ID_HEADER_CANDIDATES: &[&str] = &["x-request-id", "x-oai-request-id"];
@@ -638,6 +638,9 @@ fn convert_success_body_for_adapter(
         ResponseAdapter::AnthropicMessagesFromResponses => {
             convert_responses_body_to_anthropic_messages(body, tool_name_restore_map)
         }
+        ResponseAdapter::ChatCompletionsFromResponses => {
+            convert_responses_body_to_chat_completions(body)
+        }
         ResponseAdapter::GeminiJson => {
             convert_responses_body_to_gemini_generate_content(body, false, tool_name_restore_map)
         }
@@ -649,17 +652,187 @@ fn convert_success_body_for_adapter(
     }
 }
 
+fn collect_chat_output_text(value: &Value, out: &mut String) {
+    match value {
+        Value::String(text) => out.push_str(text),
+        Value::Array(items) => {
+            for item in items {
+                collect_chat_output_text(item, out);
+            }
+        }
+        Value::Object(obj) => {
+            if let Some(text) = obj.get("text").and_then(Value::as_str) {
+                out.push_str(text);
+            }
+            if let Some(content) = obj.get("content") {
+                collect_chat_output_text(content, out);
+            }
+            if let Some(output) = obj.get("output") {
+                collect_chat_output_text(output, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn responses_usage_to_chat_usage(usage: &Value) -> Value {
+    let prompt_tokens = usage
+        .get("prompt_tokens")
+        .or_else(|| usage.get("input_tokens"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let completion_tokens = usage
+        .get("completion_tokens")
+        .or_else(|| usage.get("output_tokens"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let total_tokens = usage
+        .get("total_tokens")
+        .and_then(Value::as_i64)
+        .unwrap_or(prompt_tokens + completion_tokens);
+    let mut mapped = json!({
+        "prompt_tokens": prompt_tokens.max(0),
+        "completion_tokens": completion_tokens.max(0),
+        "total_tokens": total_tokens.max(0)
+    });
+    if let Some(details) = usage
+        .get("prompt_tokens_details")
+        .or_else(|| usage.get("input_tokens_details"))
+    {
+        mapped["prompt_tokens_details"] = details.clone();
+    }
+    if let Some(details) = usage
+        .get("completion_tokens_details")
+        .or_else(|| usage.get("output_tokens_details"))
+    {
+        mapped["completion_tokens_details"] = details.clone();
+    }
+    mapped
+}
+
+fn convert_responses_body_to_chat_completions(body: &[u8]) -> Option<Vec<u8>> {
+    let value = serde_json::from_slice::<Value>(body).ok()?;
+    let response = value.get("response").unwrap_or(&value);
+    let mut text = String::new();
+    if let Some(output_text) = response.get("output_text").and_then(Value::as_str) {
+        text.push_str(output_text);
+    }
+    if text.is_empty() {
+        if let Some(output) = response.get("output") {
+            collect_chat_output_text(output, &mut text);
+        }
+    }
+    let id = response
+        .get("id")
+        .or_else(|| value.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("chatcmpl_codexmanager");
+    let model = response
+        .get("model")
+        .or_else(|| value.get("model"))
+        .and_then(Value::as_str)
+        .unwrap_or("gpt-5.4");
+    let created = response
+        .get("created_at")
+        .or_else(|| response.get("created"))
+        .or_else(|| value.get("created_at"))
+        .or_else(|| value.get("created"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let usage = response
+        .get("usage")
+        .or_else(|| value.get("usage"))
+        .map(responses_usage_to_chat_usage);
+    let mut completion = json!({
+        "id": id,
+        "object": "chat.completion",
+        "created": created,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": text
+            },
+            "finish_reason": "stop"
+        }]
+    });
+    if let Some(usage) = usage {
+        completion["usage"] = usage;
+    }
+    serde_json::to_vec(&completion).ok()
+}
+
+fn chat_completion_body_to_single_sse(body: &[u8]) -> Vec<u8> {
+    let value = serde_json::from_slice::<Value>(body).unwrap_or_else(|_| json!({}));
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("chatcmpl_codexmanager");
+    let model = value
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or("gpt-5.4");
+    let created = value.get("created").and_then(Value::as_i64).unwrap_or(0);
+    let content = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let usage = value.get("usage").cloned();
+    let chunk = json!({
+        "id": id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": { "content": content },
+            "finish_reason": null
+        }]
+    });
+    let mut final_chunk = json!({
+        "id": id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+        }]
+    });
+    if let Some(usage) = usage {
+        final_chunk["usage"] = usage;
+    }
+    format!(
+        "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+        serde_json::to_string(&chunk).unwrap_or_else(|_| "{}".to_string()),
+        serde_json::to_string(&final_chunk).unwrap_or_else(|_| "{}".to_string())
+    )
+    .into_bytes()
+}
+
 fn convert_error_body_for_adapter(response_adapter: ResponseAdapter, message: &str) -> Vec<u8> {
     match response_adapter {
         ResponseAdapter::AnthropicMessagesFromResponses => {
             convert_upstream_error_to_anthropic_body(message)
         }
+        ResponseAdapter::ChatCompletionsFromResponses => serde_json::to_vec(&json!({
+            "error": {
+                "message": message,
+                "type": "upstream_error",
+                "code": "upstream_error"
+            }
+        }))
+        .unwrap_or_else(|_| message.as_bytes().to_vec()),
         ResponseAdapter::GeminiJson
         | ResponseAdapter::GeminiCliJson
         | ResponseAdapter::GeminiSse
-        | ResponseAdapter::GeminiCliSse => {
-            convert_upstream_error_to_gemini_body(message)
-        }
+        | ResponseAdapter::GeminiCliSse => convert_upstream_error_to_gemini_body(message),
         ResponseAdapter::Passthrough => message.as_bytes().to_vec(),
     }
 }
@@ -670,6 +843,7 @@ fn compatibility_stream_content_type(
 ) -> &'static str {
     match response_adapter {
         ResponseAdapter::AnthropicMessagesFromResponses => "text/event-stream",
+        ResponseAdapter::ChatCompletionsFromResponses => "text/event-stream",
         ResponseAdapter::GeminiJson | ResponseAdapter::GeminiCliJson => "application/json",
         ResponseAdapter::GeminiSse | ResponseAdapter::GeminiCliSse => {
             match gemini_stream_output_mode {
@@ -1520,6 +1694,43 @@ pub(crate) fn respond_with_upstream(
                     None,
                 ));
             }
+            ResponseAdapter::ChatCompletionsFromResponses => {
+                let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+                let response_body: Box<dyn std::io::Read + Send> =
+                    Box::new(ChatCompletionsFromResponsesSseReader::new(
+                        upstream,
+                        Arc::clone(&usage_collector),
+                        request_started_at,
+                    ));
+                let response = Response::new(status, headers, response_body, None, None);
+                let delivery_error = request.respond(response).err().map(|err| err.to_string());
+                let collector = usage_collector
+                    .lock()
+                    .map(|guard| guard.clone())
+                    .unwrap_or_default();
+                return Ok(with_bridge_debug_meta(
+                    UpstreamResponseBridgeResult {
+                        usage: collector.usage,
+                        stream_terminal_seen: collector.saw_terminal,
+                        stream_terminal_error: collector.terminal_error,
+                        delivery_error,
+                        upstream_error_hint: collector.upstream_error_hint,
+                        delivered_status_code: None,
+                        upstream_request_id: None,
+                        upstream_cf_ray: None,
+                        upstream_auth_error: None,
+                        upstream_identity_error_code: None,
+                        upstream_content_type: None,
+                        last_sse_event_type: collector.last_event_type,
+                    },
+                    &upstream_request_id,
+                    &upstream_cf_ray,
+                    &upstream_auth_error,
+                    &upstream_identity_error_code,
+                    &upstream_content_type,
+                    None,
+                ));
+            }
             ResponseAdapter::GeminiJson | ResponseAdapter::GeminiCliJson => unreachable!(),
             ResponseAdapter::GeminiSse | ResponseAdapter::GeminiCliSse => {
                 let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
@@ -2033,6 +2244,7 @@ pub(crate) fn respond_with_upstream(
             ))
         }
         ResponseAdapter::AnthropicMessagesFromResponses
+        | ResponseAdapter::ChatCompletionsFromResponses
         | ResponseAdapter::GeminiJson
         | ResponseAdapter::GeminiCliJson
         | ResponseAdapter::GeminiSse
@@ -2244,6 +2456,51 @@ pub(crate) fn respond_with_stream_upstream(
                     .lock()
                     .map(|guard| guard.clone())
                     .unwrap_or_default();
+                return Ok(with_bridge_debug_meta(
+                    UpstreamResponseBridgeResult {
+                        usage,
+                        stream_terminal_seen: true,
+                        stream_terminal_error: None,
+                        delivery_error,
+                        upstream_error_hint: None,
+                        delivered_status_code: None,
+                        upstream_request_id: None,
+                        upstream_cf_ray: None,
+                        upstream_auth_error: None,
+                        upstream_identity_error_code: None,
+                        upstream_content_type: None,
+                        last_sse_event_type: None,
+                    },
+                    &upstream_request_id,
+                    &upstream_cf_ray,
+                    &upstream_auth_error,
+                    &upstream_identity_error_code,
+                    &upstream_content_type,
+                    None,
+                ));
+            }
+            ResponseAdapter::ChatCompletionsFromResponses => {
+                let upstream_body = upstream
+                    .read_all_bytes()
+                    .map_err(|err| format!("read upstream body failed: {err}"))?;
+                let (synthesized, mut usage) =
+                    collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
+                let body = synthesized.unwrap_or_else(|| upstream_body.to_vec());
+                if let Ok(value) = serde_json::from_slice::<Value>(&body) {
+                    merge_usage(&mut usage, parse_usage_from_json(&value));
+                }
+                let chat_body =
+                    convert_responses_body_to_chat_completions(&body).unwrap_or_else(|| body);
+                let response_body = chat_completion_body_to_single_sse(&chat_body);
+                let len = Some(response_body.len());
+                let response = Response::new(
+                    status,
+                    headers,
+                    std::io::Cursor::new(response_body),
+                    len,
+                    None,
+                );
+                let delivery_error = request.respond(response).err().map(|err| err.to_string());
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
@@ -2750,6 +3007,7 @@ pub(crate) fn respond_with_stream_upstream(
             ))
         }
         ResponseAdapter::AnthropicMessagesFromResponses
+        | ResponseAdapter::ChatCompletionsFromResponses
         | ResponseAdapter::GeminiJson
         | ResponseAdapter::GeminiCliJson
         | ResponseAdapter::GeminiSse
@@ -2782,6 +3040,7 @@ fn resolve_stream_keepalive_frame(
             }
         }
         ResponseAdapter::AnthropicMessagesFromResponses
+        | ResponseAdapter::ChatCompletionsFromResponses
         | ResponseAdapter::GeminiJson
         | ResponseAdapter::GeminiCliJson
         | ResponseAdapter::GeminiSse
@@ -2793,8 +3052,7 @@ fn resolve_stream_keepalive_frame(
 mod tests {
     use super::{
         classify_compact_non_success_kind, compact_non_success_body_should_be_normalized,
-        gemini_cli_wrap_response_envelope,
-        convert_responses_body_to_gemini_generate_content,
+        convert_responses_body_to_gemini_generate_content, gemini_cli_wrap_response_envelope,
         ResponseAdapter,
     };
     use serde_json::json;
@@ -2919,11 +3177,20 @@ mod tests {
 
     #[test]
     fn gemini_cli_wrap_response_envelope_is_enabled_for_gemini_adapter_only() {
-        assert!(gemini_cli_wrap_response_envelope(ResponseAdapter::GeminiCliJson));
-        assert!(gemini_cli_wrap_response_envelope(ResponseAdapter::GeminiCliSse));
+        assert!(gemini_cli_wrap_response_envelope(
+            ResponseAdapter::GeminiCliJson
+        ));
+        assert!(gemini_cli_wrap_response_envelope(
+            ResponseAdapter::GeminiCliSse
+        ));
         assert!(!gemini_cli_wrap_response_envelope(
             ResponseAdapter::AnthropicMessagesFromResponses
         ));
-        assert!(!gemini_cli_wrap_response_envelope(ResponseAdapter::Passthrough));
+        assert!(!gemini_cli_wrap_response_envelope(
+            ResponseAdapter::ChatCompletionsFromResponses
+        ));
+        assert!(!gemini_cli_wrap_response_envelope(
+            ResponseAdapter::Passthrough
+        ));
     }
 }

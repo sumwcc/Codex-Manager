@@ -449,15 +449,83 @@ fn native_codex_client_detection_uses_codex_signals_instead_of_client_brand() {
 }
 
 #[test]
-fn responses_requests_no_longer_force_codex_compat_rewrite_for_non_native_clients() {
-    let plain_opencode_headers = sample_incoming_headers(
-        None,
-        None,
-        Some("opencode/0.1.0"),
-        Some("opencode"),
-        Some("affinity-1"),
+fn openai_responses_api_clients_use_codex_compat_rewrite_but_native_codex_does_not() {
+    assert!(allow_codex_compat_rewrite_for_client(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        "/v1/responses",
+        false,
+    ));
+    assert!(allow_codex_compat_rewrite_for_client(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        "/v1/chat/completions",
+        false,
+    ));
+    assert!(!allow_codex_compat_rewrite_for_client(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        "/v1/responses",
+        true,
+    ));
+    assert!(!allow_codex_compat_rewrite_for_client(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        "/v1/chat/completions",
+        true,
+    ));
+}
+
+#[test]
+fn openai_chat_completions_api_body_is_adapted_to_responses_for_codex_backend() {
+    let body = serde_json::json!({
+        "model": "gpt-5.5",
+        "stream": true,
+        "messages": [{ "role": "user", "content": "你好" }],
+        "tools": [{
+            "type": "function",
+            "function": {
+                "name": "ping",
+                "description": "Ping",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        }],
+        "tool_choice": { "type": "function", "function": { "name": "ping" } }
+    });
+    let adapted = adapt_openai_chat_completions_body_to_responses(
+        serde_json::to_vec(&body).expect("serialize chat body"),
+    )
+    .expect("adapt chat body");
+    let payload: Value = serde_json::from_slice(&adapted).expect("json body");
+
+    assert_eq!(
+        payload.get("model").and_then(Value::as_str),
+        Some("gpt-5.5")
     );
-    assert!(!is_native_codex_client_request(&plain_opencode_headers));
+    assert_eq!(
+        payload
+            .get("input")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("content"))
+            .and_then(Value::as_array)
+            .and_then(|parts| parts.first())
+            .and_then(|part| part.get("text"))
+            .and_then(Value::as_str),
+        Some("你好")
+    );
+    assert_eq!(
+        payload
+            .get("tools")
+            .and_then(Value::as_array)
+            .and_then(|tools| tools.first())
+            .and_then(|tool| tool.get("name"))
+            .and_then(Value::as_str),
+        Some("ping")
+    );
+    assert_eq!(
+        payload
+            .get("tool_choice")
+            .and_then(|choice| choice.get("name"))
+            .and_then(Value::as_str),
+        Some("ping")
+    );
 }
 
 #[test]

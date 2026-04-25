@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 const INSTALLATION_ID_KEY: &str = "x-codex-installation-id";
+const DEFAULT_CODEX_COMPAT_INSTRUCTIONS: &str =
+    "You are Codex, a helpful AI assistant. Follow the user's instructions.";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct OfficialResponsesHttpRequest {
@@ -60,19 +62,23 @@ pub(crate) fn is_responses_path(path: &str) -> bool {
     is_standard_responses_path(path) || is_compact_path(path)
 }
 
-fn omit_empty_instructions(path: &str, obj: &mut Map<String, Value>) -> bool {
-    if !is_responses_path(path) {
+fn ensure_non_empty_instructions(path: &str, obj: &mut Map<String, Value>) -> bool {
+    if !is_standard_responses_path(path) {
         return false;
     }
     if obj
         .get("instructions")
         .and_then(Value::as_str)
-        .is_some_and(str::is_empty)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
     {
-        obj.remove("instructions");
-        return true;
+        return false;
     }
-    false
+    obj.insert(
+        "instructions".to_string(),
+        Value::String(DEFAULT_CODEX_COMPAT_INSTRUCTIONS.to_string()),
+    );
+    true
 }
 
 fn ensure_client_metadata_installation_id(
@@ -592,7 +598,7 @@ pub(crate) fn apply_codex_http_request_rules(
     if promote_leading_instruction_messages_to_instructions(path, obj) {
         result.changed = true;
     }
-    if use_codex_compat_rewrite && omit_empty_instructions(path, obj) {
+    if use_codex_compat_rewrite && ensure_non_empty_instructions(path, obj) {
         result.changed = true;
     }
     if ensure_client_metadata_installation_id(path, obj, installation_id) {

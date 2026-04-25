@@ -371,7 +371,10 @@ fn responses_overrides_model_and_reasoning_effort() {
             .and_then(serde_json::Value::as_str),
         Some("medium")
     );
-    assert!(value.get("instructions").is_none());
+    assert!(value
+        .get("instructions")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty()));
 }
 
 /// 函数 `responses_input_string_normalized_to_list`
@@ -540,6 +543,72 @@ fn responses_compat_scope_disabled_preserves_native_codex_body_shape() {
     assert!(value.get("instructions").is_none());
     assert!(value.get("prompt_cache_key").is_none());
     assert!(value.get("stream_passthrough").is_none());
+}
+
+#[test]
+fn responses_compat_scope_enabled_formats_openai_api_body_for_codex_backend() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.4",
+        "input": "hello",
+        "stream": false,
+        "store": true,
+        "reasoning": { "effort": "medium" }
+    });
+    let out = apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+        Some("thread_123"),
+        true,
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+
+    assert_eq!(
+        value
+            .get("input")
+            .and_then(|v| v.get(0))
+            .and_then(|v| v.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("message")
+    );
+    assert_eq!(
+        value.get("stream").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        value.get("store").and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        value.get("tool_choice").and_then(serde_json::Value::as_str),
+        Some("auto")
+    );
+    assert_eq!(
+        value
+            .get("parallel_tool_calls")
+            .and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        value
+            .get("prompt_cache_key")
+            .and_then(serde_json::Value::as_str),
+        Some("thread_123")
+    );
+    assert!(value
+        .get("instructions")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty()));
+    assert!(value
+        .get("include")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|include| include
+            .iter()
+            .any(|item| item.as_str() == Some("reasoning.encrypted_content"))));
 }
 
 #[test]
@@ -747,7 +816,7 @@ fn responses_codex_backend_preserves_existing_instructions() {
 }
 
 #[test]
-fn responses_codex_backend_omits_instructions_when_missing() {
+fn responses_codex_backend_adds_default_instructions_when_missing() {
     let _guard = crate::test_env_guard();
     let body = json!({
         "model": "gpt-5.4",
@@ -761,11 +830,14 @@ fn responses_codex_backend_omits_instructions_when_missing() {
         Some("https://chatgpt.com/backend-api/codex"),
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
-    assert!(value.get("instructions").is_none());
+    assert!(value
+        .get("instructions")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty()));
 }
 
 #[test]
-fn responses_codex_backend_omits_empty_instructions() {
+fn responses_codex_backend_replaces_empty_instructions() {
     let _guard = crate::test_env_guard();
     let body = json!({
         "model": "gpt-5.4",
@@ -780,7 +852,10 @@ fn responses_codex_backend_omits_empty_instructions() {
         Some("https://chatgpt.com/backend-api/codex"),
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
-    assert!(value.get("instructions").is_none());
+    assert!(value
+        .get("instructions")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty()));
 }
 
 /// 函数 `responses_infers_prompt_cache_key_from_conversation_id_for_codex_backend`

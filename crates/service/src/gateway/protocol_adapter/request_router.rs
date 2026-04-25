@@ -238,7 +238,10 @@ fn backfill_empty_gemini_function_response_names(contents: &Value) -> Value {
         let Some(content_obj) = content.as_object_mut() else {
             continue;
         };
-        let role = content_obj.get("role").and_then(Value::as_str).unwrap_or_default();
+        let role = content_obj
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if role == "model" {
             pending_call_names = content_obj
                 .get("parts")
@@ -1584,10 +1587,7 @@ mod tests {
             payload["input"][0]["call_id"]
         );
         assert_eq!(payload["input"][0]["call_id"], "call_exact_from_gemini");
-        assert_eq!(
-            payload["input"][1]["output"],
-            "Directory is empty."
-        );
+        assert_eq!(payload["input"][1]["output"], "Directory is empty.");
     }
 
     #[test]
@@ -1678,7 +1678,9 @@ mod tests {
         assert_eq!(output, Value::String("Directory is empty.".to_string()));
         assert_eq!(
             error,
-            Value::String("{\"message\":\"params must have required property 'command'\"}".to_string())
+            Value::String(
+                "{\"message\":\"params must have required property 'command'\"}".to_string()
+            )
         );
     }
 

@@ -3,9 +3,9 @@ use super::openai::{
 };
 use super::{
     collect_non_stream_json_from_sse_bytes, inspect_sse_frame, parse_sse_frame_json,
-    parse_usage_from_json, parse_usage_from_sse_frame, GeminiSseReader,
-    OpenAIResponsesPassthroughSseReader, PassthroughSseCollector, PassthroughSseProtocol,
-    PassthroughSseUsageReader, SseKeepAliveFrame,
+    parse_usage_from_json, parse_usage_from_sse_frame, ChatCompletionsFromResponsesSseReader,
+    GeminiSseReader, OpenAIResponsesPassthroughSseReader, PassthroughSseCollector,
+    PassthroughSseProtocol, PassthroughSseUsageReader, SseKeepAliveFrame,
 };
 use crate::gateway::GeminiStreamOutputMode;
 use serde_json::json;
@@ -657,6 +657,36 @@ fn collect_non_stream_json_from_sse_bytes_synthesizes_chat_completion_chunks() {
     assert_eq!(usage.total_tokens, Some(10));
 }
 
+#[test]
+fn chat_completions_reader_converts_responses_sse_to_chat_sse() {
+    let sse = concat!(
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"你\"}\n\n",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"好\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_chat_1\",\"model\":\"gpt-5.4\",\"created\":1775900000,\"usage\":{\"input_tokens\":2,\"output_tokens\":2,\"total_tokens\":4}}}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let response = open_mock_http_response("text/event-stream", sse);
+    let collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = ChatCompletionsFromResponsesSseReader::new(
+        response,
+        Arc::clone(&collector),
+        std::time::Instant::now(),
+    );
+    let mut out = String::new();
+    reader.read_to_string(&mut out).expect("read chat sse");
+    assert!(out.contains("\"object\":\"chat.completion.chunk\""));
+    assert!(out.contains("\"content\":\"你\""));
+    assert!(out.contains("\"content\":\"好\""));
+    assert!(out.contains("\"finish_reason\":\"stop\""));
+    assert!(out.contains("\"prompt_tokens\":2"));
+    assert!(out.contains("data: [DONE]"));
+    let collector = collector.lock().expect("collector lock");
+    assert!(collector.saw_terminal);
+    assert_eq!(collector.usage.input_tokens, Some(2));
+    assert_eq!(collector.usage.output_tokens, Some(2));
+    assert_eq!(collector.usage.total_tokens, Some(4));
+}
+
 /// 函数 `extract_openai_completed_output_text_reads_completed_output_message_text`
 ///
 /// 作者: gaohongshun
@@ -1039,10 +1069,7 @@ fn gemini_sse_reader_prefers_completed_full_arguments_over_partial_stream_argume
         "C:/Users/test/Desktop/test/gemini/plan.md"
     );
     assert_eq!(function_call["args"]["content"], "plan body");
-    assert_eq!(
-        event["functionCalls"][0]["args"]["content"],
-        "plan body"
-    );
+    assert_eq!(event["functionCalls"][0]["args"]["content"], "plan body");
 }
 
 #[test]
@@ -1279,10 +1306,7 @@ fn gemini_cli_sse_reader_synthesizes_stop_when_done_follows_text_without_complet
         first_event["candidates"][0]["content"]["parts"][0]["text"],
         "我会写入计划。"
     );
-    assert_eq!(
-        last_event["candidates"][0]["finishReason"],
-        "STOP"
-    );
+    assert_eq!(last_event["candidates"][0]["finishReason"], "STOP");
 
     let collector = usage_collector
         .lock()
@@ -1330,10 +1354,7 @@ fn gemini_cli_sse_reader_synthesizes_tool_call_when_done_follows_function_call_w
     assert_eq!(part["name"], "write_file");
     assert_eq!(part["id"], "call_write_plan_1");
     assert_eq!(part["args"]["file_path"], "plans/site.md");
-    assert_eq!(
-        event["functionCalls"][0]["id"],
-        "call_write_plan_1"
-    );
+    assert_eq!(event["functionCalls"][0]["id"], "call_write_plan_1");
     assert_eq!(event["candidates"][0]["finishReason"], "STOP");
 
     let collector = usage_collector
@@ -1525,7 +1546,10 @@ fn gemini_raw_reader_outputs_plain_json_chunks() {
         .lines()
         .filter(|line| !line.trim().is_empty())
         .collect::<Vec<_>>();
-    assert!(raw_frames.len() >= 2, "raw stream should stay line-delimited");
+    assert!(
+        raw_frames.len() >= 2,
+        "raw stream should stay line-delimited"
+    );
     for frame in &raw_frames {
         let value: serde_json::Value = serde_json::from_str(frame).expect("parse raw json line");
         assert!(value.get("candidates").is_some() || value.get("error").is_some());

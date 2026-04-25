@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 pub(crate) enum ResponseAdapter {
     Passthrough,
     AnthropicMessagesFromResponses,
+    ChatCompletionsFromResponses,
     GeminiJson,
     GeminiSse,
     GeminiCliJson,

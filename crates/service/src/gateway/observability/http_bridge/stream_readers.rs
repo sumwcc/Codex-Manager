@@ -12,6 +12,8 @@ use super::{
 };
 #[path = "stream_readers/anthropic.rs"]
 mod anthropic;
+#[path = "stream_readers/chat_completions.rs"]
+mod chat_completions;
 #[path = "stream_readers/common.rs"]
 mod common;
 #[path = "stream_readers/gemini.rs"]
@@ -22,6 +24,7 @@ mod openai_responses;
 mod passthrough;
 
 pub(crate) use anthropic::AnthropicSseReader;
+pub(crate) use chat_completions::ChatCompletionsFromResponsesSseReader;
 use common::{
     classify_upstream_stream_read_error, mark_first_response_ms, should_emit_keepalive,
     stream_idle_timed_out, stream_idle_timeout_message, stream_reader_disconnected_message,

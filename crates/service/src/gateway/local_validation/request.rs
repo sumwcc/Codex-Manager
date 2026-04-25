@@ -138,9 +138,250 @@ fn ensure_anthropic_model_is_listed(
 /// 返回函数执行结果
 fn allow_compat_responses_path_rewrite(protocol_type: &str, normalized_path: &str) -> bool {
     (protocol_type == crate::apikey_profile::PROTOCOL_OPENAI_COMPAT
-        && normalized_path.starts_with("/v1/chat/completions"))
+        && (normalized_path.starts_with("/v1/chat/completions")
+            || normalized_path.starts_with("/v1/responses")))
         || (protocol_type == PROTOCOL_GEMINI_NATIVE
             && is_gemini_generate_content_request_path(normalized_path))
+}
+
+fn allow_codex_compat_rewrite_for_client(
+    protocol_type: &str,
+    normalized_path: &str,
+    native_codex_client: bool,
+) -> bool {
+    if protocol_type == crate::apikey_profile::PROTOCOL_OPENAI_COMPAT
+        && (normalized_path.starts_with("/v1/chat/completions")
+            || normalized_path.starts_with("/v1/responses"))
+    {
+        return !native_codex_client;
+    }
+    allow_compat_responses_path_rewrite(protocol_type, normalized_path)
+}
+
+fn should_adapt_openai_chat_completions_to_responses(
+    protocol_type: &str,
+    normalized_path: &str,
+    native_codex_client: bool,
+) -> bool {
+    protocol_type == crate::apikey_profile::PROTOCOL_OPENAI_COMPAT
+        && normalized_path.starts_with("/v1/chat/completions")
+        && !native_codex_client
+}
+
+fn chat_content_to_responses_parts(
+    content: &serde_json::Value,
+    assistant: bool,
+) -> Vec<serde_json::Value> {
+    let text_type = if assistant {
+        "output_text"
+    } else {
+        "input_text"
+    };
+    match content {
+        serde_json::Value::String(text) => vec![serde_json::json!({
+            "type": text_type,
+            "text": text
+        })],
+        serde_json::Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                let obj = part.as_object()?;
+                let kind = obj.get("type").and_then(serde_json::Value::as_str)?;
+                match kind {
+                    "text" | "input_text" | "output_text" => obj
+                        .get("text")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|text| serde_json::json!({ "type": text_type, "text": text })),
+                    "image_url" => obj.get("image_url").map(|image_url| {
+                        let url = image_url
+                            .as_object()
+                            .and_then(|value| value.get("url"))
+                            .cloned()
+                            .unwrap_or_else(|| image_url.clone());
+                        serde_json::json!({ "type": "input_image", "image_url": url })
+                    }),
+                    _ => None,
+                }
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn chat_tool_to_responses_tool(tool: &serde_json::Value) -> Option<serde_json::Value> {
+    let obj = tool.as_object()?;
+    if obj.get("type").and_then(serde_json::Value::as_str) != Some("function") {
+        return Some(tool.clone());
+    }
+    let function = obj.get("function").and_then(serde_json::Value::as_object)?;
+    let name = function.get("name")?.clone();
+    let mut mapped = serde_json::Map::new();
+    mapped.insert(
+        "type".to_string(),
+        serde_json::Value::String("function".to_string()),
+    );
+    mapped.insert("name".to_string(), name);
+    if let Some(description) = function.get("description") {
+        mapped.insert("description".to_string(), description.clone());
+    }
+    mapped.insert(
+        "parameters".to_string(),
+        function
+            .get("parameters")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({ "type": "object", "properties": {} })),
+    );
+    if let Some(strict) = function.get("strict") {
+        mapped.insert("strict".to_string(), strict.clone());
+    }
+    Some(serde_json::Value::Object(mapped))
+}
+
+fn chat_tool_choice_to_responses(value: &serde_json::Value) -> serde_json::Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+    if obj.get("type").and_then(serde_json::Value::as_str) != Some("function") {
+        return value.clone();
+    }
+    let Some(name) = obj
+        .get("function")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|function| function.get("name"))
+        .cloned()
+    else {
+        return value.clone();
+    };
+    serde_json::json!({ "type": "function", "name": name })
+}
+
+fn adapt_openai_chat_completions_body_to_responses(body: Vec<u8>) -> Result<Vec<u8>, String> {
+    let payload = serde_json::from_slice::<serde_json::Value>(&body)
+        .map_err(|err| format!("invalid chat completions request json: {err}"))?;
+    let obj = payload
+        .as_object()
+        .ok_or_else(|| "chat completions request body must be an object".to_string())?;
+    let mut rewritten = serde_json::Map::new();
+    if let Some(model) = obj.get("model") {
+        rewritten.insert("model".to_string(), model.clone());
+    }
+    let mut input = Vec::new();
+    if let Some(messages) = obj.get("messages").and_then(serde_json::Value::as_array) {
+        for message in messages {
+            let Some(message_obj) = message.as_object() else {
+                continue;
+            };
+            let role = message_obj
+                .get("role")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("user");
+            if role == "tool" {
+                let output = message_obj
+                    .get("content")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::Value::String(String::new()));
+                input.push(serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": message_obj
+                        .get("tool_call_id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default(),
+                    "output": output
+                }));
+                continue;
+            }
+            let responses_role = match role {
+                "system" | "developer" => "developer",
+                "assistant" => "assistant",
+                _ => "user",
+            };
+            if let Some(content) = message_obj.get("content") {
+                let content =
+                    chat_content_to_responses_parts(content, responses_role == "assistant");
+                if !content.is_empty() {
+                    input.push(serde_json::json!({
+                        "type": "message",
+                        "role": responses_role,
+                        "content": content
+                    }));
+                }
+            }
+            if let Some(tool_calls) = message_obj
+                .get("tool_calls")
+                .and_then(serde_json::Value::as_array)
+            {
+                for tool_call in tool_calls {
+                    let Some(tool_call_obj) = tool_call.as_object() else {
+                        continue;
+                    };
+                    let Some(function) = tool_call_obj
+                        .get("function")
+                        .and_then(serde_json::Value::as_object)
+                    else {
+                        continue;
+                    };
+                    input.push(serde_json::json!({
+                        "type": "function_call",
+                        "call_id": tool_call_obj
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or_default(),
+                        "name": function
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or_default(),
+                        "arguments": function
+                            .get("arguments")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("{}")
+                    }));
+                }
+            }
+        }
+    }
+    rewritten.insert("input".to_string(), serde_json::Value::Array(input));
+    if let Some(stream) = obj.get("stream") {
+        rewritten.insert("stream".to_string(), stream.clone());
+    }
+    if let Some(reasoning) = obj.get("reasoning") {
+        rewritten.insert("reasoning".to_string(), reasoning.clone());
+    } else if let Some(reasoning_effort) = obj.get("reasoning_effort") {
+        rewritten.insert(
+            "reasoning".to_string(),
+            serde_json::json!({ "effort": reasoning_effort }),
+        );
+    }
+    if let Some(tools) = obj.get("tools").and_then(serde_json::Value::as_array) {
+        rewritten.insert(
+            "tools".to_string(),
+            serde_json::Value::Array(
+                tools
+                    .iter()
+                    .filter_map(chat_tool_to_responses_tool)
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(tool_choice) = obj.get("tool_choice") {
+        rewritten.insert(
+            "tool_choice".to_string(),
+            chat_tool_choice_to_responses(tool_choice),
+        );
+    }
+    if let Some(parallel_tool_calls) = obj.get("parallel_tool_calls") {
+        rewritten.insert(
+            "parallel_tool_calls".to_string(),
+            parallel_tool_calls.clone(),
+        );
+    }
+    if let Some(service_tier) = obj.get("service_tier") {
+        rewritten.insert("service_tier".to_string(), service_tier.clone());
+    }
+    if let Some(metadata) = obj.get("metadata") {
+        rewritten.insert("metadata".to_string(), metadata.clone());
+    }
+    serde_json::to_vec(&serde_json::Value::Object(rewritten))
+        .map_err(|err| format!("serialize responses compatibility request failed: {err}"))
 }
 
 /// 函数 `should_derive_compat_conversation_anchor`
@@ -485,6 +726,20 @@ pub(super) fn build_local_validation_result(
     let mut gemini_stream_output_mode = adapted.gemini_stream_output_mode;
     let mut tool_name_restore_map = adapted.tool_name_restore_map;
     body = adapted.body;
+    if should_adapt_openai_chat_completions_to_responses(
+        effective_protocol_type,
+        normalized_path.as_str(),
+        native_codex_client,
+    ) {
+        body = adapt_openai_chat_completions_body_to_responses(body).map_err(|err| {
+            LocalValidationError::new(
+                400,
+                crate::gateway::bilingual_error("OpenAI Chat Completions 兼容适配失败", err),
+            )
+        })?;
+        path = "/v1/responses".to_string();
+        response_adapter = super::super::ResponseAdapter::ChatCompletionsFromResponses;
+    }
     if effective_protocol_type != PROTOCOL_ANTHROPIC_NATIVE
         && !normalized_path.starts_with("/v1/responses")
         && path.starts_with("/v1/responses")
@@ -516,8 +771,11 @@ pub(super) fn build_local_validation_result(
         &client_request_meta,
     );
     let local_conversation_id = initial_local_conversation_id.clone();
-    let allow_codex_compat_rewrite =
-        allow_compat_responses_path_rewrite(effective_protocol_type, normalized_path.as_str());
+    let allow_codex_compat_rewrite = allow_codex_compat_rewrite_for_client(
+        effective_protocol_type,
+        normalized_path.as_str(),
+        native_codex_client,
+    );
     let conversation_binding = super::super::conversation_binding::load_conversation_binding(
         &storage,
         api_key.key_hash.as_str(),
