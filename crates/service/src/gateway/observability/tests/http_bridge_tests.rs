@@ -1438,7 +1438,8 @@ fn gemini_sse_reader_requires_response_completed_before_done() {
         .lock()
         .expect("lock usage collector")
         .clone();
-    assert!(mapped.starts_with("event: error\ndata: "));
+    assert!(mapped.starts_with("data: "));
+    assert!(!mapped.contains("event: error"));
     assert!(!collector.saw_terminal);
     assert_eq!(
         collector.terminal_error.as_deref(),
@@ -1471,7 +1472,8 @@ fn gemini_sse_reader_marks_incomplete_trailing_json_as_stream_error() {
         .lock()
         .expect("lock usage collector")
         .clone();
-    assert!(mapped.starts_with("event: error\ndata: "));
+    assert!(mapped.starts_with("data: "));
+    assert!(!mapped.contains("event: error"));
     assert!(!collector.saw_terminal);
     assert_eq!(
         collector.terminal_error.as_deref(),
@@ -1526,8 +1528,32 @@ fn gemini_sse_reader_emits_structured_error_frame_for_incomplete_stream() {
         .read_to_string(&mut mapped)
         .expect("read gemini incomplete sse");
 
-    assert!(mapped.starts_with("event: error\ndata: "));
+    assert!(mapped.starts_with("data: "));
+    assert!(!mapped.contains("event: error"));
     assert!(mapped.contains("\"error\""));
+}
+
+#[test]
+fn gemini_cli_sse_error_frame_leaves_no_unconsumed_event_prefix() {
+    let upstream = open_mock_http_response("text/event-stream", "data: [DONE]\n\n");
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = GeminiSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        None,
+        GeminiStreamOutputMode::Sse,
+        true,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read gemini cli incomplete sse");
+
+    assert!(mapped.starts_with("data: "));
+    assert!(mapped.ends_with("\n\n"));
+    assert!(!mapped.contains("event:"));
+    assert!(mapped.trim_start().starts_with("data: {\"error\""));
 }
 
 #[test]

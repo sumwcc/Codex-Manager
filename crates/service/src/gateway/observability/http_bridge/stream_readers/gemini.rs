@@ -742,10 +742,18 @@ fn append_gemini_event(
 fn build_terminal_error_event(output_mode: GeminiStreamOutputMode, body: Vec<u8>) -> Vec<u8> {
     match output_mode {
         GeminiStreamOutputMode::Sse => {
-            let mut out = Vec::from("event: error\ndata: ".as_bytes());
-            out.extend_from_slice(&body);
-            out.extend_from_slice(b"\n\n");
-            out
+            let payload = serde_json::from_slice::<Value>(&body).unwrap_or_else(|_| {
+                json!({
+                    "error": {
+                        "code": 500,
+                        "message": String::from_utf8_lossy(&body).trim(),
+                        "status": "INTERNAL"
+                    }
+                })
+            });
+            let mut out = String::new();
+            append_gemini_sse_event(&mut out, &payload);
+            out.into_bytes()
         }
         GeminiStreamOutputMode::Raw => body,
     }
