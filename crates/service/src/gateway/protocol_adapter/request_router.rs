@@ -101,6 +101,9 @@ fn adapt_gemini_generate_content_request(
         .as_object()
         .ok_or_else(|| "gemini request body must be an object".to_string())?;
     let request_obj = gemini_request_payload_object(obj);
+    let backfilled_contents = request_obj
+        .get("contents")
+        .map(backfill_empty_gemini_function_response_names);
 
     let mut rewritten = Map::new();
     let mut tool_name_restore_map = ToolNameRestoreMap::new();
@@ -127,7 +130,7 @@ fn adapt_gemini_generate_content_request(
     }
 
     if let Some(input) = gemini_contents_to_input(
-        request_obj.get("contents"),
+        backfilled_contents.as_ref(),
         &short_name_map,
         &mut pending_tool_call_ids,
         &mut tool_name_restore_map,
@@ -188,6 +191,78 @@ fn adapt_gemini_generate_content_request(
 
 fn gemini_request_payload_object<'a>(obj: &'a Map<String, Value>) -> &'a Map<String, Value> {
     obj.get("request").and_then(Value::as_object).unwrap_or(obj)
+}
+
+fn backfill_empty_gemini_function_response_names(contents: &Value) -> Value {
+    let Some(_items) = contents.as_array() else {
+        return contents.clone();
+    };
+    let mut out = contents.clone();
+    let Some(out_items) = out.as_array_mut() else {
+        return out;
+    };
+    let mut pending_call_names = Vec::new();
+    for content in out_items.iter_mut() {
+        let Some(content_obj) = content.as_object_mut() else {
+            continue;
+        };
+        let role = content_obj.get("role").and_then(Value::as_str).unwrap_or_default();
+        if role == "model" {
+            pending_call_names = content_obj
+                .get("parts")
+                .and_then(Value::as_array)
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .filter_map(|part| part.as_object())
+                        .filter_map(|part_obj| {
+                            part_obj
+                                .get("functionCall")
+                                .and_then(Value::as_object)
+                                .and_then(|function_call| {
+                                    function_call
+                                        .get("name")
+                                        .and_then(Value::as_str)
+                                        .and_then(normalize_text)
+                                })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            continue;
+        }
+        if pending_call_names.is_empty() {
+            continue;
+        }
+        let Some(parts) = content_obj.get_mut("parts").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        let mut response_index = 0usize;
+        for part in parts.iter_mut() {
+            let Some(part_obj) = part.as_object_mut() else {
+                continue;
+            };
+            let Some(function_response) = part_obj
+                .get_mut("functionResponse")
+                .and_then(Value::as_object_mut)
+            else {
+                continue;
+            };
+            let name_is_empty = function_response
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .is_none_or(|value| value.is_empty());
+            if name_is_empty {
+                if let Some(call_name) = pending_call_names.get(response_index) {
+                    function_response.insert("name".to_string(), Value::String(call_name.clone()));
+                }
+            }
+            response_index += 1;
+        }
+        pending_call_names.clear();
+    }
+    out
 }
 
 fn copy_string_field(source: &Map<String, Value>, target: &mut Map<String, Value>, key: &str) {
@@ -892,11 +967,17 @@ fn gemini_function_response_output(function_response: &Map<String, Value>) -> Va
     let Some(response) = function_response.get("response") else {
         return Value::String(String::new());
     };
-    if let Some(result) = response.get("result") {
-        return match result {
-            Value::String(text) => Value::String(text.clone()),
-            other => Value::String(other.to_string()),
-        };
+    for key in ["result", "output", "error"] {
+        if let Some(value) = response.get(key) {
+            return match value {
+                Value::String(text) => Value::String(text.clone()),
+                Value::Null => Value::String(String::new()),
+                other => Value::String(other.to_string()),
+            };
+        }
+    }
+    if let Some(text) = response.as_str() {
+        return Value::String(text.to_string());
     }
     Value::String(response.to_string())
 }
@@ -1169,9 +1250,13 @@ fn generate_tool_call_id() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::adapt_request_for_protocol;
+    use super::{
+        adapt_request_for_protocol, backfill_empty_gemini_function_response_names,
+        gemini_function_response_output,
+    };
     use crate::apikey_profile::{PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE};
     use crate::gateway::{GeminiStreamOutputMode, ResponseAdapter};
+    use serde_json::{json, Value};
 
     #[test]
     fn anthropic_messages_are_rewritten_to_responses() {
@@ -1473,7 +1558,7 @@ mod tests {
         assert_eq!(payload["input"][0]["call_id"], "call_exact_from_gemini");
         assert_eq!(
             payload["input"][1]["output"],
-            "{\"output\":\"Directory is empty.\"}"
+            "Directory is empty."
         );
     }
 
@@ -1538,6 +1623,86 @@ mod tests {
         assert_eq!(payload["input"][3]["call_id"], "call_function_role");
         assert_eq!(payload["input"][1]["output"], "A");
         assert_eq!(payload["input"][3]["output"], "B");
+    }
+
+    #[test]
+    fn gemini_function_response_output_prefers_output_and_error_fields() {
+        let output_value = json!({
+            "response": {
+                "output": "Directory is empty."
+            }
+        });
+        let error_value = json!({
+            "response": {
+                "error": {
+                    "message": "params must have required property 'command'"
+                }
+            }
+        });
+
+        let output = gemini_function_response_output(
+            output_value.as_object().expect("functionResponse object"),
+        );
+        let error = gemini_function_response_output(
+            error_value.as_object().expect("functionResponse object"),
+        );
+
+        assert_eq!(output, Value::String("Directory is empty.".to_string()));
+        assert_eq!(
+            error,
+            Value::String("{\"message\":\"params must have required property 'command'\"}".to_string())
+        );
+    }
+
+    #[test]
+    fn gemini_function_response_names_are_backfilled_from_previous_model_call() {
+        let contents = json!([
+            {
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "ReadFile",
+                        "args": { "path": "a.md" }
+                    }
+                }]
+            },
+            {
+                "role": "user",
+                "parts": [{
+                    "functionResponse": {
+                        "name": "",
+                        "response": { "output": "A" }
+                    }
+                }]
+            },
+            {
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "ReadFile",
+                        "args": { "path": "b.md" }
+                    }
+                }]
+            },
+            {
+                "role": "function",
+                "parts": [{
+                    "functionResponse": {
+                        "response": { "output": "B" }
+                    }
+                }]
+            }
+        ]);
+
+        let backfilled = backfill_empty_gemini_function_response_names(&contents);
+        assert_eq!(
+            backfilled[1]["parts"][0]["functionResponse"]["name"],
+            "ReadFile"
+        );
+        assert_eq!(
+            backfilled[3]["parts"][0]["functionResponse"]["name"],
+            "ReadFile"
+        );
     }
 
     #[test]

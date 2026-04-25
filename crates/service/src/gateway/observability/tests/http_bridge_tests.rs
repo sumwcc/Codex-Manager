@@ -1018,7 +1018,7 @@ fn gemini_sse_reader_prefers_completed_full_arguments_over_partial_stream_argume
         .filter(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
         .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
         .find(|event| {
-            event["response"]["candidates"][0]["content"]["parts"]
+            event["candidates"][0]["content"]["parts"]
                 .as_array()
                 .is_some_and(|parts| {
                     parts
@@ -1027,7 +1027,7 @@ fn gemini_sse_reader_prefers_completed_full_arguments_over_partial_stream_argume
                 })
         })
         .expect("tool event");
-    let function_call = &event["response"]["candidates"][0]["content"]["parts"][0]["functionCall"];
+    let function_call = &event["candidates"][0]["content"]["parts"][0]["functionCall"];
     assert_eq!(function_call["id"], "call_write_plan_partial_1");
     assert_eq!(
         function_call["args"]["file_path"],
@@ -1035,7 +1035,7 @@ fn gemini_sse_reader_prefers_completed_full_arguments_over_partial_stream_argume
     );
     assert_eq!(function_call["args"]["content"], "plan body");
     assert_eq!(
-        event["response"]["functionCalls"][0]["args"]["content"],
+        event["functionCalls"][0]["args"]["content"],
         "plan body"
     );
 }
@@ -1156,7 +1156,7 @@ fn gemini_sse_reader_completed_message_output_still_emits_final_text() {
 }
 
 #[test]
-fn gemini_cli_sse_reader_wraps_chunks_in_response_field() {
+fn gemini_cli_sse_reader_emits_raw_gemini_chunks() {
     let upstream = open_mock_http_response(
         "text/event-stream",
         concat!(
@@ -1185,14 +1185,8 @@ fn gemini_cli_sse_reader_wraps_chunks_in_response_field() {
         .filter(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
         .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
         .collect::<Vec<_>>();
-    assert_eq!(
-        events[0]["response"]["candidates"][0]["content"]["parts"][0]["text"],
-        "已完成"
-    );
-    assert_eq!(
-        events[1]["response"]["usageMetadata"]["totalTokenCount"],
-        serde_json::Value::from(5)
-    );
+    assert_eq!(events[0]["candidates"][0]["content"]["parts"][0]["text"], "已完成");
+    assert_eq!(events[1]["usageMetadata"]["totalTokenCount"], serde_json::Value::from(5));
 
     let collector = usage_collector
         .lock()
@@ -1233,7 +1227,8 @@ fn gemini_cli_sse_reader_does_not_emit_comment_keepalive_frames() {
     server.join().expect("join streaming mock upstream");
 
     assert!(!mapped.contains(": keep-alive"));
-    assert!(mapped.contains("\"response\""));
+    assert!(!mapped.contains("\"response\""));
+    assert!(mapped.contains("\"candidates\""));
 }
 
 #[test]
@@ -1265,12 +1260,9 @@ fn gemini_cli_sse_reader_synthesizes_stop_when_done_follows_text_without_complet
         .filter(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
         .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
         .collect::<Vec<_>>();
+    assert_eq!(events[0]["candidates"][0]["content"]["parts"][0]["text"], "我会写入计划。");
     assert_eq!(
-        events[0]["response"]["candidates"][0]["content"]["parts"][0]["text"],
-        "我会写入计划。"
-    );
-    assert_eq!(
-        events.last().expect("final event")["response"]["candidates"][0]["finishReason"],
+        events.last().expect("final event")["candidates"][0]["finishReason"],
         "STOP"
     );
 
@@ -1315,15 +1307,15 @@ fn gemini_cli_sse_reader_synthesizes_tool_call_when_done_follows_function_call_w
         .find(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
         .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
         .expect("tool event");
-    let part = &event["response"]["candidates"][0]["content"]["parts"][0]["functionCall"];
+    let part = &event["candidates"][0]["content"]["parts"][0]["functionCall"];
     assert_eq!(part["name"], "write_file");
     assert_eq!(part["id"], "call_write_plan_1");
     assert_eq!(part["args"]["file_path"], "plans/site.md");
     assert_eq!(
-        event["response"]["functionCalls"][0]["id"],
+        event["functionCalls"][0]["id"],
         "call_write_plan_1"
     );
-    assert_eq!(event["response"]["candidates"][0]["finishReason"], "STOP");
+    assert_eq!(event["candidates"][0]["finishReason"], "STOP");
 
     let collector = usage_collector
         .lock()
@@ -1362,7 +1354,7 @@ fn gemini_cli_sse_reader_decodes_double_encoded_tool_arguments() {
         .find(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
         .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
         .expect("tool event");
-    let part = &event["response"]["candidates"][0]["content"]["parts"][0]["functionCall"];
+    let part = &event["candidates"][0]["content"]["parts"][0]["functionCall"];
     assert_eq!(part["id"], "call_write_plan_2");
     assert_eq!(
         part["args"]["file_path"],
@@ -1370,7 +1362,7 @@ fn gemini_cli_sse_reader_decodes_double_encoded_tool_arguments() {
     );
     assert_eq!(part["args"]["content"], "plan");
     assert_eq!(
-        event["response"]["functionCalls"][0]["args"]["file_path"],
+        event["functionCalls"][0]["args"]["file_path"],
         "C:/Users/test/Desktop/test/gemini/plan.md"
     );
 }
@@ -1406,13 +1398,13 @@ fn gemini_cli_sse_reader_merges_custom_tool_call_input_events() {
         .find(|frame| !frame.trim().is_empty() && frame.trim() != "[DONE]")
         .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("parse sse json"))
         .expect("tool event");
-    let part = &event["response"]["candidates"][0]["content"]["parts"][0]["functionCall"];
+    let part = &event["candidates"][0]["content"]["parts"][0]["functionCall"];
     assert_eq!(part["name"], "write_file");
     assert_eq!(part["id"], "call_write_plan_custom_1");
     assert_eq!(part["args"]["file_path"], "plans/site.md");
     assert_eq!(part["args"]["content"], "plan");
     assert_eq!(
-        event["response"]["functionCalls"][0]["args"]["file_path"],
+        event["functionCalls"][0]["args"]["file_path"],
         "plans/site.md"
     );
 }

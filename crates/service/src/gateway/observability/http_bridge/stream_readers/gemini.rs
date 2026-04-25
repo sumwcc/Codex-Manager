@@ -749,25 +749,15 @@ fn append_gemini_sse_event(buffer: &mut String, payload: &Value) {
     buffer.push_str("\n\n");
 }
 
-fn append_gemini_cli_sse_event(buffer: &mut String, payload: &Value) {
-    append_gemini_sse_event(buffer, &json!({ "response": payload }));
-}
-
 fn append_gemini_event(
     buffer: &mut String,
     payload: &Value,
     output_mode: GeminiStreamOutputMode,
-    wrap_response_envelope: bool,
+    _wrap_response_envelope: bool,
 ) {
-    match (output_mode, wrap_response_envelope) {
-        (GeminiStreamOutputMode::Sse, true) => append_gemini_cli_sse_event(buffer, payload),
-        (GeminiStreamOutputMode::Sse, false) => append_gemini_sse_event(buffer, payload),
-        (GeminiStreamOutputMode::Raw, true) => {
-            let wrapped = json!({ "response": payload });
-            buffer.push_str(&serde_json::to_string(&wrapped).unwrap_or_else(|_| "{}".to_string()));
-            buffer.push('\n');
-        }
-        (GeminiStreamOutputMode::Raw, false) => {
+    match output_mode {
+        GeminiStreamOutputMode::Sse => append_gemini_sse_event(buffer, payload),
+        GeminiStreamOutputMode::Raw => {
             buffer.push_str(&serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string()));
             buffer.push('\n');
         }
@@ -1122,7 +1112,7 @@ mod tests {
         assert!(output.contains("\"thought\":true"));
         assert!(output.contains("\"text\":\"plan details\""));
         assert!(output.contains("\"thoughtsTokenCount\":2"));
-        assert!(output.contains("\"response\":"));
+        assert!(output.contains("\"candidates\":"));
     }
 
     #[test]
