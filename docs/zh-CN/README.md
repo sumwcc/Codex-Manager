@@ -12,12 +12,6 @@
 - `release/*`：构建、发版、产物和发布流程说明。
 - `docs/plan/*` / `docs/decision/*`：长期治理、实施计划与决策记录。
 
-## 最近提交
-
-- `524834e`：清理文件。
-- `57d85d8`：优化 gateway HTTP bridge 与 session affinity，补强 keepalive、压缩重试与桥接诊断。
-- `43778e4`：完善 `prompt_cache_key` 透传，并收紧账号失效判定。
-
 ## 赞助商
 
 感谢以下赞助商对 CodexManager 的支持。

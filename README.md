@@ -125,17 +125,10 @@
 | 系统全部可对接内部接口 | [系统内部接口总表](docs/zh-CN/report/系统内部接口总表.md) |
 | 本地构建、打包、发版、脚本调用 | [构建发布与脚本说明](docs/zh-CN/release/构建发布与脚本说明.md) |
 
-## 最近提交
-- `524834e`：清理文件。
-- `57d85d8`：优化 gateway HTTP bridge 与 session affinity，补强 keepalive、压缩重试与桥接诊断。
-- `43778e4`：完善 `prompt_cache_key` 透传，并收紧账号失效判定。
-- `1a8613a`：默认启用 gateway 强兼容模式。
-- `49b274a`：补充 gateway 模式通用设置。
-
 ## 功能概览
 - 账号池管理：分组、标签、排序、备注、封禁识别与封禁筛选
 - 批量导入 / 导出：支持多文件导入、桌面端文件夹递归导入 JSON、按账号导出单文件
-- 用量展示：支持标准 5 小时 + 7 日窗口、仅 7 日单窗口账号，以及 Code Review / Spark 等附加额度窗口；刷新后会统一展示各额度的剩余百分比与重置时间
+- 用量展示：支持标准 5 小时 + 7 日窗口、仅 7 日单窗口账号，以及 Code Review / Spark 等官方附加额度窗口；刷新后会统一展示各额度的剩余百分比与重置时间
 - 授权登录：浏览器授权 + 手动回调解析
 - 平台 Key：生成、禁用、删除、模型绑定、推理等级、服务等级（跟随请求 / Fast / Flex）
 - 模型管理：维护结构化模型目录、远端并入、自定义模型、`visibility` / `supportedInApi` 管理，以及桌面端 Codex 缓存同步 / Web 端缓存导出
@@ -145,6 +138,7 @@
 - 系统内部接口总表：列出当前桌面端与服务端所有可对接命令、RPC 方法、以及插件内建函数
 - 本地服务：自动拉起、可自定义端口与监听地址
 - 本地网关：为 Codex CLI、Gemini CLI、Claude Code 和第三方工具提供统一 OpenAI 兼容入口；Gemini 请求可转发到 `/v1/responses`，并兼容 SSE、tools、MCP、skill 等调用链路
+- 图片生成：支持官方 Codex `image_generation` tool 透传、`/v1/images/generations` 与 `/v1/images/edits` 兼容入口，默认图片工具模型为 `gpt-image-2`
 
 ## 生态搭配
 

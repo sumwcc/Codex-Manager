@@ -158,7 +158,7 @@ export default function UsageModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass-card border-none p-6 sm:max-w-[450px]">
+      <DialogContent className="glass-card border-none p-6 sm:max-w-[960px]">
         <DialogHeader>
           <div className="mb-2 flex items-center gap-3">
             <div className="rounded-full bg-primary/10 p-2 text-primary">
@@ -171,7 +171,7 @@ export default function UsageModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
+        <div className="grid max-h-[calc(100vh-13rem)] gap-4 overflow-y-auto py-4 pr-1">
           <div className="space-y-3 rounded-2xl border border-primary/5 bg-accent/10 p-4">
             <div className="space-y-1">
               <p className="text-sm font-semibold">{t("套餐信息")}</p>
@@ -212,7 +212,7 @@ export default function UsageModal({
               </p>
             </div>
 
-            <div className="space-y-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               <UsageDetailRow
                 label={t("5小时额度")}
                 remainPercent={usageBuckets.primaryRemainPercent}

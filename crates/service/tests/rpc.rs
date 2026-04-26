@@ -1745,7 +1745,22 @@ fn rpc_usage_refresh_persists_subscription_fields() {
                 "limit_window_seconds": 604800,
                 "reset_at": 1778038289
             }
-        }
+        },
+        "additional_rate_limits": [
+            {
+                "limit_name": "Spark",
+                "metered_feature": "codex_other",
+                "rate_limit": {
+                    "allowed": true,
+                    "limit_reached": false,
+                    "primary_window": {
+                        "used_percent": 40.0,
+                        "limit_window_seconds": 86400,
+                        "reset_at": 1776742289
+                    }
+                }
+            }
+        ]
     });
     let (usage_base_url, request_rx, request_join) = start_mock_usage_refresh_server(
         serde_json::to_string(&subscription_response)
@@ -1846,6 +1861,20 @@ fn rpc_usage_refresh_persists_subscription_fields() {
     assert_eq!(snapshot.window_minutes, Some(300));
     assert_eq!(snapshot.secondary_used_percent, Some(10.0));
     assert_eq!(snapshot.secondary_window_minutes, Some(10080));
+    let credits: serde_json::Value = serde_json::from_str(
+        snapshot
+            .credits_json
+            .as_deref()
+            .expect("credits json with extra rate limits"),
+    )
+    .expect("parse credits json");
+    let extras = credits["_codexmanager_extra_rate_limits"]
+        .as_array()
+        .expect("extra rate limits array");
+    assert_eq!(extras.len(), 1);
+    assert_eq!(extras[0]["source_key"], "codex_other");
+    assert_eq!(extras[0]["limit_name"], "Spark");
+    assert_eq!(extras[0]["primary_window"]["used_percent"], 40.0);
 }
 
 /// 函数 `rpc_usage_read_empty`

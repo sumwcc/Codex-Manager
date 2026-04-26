@@ -14,21 +14,16 @@ CodexManager is a local desktop + service-process account pool manager and gatew
 - Local OpenAI-compatible gateway for Codex CLI, Gemini CLI, Claude Code, and third-party tools.
 - Supports account routing, model/profile overrides, and aggregate API upstream relays.
 
-## Recent Commits
-
-- `524834e`: Cleanup pass for repository files.
-- `57d85d8`: Optimized the gateway HTTP bridge and session affinity, including keepalive handling, compression retry fallback, and bridge diagnostics.
-- `43778e4`: Improved `prompt_cache_key` passthrough and tightened account invalidation checks.
-
 ## Feature Overview
 
 - Account pool management: groups, tags, ordering, notes, ban recognition, and filtering.
 - Batch import/export: multi-file import, desktop recursive folder import, per-account export.
-- Usage display: 5-hour + 7-day windows, single-window accounts, and extra buckets such as Code Review / Spark.
+- Usage display: 5-hour + 7-day windows, single-window accounts, and official extra buckets such as Code Review / Spark.
 - Platform keys: create, disable, delete, model binding, reasoning tier, and service tier.
 - Aggregate API: create/edit/test third-party relay upstreams with supplier naming and priority ordering.
 - Plugin center: built-in, private, and custom source modes with task/log views and Rhai integration.
 - Local service + gateway: custom bind/listen settings and unified compatible endpoint.
+- Image generation: forwards the official Codex `image_generation` tool and exposes compatible `/v1/images/generations` and `/v1/images/edits` endpoints with `gpt-image-2` as the default image tool model.
 
 ## Quick Start
 

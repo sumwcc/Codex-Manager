@@ -393,7 +393,7 @@ function asObjectRecord(value: unknown): Record<string, unknown> | null {
 function humanizeExtraRateLimitLabel(raw: string): string {
   const normalized = raw.trim().toLowerCase();
   if (!normalized) return "额外额度";
-  if (normalized.includes("spark")) return "Spark 额度";
+  if (normalized.includes("spark") || normalized === "codex_other") return "Spark 额度";
   if (normalized.includes("code_review") || normalized.includes("code review")) {
     return "Code Review 额度";
   }

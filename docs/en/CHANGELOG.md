@@ -5,6 +5,18 @@ It follows Keep a Changelog with a lightweight adaptation for this repository.
 
 ## [Unreleased]
 
+### Added
+- Added Codex image-generation compatibility: the official `image_generation` tool is forwarded, and compatible `/v1/images/generations` plus `/v1/images/edits` endpoints are available with `gpt-image-2` as the default image tool model.
+- Added an `auth.json` step to the Codex CLI first-time setup guide, clarifying how the platform key, `auth.json`, and `config.toml` fit together.
+
+### Fixed
+- Fixed missing Spark dedicated quota display by continuing to parse official `additional_rate_limits[].rate_limit` buckets.
+- Adjusted the usage-details dialog so multiple additional quota windows can be shown in two columns with scrolling.
+
+### Changed
+- Bumped the release version to `0.2.6` and synchronized workspace, frontend package, Tauri desktop metadata, and lockfiles.
+- Removed recent-commit blocks from README entry pages so they only keep stable feature and documentation entry points.
+
 ## [0.2.3] - 2026-04-15
 
 ### Fixed
