@@ -71,16 +71,6 @@ CodexManager — локальный desktop + service-process менеджер �
   </tr>
   <tr>
     <td align="center" valign="middle" width="180">
-      <a href="https://www.aixiamo.com/">
-        <img src="../../assets/images/sponsors/aixiamo.ico" alt="XiaoMo AI Shop" width="88" />
-      </a>
-    </td>
-    <td valign="top">
-      <strong>XiaoMo AI Shop (MoDuanXia)</strong> предоставляет пользователям CodexManager стабильные сервисы пополнения GPT и Gemini с самостоятельной покупкой и активацией. Зарегистрируйтесь на <a href="https://www.aixiamo.com/">официальном сайте</a>.
-    </td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="180">
       <a href="https://gzxsy.vip/">
         <img src="../../assets/images/sponsors/xingsiyan.jpg" alt="Xing Si Yan Gateway" width="120" />
       </a>

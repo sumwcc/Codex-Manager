@@ -65,16 +65,6 @@
   </tr>
   <tr>
     <td align="center" valign="middle" width="180">
-      <a href="https://www.aixiamo.com/">
-        <img src="assets/images/sponsors/aixiamo.ico" alt="小末 AI 小卖铺" width="88" />
-      </a>
-    </td>
-    <td valign="top">
-      <strong>小末 AI 小卖铺（末端夏）</strong> 为 CodexManager 用户提供稳定的 GPT / Gemini 会员与充值服务，支持自助购买、自助兑换激活。通过<a href="https://www.aixiamo.com/">官网</a>注册
-    </td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="180">
       <a href="https://gzxsy.vip/">
         <img src="assets/images/sponsors/xingsiyan.jpg" alt="星思研中转站" width="120" />
       </a>

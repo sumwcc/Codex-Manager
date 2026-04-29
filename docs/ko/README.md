@@ -71,16 +71,6 @@ CodexManager를 후원해 주신 다음 스폰서께 감사드립니다.
   </tr>
   <tr>
     <td align="center" valign="middle" width="180">
-      <a href="https://www.aixiamo.com/">
-        <img src="../../assets/images/sponsors/aixiamo.ico" alt="XiaoMo AI Shop" width="88" />
-      </a>
-    </td>
-    <td valign="top">
-      <strong>XiaoMo AI Shop (MoDuanXia)</strong> 는 CodexManager 사용자를 위해 안정적인 GPT·Gemini 멤버십 충전 서비스를 제공하며, 셀프 구매와 셀프 활성화를 지원합니다. <a href="https://www.aixiamo.com/">공식 사이트</a>에서 가입할 수 있습니다.
-    </td>
-  </tr>
-  <tr>
-    <td align="center" valign="middle" width="180">
       <a href="https://gzxsy.vip/">
         <img src="../../assets/images/sponsors/xingsiyan.jpg" alt="Xing Si Yan Gateway" width="120" />
       </a>
