@@ -758,6 +758,10 @@ pub(crate) fn current_upstream_proxy_url() -> Option<String> {
     runtime_config::upstream_proxy_url()
 }
 
+pub(crate) fn current_upstream_proxy_url_for_account(account_id: &str) -> Option<String> {
+    runtime_config::upstream_proxy_url_for_account(account_id)
+}
+
 /// 函数 `set_upstream_proxy_url`
 ///
 /// 作者: gaohongshun

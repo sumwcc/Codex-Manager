@@ -219,6 +219,15 @@ pub(crate) fn fresh_async_upstream_client_for_account(account_id: &str) -> reqwe
     build_async_upstream_client()
 }
 
+pub(crate) fn upstream_proxy_url_for_account(account_id: &str) -> Option<String> {
+    ensure_runtime_config_loaded();
+    let pool = crate::lock_utils::read_recover(upstream_client_pool_lock(), "upstream_client_pool");
+    if let Some(proxy_url) = pool.proxy_for_account(account_id) {
+        return Some(proxy_url.to_string());
+    }
+    current_upstream_proxy_url()
+}
+
 /// 函数 `upstream_connect_timeout_cached`
 ///
 /// 作者: gaohongshun
