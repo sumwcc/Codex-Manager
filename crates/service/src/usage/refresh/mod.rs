@@ -24,7 +24,9 @@ use crate::usage_scheduler::{
     MIN_USAGE_POLL_INTERVAL_SECS,
 };
 use crate::usage_snapshot_store::store_usage_snapshot;
-use crate::usage_token_refresh::refresh_and_persist_access_token;
+use crate::usage_token_refresh::{
+    refresh_and_persist_access_token, DEFAULT_TOKEN_REFRESH_AHEAD_SECS,
+};
 
 mod batch;
 mod errors;
@@ -83,7 +85,7 @@ const GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_ENV: &str =
 const DEFAULT_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 60;
 const MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 10;
 const TOKEN_REFRESH_FAILURE_BACKOFF_MAX_SECS: u64 = 300;
-const TOKEN_REFRESH_AHEAD_SECS: i64 = 600;
+const TOKEN_REFRESH_AHEAD_SECS: i64 = DEFAULT_TOKEN_REFRESH_AHEAD_SECS;
 const TOKEN_REFRESH_LOOKAHEAD_BUFFER_SECS: u64 = 60;
 const TOKEN_REFRESH_FALLBACK_AGE_SECS: i64 = 2700;
 const DEFAULT_TOKEN_REFRESH_BATCH_LIMIT: usize = 2048;
@@ -491,7 +493,13 @@ fn refresh_usage_for_token(
             // 中文注释：token 刷新与持久化独立封装，避免轮询流程继续膨胀；
             // 不下沉会让后续 async 迁移时刷新链路与业务编排强耦合，回归范围扩大。
             if let Err(refresh_err) =
-                refresh_and_persist_access_token(storage, &mut current, &issuer, &client_id)
+                refresh_and_persist_access_token(
+                    storage,
+                    &mut current,
+                    &issuer,
+                    &client_id,
+                    TOKEN_REFRESH_AHEAD_SECS,
+                )
             {
                 mark_usage_unreachable_if_needed(storage, &current.account_id, &refresh_err);
                 return Err(refresh_err);
@@ -788,7 +796,13 @@ fn run_token_refresh_task(
         );
         return false;
     }
-    match refresh_and_persist_access_token(storage, token, issuer, client_id) {
+    match refresh_and_persist_access_token(
+        storage,
+        token,
+        issuer,
+        client_id,
+        TOKEN_REFRESH_AHEAD_SECS,
+    ) {
         Ok(_) => true,
         Err(err) => {
             let _ = mark_account_unavailable_for_auth_error(storage, &token.account_id, &err);
@@ -833,11 +847,21 @@ fn token_refresh_schedule(
     if token.refresh_token.trim().is_empty() {
         return (None, i64::MAX);
     }
-    if let Some(exp) = extract_token_exp(&token.access_token) {
-        return (Some(exp), exp.saturating_sub(ahead_secs));
+    let access_exp = extract_token_exp(&token.access_token);
+    let refresh_exp = extract_token_exp(&token.refresh_token);
+    let access_refresh_at = access_exp.map(|exp| exp.saturating_sub(ahead_secs));
+    let refresh_refresh_at = refresh_exp.map(|exp| exp.saturating_sub(ahead_secs));
+    let scheduled_at = match (access_refresh_at, refresh_refresh_at) {
+        (Some(access_at), Some(refresh_at)) => Some(access_at.min(refresh_at)),
+        (Some(access_at), None) => Some(access_at),
+        (None, Some(refresh_at)) => Some(refresh_at),
+        (None, None) => None,
+    };
+    if let Some(scheduled_at) = scheduled_at {
+        return (access_exp, scheduled_at);
     }
     (
-        None,
+        access_exp,
         token
             .last_refresh
             .saturating_add(fallback_age_secs)

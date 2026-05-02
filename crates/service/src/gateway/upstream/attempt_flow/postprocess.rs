@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use crate::account_status::mark_account_unavailable_for_refresh_token_error;
 use crate::gateway::error_log::GatewayErrorLogInput;
+use crate::usage_token_refresh::DEFAULT_TOKEN_REFRESH_AHEAD_SECS;
 
 use super::super::support::backoff;
 use super::super::support::outcome::{decide_upstream_outcome, UpstreamOutcomeDecision};
@@ -76,6 +77,7 @@ fn try_refresh_chatgpt_access_token(
         token,
         issuer.as_str(),
         client_id.as_str(),
+        DEFAULT_TOKEN_REFRESH_AHEAD_SECS,
     )?;
     let refreshed = token.access_token.trim();
     if refreshed.is_empty() {

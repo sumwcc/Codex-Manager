@@ -14,7 +14,9 @@ use crate::account_status::mark_account_unavailable_for_auth_error;
 use crate::app_settings::{get_persisted_app_setting, save_persisted_app_setting};
 use crate::storage_helpers::open_storage;
 use crate::usage_http::fetch_account_subscription;
-use crate::usage_token_refresh::refresh_and_persist_access_token;
+use crate::usage_token_refresh::{
+    refresh_and_persist_access_token, DEFAULT_TOKEN_REFRESH_AHEAD_SECS,
+};
 
 const CURRENT_AUTH_ACCOUNT_ID_KEY: &str = "auth.current_account_id";
 const CURRENT_AUTH_MODE_KEY: &str = "auth.current_auth_mode";
@@ -227,9 +229,13 @@ pub(crate) fn read_current_account(refresh_token: bool) -> Result<AccountReadRes
             std::env::var("CODEXMANAGER_ISSUER").unwrap_or_else(|_| DEFAULT_ISSUER.to_string());
         let client_id = std::env::var("CODEXMANAGER_CLIENT_ID")
             .unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
-        if let Err(err) =
-            refresh_and_persist_access_token(&storage, &mut token, &issuer, &client_id)
-        {
+        if let Err(err) = refresh_and_persist_access_token(
+            &storage,
+            &mut token,
+            &issuer,
+            &client_id,
+            DEFAULT_TOKEN_REFRESH_AHEAD_SECS,
+        ) {
             let _ = mark_account_unavailable_for_auth_error(&storage, &account.id, &err);
             return Err(err);
         }
@@ -272,7 +278,13 @@ pub(crate) fn refresh_current_chatgpt_auth_tokens(
         std::env::var("CODEXMANAGER_ISSUER").unwrap_or_else(|_| DEFAULT_ISSUER.to_string());
     let client_id =
         std::env::var("CODEXMANAGER_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
-    if let Err(err) = refresh_and_persist_access_token(&storage, &mut token, &issuer, &client_id) {
+    if let Err(err) = refresh_and_persist_access_token(
+        &storage,
+        &mut token,
+        &issuer,
+        &client_id,
+        DEFAULT_TOKEN_REFRESH_AHEAD_SECS,
+    ) {
         let _ = mark_account_unavailable_for_auth_error(&storage, &account.id, &err);
         return Err(err);
     }

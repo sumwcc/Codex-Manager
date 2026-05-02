@@ -118,9 +118,25 @@ fn schedule_prefers_exp_minus_ahead() {
         api_key_access_token: None,
         last_refresh: now - 10,
     };
-    let (exp, scheduled_at) = token_refresh_schedule(&token, now, 600, 2700);
+    let (exp, scheduled_at) = token_refresh_schedule(&token, now, 3600, 2700);
     assert_eq!(exp, Some(4_102_444_800));
-    assert_eq!(scheduled_at, 4_102_444_200);
+    assert_eq!(scheduled_at, 4_102_441_200);
+}
+
+#[test]
+fn schedule_prefers_refresh_token_exp_when_it_expires_first() {
+    let now = now_ts();
+    let token = Token {
+        account_id: "acc-refresh-exp-first".to_string(),
+        id_token: "id".to_string(),
+        access_token: "a.eyJleHAiOjQxMDI0NDQ4MDB9.s".to_string(),
+        refresh_token: "r.eyJleHAiOjQxMDI0NDMwMDB9.s".to_string(),
+        api_key_access_token: None,
+        last_refresh: now - 10,
+    };
+    let (exp, scheduled_at) = token_refresh_schedule(&token, now, 3600, 2700);
+    assert_eq!(exp, Some(4_102_444_800));
+    assert_eq!(scheduled_at, 4_102_439_400);
 }
 
 /// 函数 `schedule_falls_back_to_last_refresh_when_exp_missing`
@@ -239,7 +255,7 @@ fn due_cutoff_includes_next_poll_window_and_buffer() {
 /// 无
 #[test]
 fn access_exp_cutoff_includes_refresh_ahead_window() {
-    assert_eq!(token_refresh_access_exp_cutoff(1_000, 600), 1_600);
+    assert_eq!(token_refresh_access_exp_cutoff(1_000, 3600), 4_600);
 }
 
 /// 函数 `due_cutoff_covers_boundary_when_poll_interval_matches_refresh_ahead`
@@ -256,7 +272,7 @@ fn access_exp_cutoff_includes_refresh_ahead_window() {
 #[test]
 fn due_cutoff_covers_boundary_when_poll_interval_matches_refresh_ahead() {
     let exp = 4_102_444_800;
-    let now = exp - 1_260;
+    let now = exp - 7_260;
     let token = Token {
         account_id: "acc-boundary".to_string(),
         id_token: "id".to_string(),
@@ -265,11 +281,11 @@ fn due_cutoff_covers_boundary_when_poll_interval_matches_refresh_ahead() {
         api_key_access_token: None,
         last_refresh: now - 10,
     };
-    let (_, scheduled_at) = token_refresh_schedule(&token, now, 600, 2700);
+    let (_, scheduled_at) = token_refresh_schedule(&token, now, 3600, 2700);
 
-    assert_eq!(scheduled_at, exp - 600);
+    assert_eq!(scheduled_at, exp - 3600);
     assert!(scheduled_at > now);
-    assert!(scheduled_at <= token_refresh_due_cutoff(now, 600));
+    assert!(scheduled_at <= token_refresh_due_cutoff(now, 3600));
 }
 
 /// 函数 `token_refresh_issuer_uses_account_issuer`
