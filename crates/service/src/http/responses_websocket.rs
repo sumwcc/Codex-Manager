@@ -20,7 +20,8 @@ use tokio_tungstenite::{client_async_tls_with_config, connect_async_tls_with_con
 
 use crate::http::codex_source::{
     response_create_client_metadata, ResponseCreateWsRequest, ResponsesWsRequest,
-    RESPONSES_ENDPOINT,
+    RESPONSES_ENDPOINT, X_CODEX_PARENT_THREAD_ID_HEADER, X_CODEX_TURN_METADATA_HEADER,
+    X_CODEX_WINDOW_ID_HEADER, X_OPENAI_SUBAGENT_HEADER,
 };
 use crate::http::proxy_response::{text_error_response, text_response};
 use crate::storage_helpers::{hash_platform_key, open_storage};
@@ -583,10 +584,7 @@ fn rewrite_client_frame(
     let explicit_service_tier_for_log = service_tier_diagnostic.normalized_value.clone();
     let previous_response_id = object.remove("previous_response_id");
     let generate = object.remove("generate");
-    let merged_client_metadata = merge_turn_metadata(
-        object.remove("client_metadata"),
-        context.incoming_headers.turn_metadata(),
-    );
+    let client_metadata = object.remove("client_metadata");
 
     let rewritten_body = crate::gateway::gateway_rewrite_ws_responses_body(
         RESPONSES_ENDPOINT,
@@ -622,6 +620,11 @@ fn rewrite_client_frame(
     if let Some(generate) = generate {
         rewritten_object.insert("generate".to_string(), generate);
     }
+    let merged_client_metadata = merge_client_metadata(
+        rewritten_object.remove("client_metadata"),
+        client_metadata,
+        &context.incoming_headers,
+    );
     if let Some(client_metadata) = merged_client_metadata {
         rewritten_object.insert("client_metadata".to_string(), client_metadata);
     }
@@ -663,11 +666,7 @@ fn rewrite_client_frame(
     })
 }
 
-fn merge_turn_metadata(
-    client_metadata: Option<Value>,
-    turn_metadata: Option<&str>,
-) -> Option<Value> {
-    let mut mapped = HashMap::new();
+fn merge_metadata_value(mapped: &mut HashMap<String, String>, client_metadata: Option<Value>) {
     if let Some(Value::Object(object)) = client_metadata {
         for (key, value) in object {
             if let Some(value) = value.as_str() {
@@ -681,15 +680,42 @@ fn merge_turn_metadata(
             }
         }
     }
-    if let Some(turn_metadata) = turn_metadata
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        mapped.insert(
-            crate::http::codex_source::X_CODEX_TURN_METADATA_HEADER.to_string(),
-            turn_metadata.to_string(),
-        );
+}
+
+fn insert_header_metadata(mapped: &mut HashMap<String, String>, key: &str, value: Option<&str>) {
+    if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
+        mapped.insert(key.to_string(), value.to_string());
     }
+}
+
+fn merge_client_metadata(
+    rewritten_metadata: Option<Value>,
+    client_metadata: Option<Value>,
+    incoming_headers: &crate::gateway::IncomingHeaderSnapshot,
+) -> Option<Value> {
+    let mut mapped = HashMap::new();
+    merge_metadata_value(&mut mapped, client_metadata);
+    merge_metadata_value(&mut mapped, rewritten_metadata);
+    insert_header_metadata(
+        &mut mapped,
+        X_CODEX_TURN_METADATA_HEADER,
+        incoming_headers.turn_metadata(),
+    );
+    insert_header_metadata(
+        &mut mapped,
+        X_CODEX_WINDOW_ID_HEADER,
+        incoming_headers.window_id(),
+    );
+    insert_header_metadata(
+        &mut mapped,
+        X_OPENAI_SUBAGENT_HEADER,
+        incoming_headers.subagent(),
+    );
+    insert_header_metadata(
+        &mut mapped,
+        X_CODEX_PARENT_THREAD_ID_HEADER,
+        incoming_headers.parent_thread_id(),
+    );
     response_create_client_metadata((!mapped.is_empty()).then_some(mapped))
         .and_then(|value| serde_json::to_value(value).ok())
 }
@@ -1167,6 +1193,16 @@ fn build_upstream_websocket_request(
             parent_thread_id,
         )?;
     }
+    if let Some(include_timing_metrics) = context
+        .incoming_headers
+        .responsesapi_include_timing_metrics()
+    {
+        insert_header(
+            headers,
+            crate::http::codex_source::X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER,
+            include_timing_metrics,
+        )?;
+    }
     Ok(request)
 }
 
@@ -1608,7 +1644,8 @@ impl From<String> for WsSessionError {
 mod tests {
     use super::{
         build_socks5_connect_request, infer_ws_terminal_status, inspect_ws_terminal_event,
-        parse_websocket_target, proxy_basic_auth_header, rewrite_client_frame, WsRequestContext,
+        merge_client_metadata, parse_websocket_target, proxy_basic_auth_header,
+        rewrite_client_frame, WsRequestContext,
     };
     use axum::http::{HeaderMap, HeaderValue};
     use codexmanager_core::storage::ApiKey;
@@ -1654,6 +1691,21 @@ mod tests {
                 HeaderValue::from_str(turn_state).expect("turn-state header"),
             );
         }
+        crate::gateway::IncomingHeaderSnapshot::from_http_headers(&headers)
+    }
+
+    fn sample_incoming_headers_with_metadata() -> crate::gateway::IncomingHeaderSnapshot {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codex-turn-metadata",
+            HeaderValue::from_static("turn-meta-1"),
+        );
+        headers.insert("x-codex-window-id", HeaderValue::from_static("window-1:0"));
+        headers.insert("x-openai-subagent", HeaderValue::from_static("review"));
+        headers.insert(
+            "x-codex-parent-thread-id",
+            HeaderValue::from_static("parent-thread-1"),
+        );
         crate::gateway::IncomingHeaderSnapshot::from_http_headers(&headers)
     }
 
@@ -1736,5 +1788,170 @@ mod tests {
             serde_json::from_str(&prepared.text).expect("parse prepared websocket frame");
 
         assert!(value.get("prompt_cache_key").is_none());
+    }
+
+    #[test]
+    fn websocket_client_metadata_preserves_rewritten_codex_metadata() {
+        let incoming_headers = sample_incoming_headers_with_metadata();
+        let metadata = merge_client_metadata(
+            Some(json!({
+                "x-codex-installation-id": "install-from-rewrite",
+                "source": "rewrite"
+            })),
+            Some(json!({
+                "x-codex-installation-id": "install-from-client",
+                "source": "client",
+                "count": 7,
+                "enabled": true
+            })),
+            &incoming_headers,
+        )
+        .expect("merged metadata");
+
+        assert_eq!(
+            metadata,
+            json!({
+                "x-codex-installation-id": "install-from-rewrite",
+                "source": "rewrite",
+                "count": "7",
+                "enabled": "true",
+                "x-codex-turn-metadata": "turn-meta-1",
+                "x-codex-window-id": "window-1:0",
+                "x-openai-subagent": "review",
+                "x-codex-parent-thread-id": "parent-thread-1"
+            })
+        );
+    }
+
+    #[test]
+    fn websocket_frame_merges_header_metadata_into_client_metadata() {
+        let _guard = crate::test_env_guard();
+        let context = WsRequestContext {
+            api_key: sample_api_key(),
+            incoming_headers: sample_incoming_headers_with_metadata(),
+            prompt_cache_key: None,
+            effective_upstream_base: "https://chatgpt.com/backend-api/codex".to_string(),
+            prefer_raw_errors: false,
+        };
+        let prepared = rewrite_client_frame(
+            r#"{"type":"response.create","model":"gpt-5.4","input":"hello","client_metadata":{"source":"client"}}"#,
+            &context,
+        )
+        .unwrap_or_else(|_| panic!("rewrite websocket frame failed"));
+        let value: serde_json::Value =
+            serde_json::from_str(&prepared.text).expect("parse prepared websocket frame");
+
+        assert_eq!(
+            value["client_metadata"]["x-codex-turn-metadata"],
+            "turn-meta-1"
+        );
+        assert_eq!(value["client_metadata"]["x-codex-window-id"], "window-1:0");
+        assert_eq!(value["client_metadata"]["x-openai-subagent"], "review");
+        assert_eq!(
+            value["client_metadata"]["x-codex-parent-thread-id"],
+            "parent-thread-1"
+        );
+        assert!(value["client_metadata"]["x-codex-installation-id"].is_string());
+    }
+
+    #[test]
+    fn websocket_response_create_keeps_codex_field_snapshot() {
+        let _guard = crate::test_env_guard();
+        let context = WsRequestContext {
+            api_key: sample_api_key(),
+            incoming_headers: sample_incoming_headers_with_metadata(),
+            prompt_cache_key: None,
+            effective_upstream_base: "https://chatgpt.com/backend-api/codex".to_string(),
+            prefer_raw_errors: false,
+        };
+        let prepared = rewrite_client_frame(
+            json!({
+                "type": "response.create",
+                "model": "gpt-5.4",
+                "instructions": "stay",
+                "previous_response_id": "resp_previous",
+                "input": "hello",
+                "tools": [{ "type": "function", "name": "ping", "parameters": { "type": "object", "properties": {} } }],
+                "tool_choice": "auto",
+                "parallel_tool_calls": true,
+                "reasoning": { "effort": "medium" },
+                "store": false,
+                "stream": true,
+                "include": ["reasoning.encrypted_content"],
+                "service_tier": "priority",
+                "prompt_cache_key": "pc_ws_snapshot",
+                "text": { "format": { "type": "text" } },
+                "generate": false,
+                "client_metadata": {
+                    "source": "ws-snapshot",
+                    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+                    "tracestate": "rojo=00f067aa0ba902b7"
+                },
+                "max_output_tokens": 1024,
+                "metadata": { "client": "third-party" },
+                "temperature": 0.2,
+                "top_p": 0.9,
+                "truncation": "auto",
+                "user": "third-party-user",
+                "unknown_field": true
+            })
+            .to_string()
+            .as_str(),
+            &context,
+        )
+        .unwrap_or_else(|_| panic!("rewrite websocket frame failed"));
+        let value: serde_json::Value =
+            serde_json::from_str(&prepared.text).expect("parse prepared websocket frame");
+        let object = value.as_object().expect("prepared frame object");
+        let keys = object
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        let expected = [
+            "client_metadata",
+            "generate",
+            "include",
+            "input",
+            "instructions",
+            "model",
+            "parallel_tool_calls",
+            "previous_response_id",
+            "prompt_cache_key",
+            "reasoning",
+            "service_tier",
+            "store",
+            "stream",
+            "text",
+            "tool_choice",
+            "tools",
+            "type",
+        ]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(keys, expected);
+        assert_eq!(value["type"], "response.create");
+        assert_eq!(value["previous_response_id"], "resp_previous");
+        assert_eq!(value["generate"], false);
+        assert_eq!(value["client_metadata"]["source"], "ws-snapshot");
+        assert_eq!(
+            value["client_metadata"]["traceparent"],
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
+        );
+        assert_eq!(
+            value["client_metadata"]["tracestate"],
+            "rojo=00f067aa0ba902b7"
+        );
+        assert_eq!(
+            value["client_metadata"]["x-codex-turn-metadata"],
+            "turn-meta-1"
+        );
+        assert!(object.get("max_output_tokens").is_none());
+        assert!(object.get("metadata").is_none());
+        assert!(object.get("temperature").is_none());
+        assert!(object.get("top_p").is_none());
+        assert!(object.get("truncation").is_none());
+        assert!(object.get("user").is_none());
+        assert!(object.get("unknown_field").is_none());
     }
 }

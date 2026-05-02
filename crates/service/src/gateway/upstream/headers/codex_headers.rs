@@ -1,5 +1,7 @@
 const X_CODEX_WINDOW_ID_HEADER_NAME: &str = "x-codex-window-id";
 const X_CODEX_PARENT_THREAD_ID_HEADER_NAME: &str = "x-codex-parent-thread-id";
+const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER_NAME: &str =
+    "x-responsesapi-include-timing-metrics";
 
 fn anchor_fingerprint_or_dash(value: Option<&str>) -> String {
     value
@@ -50,6 +52,7 @@ pub(crate) struct CodexUpstreamHeaderInput<'a> {
     pub(crate) incoming_beta_features: Option<&'a str>,
     pub(crate) incoming_turn_metadata: Option<&'a str>,
     pub(crate) incoming_parent_thread_id: Option<&'a str>,
+    pub(crate) incoming_responsesapi_include_timing_metrics: Option<&'a str>,
     pub(crate) passthrough_codex_headers: &'a [(String, String)],
     pub(crate) fallback_session_id: Option<&'a str>,
     pub(crate) incoming_turn_state: Option<&'a str>,
@@ -154,6 +157,16 @@ pub(crate) fn build_codex_upstream_headers(
         headers.push((
             X_CODEX_PARENT_THREAD_ID_HEADER_NAME.to_string(),
             parent_thread_id.to_string(),
+        ));
+    }
+    if let Some(include_timing_metrics) = input
+        .incoming_responsesapi_include_timing_metrics
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        headers.push((
+            X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER_NAME.to_string(),
+            include_timing_metrics.to_string(),
         ));
     }
     let resolved_session_id = resolve_optional_session_id(
@@ -433,6 +446,7 @@ mod tests {
             incoming_beta_features: Some("beta-a"),
             incoming_turn_metadata: Some("meta-a"),
             incoming_parent_thread_id: Some("thread-parent-a"),
+            incoming_responsesapi_include_timing_metrics: Some("true"),
             passthrough_codex_headers: passthrough.as_slice(),
             fallback_session_id: Some("conversation-anchor"),
             incoming_turn_state: Some("turn-state-a"),
@@ -457,7 +471,7 @@ mod tests {
         assert_eq!(header_value(&headers, "OpenAI-Beta"), None);
         assert_eq!(
             header_value(&headers, "x-responsesapi-include-timing-metrics"),
-            None
+            Some("true")
         );
         let expected_user_agent_prefix =
             format!("{}/0.999.0", crate::gateway::current_wire_originator());
@@ -530,6 +544,7 @@ mod tests {
             incoming_beta_features: None,
             incoming_turn_metadata: None,
             incoming_parent_thread_id: Some("thread-parent-b"),
+            incoming_responsesapi_include_timing_metrics: None,
             passthrough_codex_headers: passthrough.as_slice(),
             fallback_session_id: Some("prompt-cache-anchor"),
             incoming_turn_state: None,
@@ -647,6 +662,7 @@ mod tests {
             incoming_beta_features: None,
             incoming_turn_metadata: None,
             incoming_parent_thread_id: None,
+            incoming_responsesapi_include_timing_metrics: None,
             passthrough_codex_headers: &[],
             fallback_session_id: Some("fallback-anchor"),
             incoming_turn_state: Some("turn-state-window-fix"),
@@ -681,6 +697,7 @@ mod tests {
             incoming_beta_features: None,
             incoming_turn_metadata: None,
             incoming_parent_thread_id: None,
+            incoming_responsesapi_include_timing_metrics: None,
             passthrough_codex_headers: &[],
             fallback_session_id: Some("thread-ident"),
             incoming_turn_state: None,
@@ -715,6 +732,7 @@ mod tests {
             incoming_beta_features: None,
             incoming_turn_metadata: None,
             incoming_parent_thread_id: None,
+            incoming_responsesapi_include_timing_metrics: None,
             passthrough_codex_headers: &[],
             fallback_session_id: Some("thread-compat"),
             incoming_turn_state: None,

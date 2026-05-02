@@ -668,6 +668,8 @@ fn send_upstream_request_with_compression_override(
             } else {
                 incoming_headers.parent_thread_id()
             },
+            incoming_responsesapi_include_timing_metrics: incoming_headers
+                .responsesapi_include_timing_metrics(),
             passthrough_codex_headers: incoming_headers.passthrough_codex_headers(),
             fallback_session_id: if gemini_codex_compat {
                 None

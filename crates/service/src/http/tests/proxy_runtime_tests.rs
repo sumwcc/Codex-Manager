@@ -807,7 +807,7 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
             .headers
             .get("x-responsesapi-include-timing-metrics")
             .map(String::as_str),
-        None
+        Some("true")
     );
     assert_eq!(capture.frames.len(), 2);
 

@@ -1314,6 +1314,78 @@ fn responses_preserves_priority_service_tier_for_codex_backend() {
     assert!(value.get("user").is_none());
 }
 
+#[test]
+fn responses_codex_backend_keeps_conservative_field_snapshot() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.3-codex",
+        "instructions": "stay",
+        "input": [{ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": "hello" }] }],
+        "tools": [{ "type": "function", "name": "ping", "parameters": { "type": "object", "properties": {} } }],
+        "tool_choice": "auto",
+        "parallel_tool_calls": true,
+        "reasoning": { "effort": "medium" },
+        "service_tier": "priority",
+        "store": false,
+        "stream": true,
+        "include": ["reasoning.encrypted_content"],
+        "prompt_cache_key": "pc_snapshot",
+        "client_metadata": {
+            "source": "snapshot"
+        },
+        "text": { "format": { "type": "text" } },
+        "max_output_tokens": 1024,
+        "metadata": { "client": "third-party" },
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "truncation": "auto",
+        "user": "third-party-user",
+        "previous_response_id": "resp_previous",
+        "unknown_field": true
+    });
+    let out = apply_request_overrides(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        Some("https://chatgpt.com/backend-api/codex"),
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+    let object = value.as_object().expect("rewritten body object");
+    let keys = object
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected = [
+        "client_metadata",
+        "include",
+        "input",
+        "instructions",
+        "model",
+        "parallel_tool_calls",
+        "prompt_cache_key",
+        "reasoning",
+        "service_tier",
+        "store",
+        "stream",
+        "text",
+        "tool_choice",
+        "tools",
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(keys, expected);
+    assert!(object.get("max_output_tokens").is_none());
+    assert!(object.get("metadata").is_none());
+    assert!(object.get("temperature").is_none());
+    assert!(object.get("top_p").is_none());
+    assert!(object.get("truncation").is_none());
+    assert!(object.get("user").is_none());
+    assert!(object.get("previous_response_id").is_none());
+    assert!(object.get("unknown_field").is_none());
+}
+
 /// 函数 `responses_preserves_client_metadata_for_codex_backend`
 ///
 /// 作者: gaohongshun

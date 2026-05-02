@@ -7,6 +7,8 @@ pub(crate) const X_CODEX_TURN_METADATA_HEADER: &str = "x-codex-turn-metadata";
 pub(crate) const X_CODEX_PARENT_THREAD_ID_HEADER: &str = "x-codex-parent-thread-id";
 pub(crate) const X_CODEX_WINDOW_ID_HEADER: &str = "x-codex-window-id";
 pub(crate) const X_OPENAI_SUBAGENT_HEADER: &str = "x-openai-subagent";
+pub(crate) const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
+    "x-responsesapi-include-timing-metrics";
 pub(crate) const RESPONSES_ENDPOINT: &str = "/v1/responses";
 
 fn default_tool_choice() -> String {

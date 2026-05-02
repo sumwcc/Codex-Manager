@@ -292,6 +292,8 @@ pub(super) fn try_openai_fallback(
             incoming_beta_features: incoming_headers.beta_features(),
             incoming_turn_metadata: incoming_headers.turn_metadata(),
             incoming_parent_thread_id: incoming_headers.parent_thread_id(),
+            incoming_responsesapi_include_timing_metrics: incoming_headers
+                .responsesapi_include_timing_metrics(),
             passthrough_codex_headers: incoming_headers.passthrough_codex_headers(),
             fallback_session_id: request_affinity.fallback_session_id,
             incoming_turn_state: request_affinity.incoming_turn_state,
