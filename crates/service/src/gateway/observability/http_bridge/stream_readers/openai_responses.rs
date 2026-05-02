@@ -109,6 +109,7 @@ pub(crate) struct OpenAIResponsesPassthroughSseReader {
     observer: OpenAIResponsesSidecarObserver,
     out_cursor: Cursor<Vec<u8>>,
     usage_collector: Arc<Mutex<PassthroughSseCollector>>,
+    keepalive_frame: SseKeepAliveFrame,
     request_started_at: Instant,
     last_upstream_activity: Instant,
     finished: bool,
@@ -118,13 +119,13 @@ impl OpenAIResponsesPassthroughSseReader {
     pub(crate) fn new(
         upstream: reqwest::blocking::Response,
         usage_collector: Arc<Mutex<PassthroughSseCollector>>,
-        _keepalive_frame: SseKeepAliveFrame,
+        keepalive_frame: SseKeepAliveFrame,
         request_started_at: Instant,
     ) -> Self {
         Self::from_stream_response(
             GatewayStreamResponse::from_blocking_response(upstream),
             usage_collector,
-            SseKeepAliveFrame::OpenAIResponses,
+            keepalive_frame,
             request_started_at,
         )
     }
@@ -132,7 +133,7 @@ impl OpenAIResponsesPassthroughSseReader {
     pub(crate) fn from_stream_response(
         upstream: GatewayStreamResponse,
         usage_collector: Arc<Mutex<PassthroughSseCollector>>,
-        _keepalive_frame: SseKeepAliveFrame,
+        keepalive_frame: SseKeepAliveFrame,
         request_started_at: Instant,
     ) -> Self {
         let (raw_upstream, sidecar_upstream) = upstream.into_body().tee();
@@ -141,6 +142,7 @@ impl OpenAIResponsesPassthroughSseReader {
             observer: OpenAIResponsesSidecarObserver::new(sidecar_upstream),
             out_cursor: Cursor::new(Vec::new()),
             usage_collector,
+            keepalive_frame,
             request_started_at,
             last_upstream_activity: Instant::now(),
             finished: false,
@@ -262,7 +264,7 @@ impl OpenAIResponsesPassthroughSseReader {
                         self.finished = true;
                         return Ok(Vec::new());
                     }
-                    continue;
+                    return Ok(self.keepalive_frame.bytes().to_vec());
                 }
                 Err(RecvTimeoutError::Disconnected) => {
                     self.drain_sidecar_with_deadline(OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT);

@@ -1840,7 +1840,7 @@ fn passthrough_sse_reader_waits_for_first_upstream_frame_before_keepalive() {
 }
 
 #[test]
-fn openai_responses_passthrough_reader_passthroughs_raw_sse_without_keepalive_injection() {
+fn openai_responses_passthrough_reader_emits_keepalive_during_silent_gap() {
     let _guard = crate::test_env_guard();
     let _keepalive_guard = EnvGuard::set("CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS", "15");
     super::reload_from_env();
@@ -1856,7 +1856,7 @@ fn openai_responses_passthrough_reader_passthroughs_raw_sse_without_keepalive_in
             (
                 "event: response.completed\n\
                  data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_eventsource_keepalive\"}}\n\n",
-                50,
+                80,
             ),
         ],
     );
@@ -1880,19 +1880,70 @@ fn openai_responses_passthrough_reader_passthroughs_raw_sse_without_keepalive_in
         .lock()
         .expect("lock usage collector")
         .clone();
-    assert!(!mapped.contains("\"type\":\"codexmanager.keepalive\""));
-    assert_eq!(
-        mapped,
-        "event: response.created\n\
-         data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_eventsource_keepalive\"}}\n\n\
-         event: response.completed\n\
-         data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_eventsource_keepalive\"}}\n\n"
-    );
+    assert!(mapped.contains("\"type\":\"codexmanager.keepalive\""));
+    assert!(mapped.contains("event: response.created"));
+    assert!(mapped.contains("event: response.completed"));
+    let created_at = mapped
+        .find("event: response.created")
+        .expect("created event position");
+    let keepalive_at = mapped
+        .find("\"type\":\"codexmanager.keepalive\"")
+        .expect("keepalive position");
+    let completed_at = mapped
+        .find("event: response.completed")
+        .expect("completed event position");
+    assert!(created_at < keepalive_at);
+    assert!(keepalive_at < completed_at);
     assert!(collector.saw_terminal);
     assert_eq!(
         collector.last_event_type.as_deref(),
         Some("response.completed")
     );
+}
+
+#[test]
+fn openai_responses_passthrough_reader_emits_keepalive_before_delayed_first_frame() {
+    let _guard = crate::test_env_guard();
+    let _keepalive_guard = EnvGuard::set("CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS", "10");
+    super::reload_from_env();
+
+    let (upstream, server) = open_streaming_mock_http_response(
+        "text/event-stream",
+        &[
+            (
+                "event: response.created\n\
+                 data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_delayed_first\"}}\n\n",
+                60,
+            ),
+            (
+                "event: response.completed\n\
+                 data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_delayed_first\"}}\n\n",
+                0,
+            ),
+        ],
+    );
+    let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+    let mut reader = OpenAIResponsesPassthroughSseReader::new(
+        upstream,
+        Arc::clone(&usage_collector),
+        SseKeepAliveFrame::OpenAIResponses,
+        std::time::Instant::now(),
+    );
+    let mut mapped = String::new();
+    reader
+        .read_to_string(&mut mapped)
+        .expect("read delayed first openai responses stream");
+    server.join().expect("join delayed first-frame upstream");
+    super::reload_from_env();
+
+    let keepalive_at = mapped
+        .find("\"type\":\"codexmanager.keepalive\"")
+        .expect("keepalive position");
+    let created_at = mapped
+        .find("event: response.created")
+        .expect("created event position");
+    assert!(keepalive_at < created_at);
+    assert!(mapped.contains("event: response.completed"));
 }
 
 #[test]
