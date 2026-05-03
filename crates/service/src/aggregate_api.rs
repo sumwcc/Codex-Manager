@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_models_probe_url_does_not_append_client_version() {
+    fn codex_models_probe_url_appends_client_version() {
         let _guard = crate::test_env_guard();
         crate::gateway::set_codex_user_agent_version("0.101.0")
             .expect("set default codex user agent version");
@@ -302,12 +302,14 @@ mod tests {
 
         let url = build_codex_models_probe_url(&api);
 
-        assert_eq!(url, "https://api.openai.com/v1/models");
-        assert!(!url.contains("client_version"));
+        assert_eq!(
+            url,
+            "https://api.openai.com/v1/models?client_version=0.101.0"
+        );
     }
 
     #[test]
-    fn codex_models_probe_url_preserves_custom_action_without_client_version() {
+    fn codex_models_probe_url_preserves_custom_action_with_client_version() {
         let _guard = crate::test_env_guard();
         crate::gateway::set_codex_user_agent_version("0.101.0")
             .expect("set default codex user agent version");
@@ -316,8 +318,10 @@ mod tests {
 
         let url = build_codex_models_probe_url(&api);
 
-        assert_eq!(url, "https://api.openai.com/v1/models?limit=20");
-        assert!(!url.contains("client_version"));
+        assert_eq!(
+            url,
+            "https://api.openai.com/v1/models?limit=20&client_version=0.101.0"
+        );
     }
 
     #[test]
@@ -640,6 +644,17 @@ fn build_gemini_probe_body() -> serde_json::Value {
     })
 }
 
+fn append_client_version_query(url: &str) -> String {
+    if url.contains("client_version=") {
+        return url.to_string();
+    }
+    let separator = if url.contains('?') { '&' } else { '?' };
+    format!(
+        "{url}{separator}client_version={}",
+        gateway::current_codex_user_agent_version()
+    )
+}
+
 /// 函数 `probe_codex_only_for_provider`
 ///
 /// 作者: gaohongshun
@@ -682,7 +697,8 @@ fn add_codex_probe_headers(
 
 fn build_codex_models_probe_url(api: &AggregateApi) -> String {
     let probe_path = action_path_or_default(api, "/models");
-    normalize_probe_url(api.url.as_str(), probe_path.as_str())
+    let url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
+    append_client_version_query(url.as_str())
 }
 
 /// 函数 `probe_codex_models_endpoint`

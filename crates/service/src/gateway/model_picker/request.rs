@@ -18,6 +18,17 @@ const MODEL_PICKER_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const MODEL_PICKER_TOTAL_TIMEOUT: Duration = Duration::from_secs(120);
 const MODEL_PICKER_RESPONSE_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
+fn append_client_version_query(url: &str) -> String {
+    if url.contains("client_version=") {
+        return url.to_string();
+    }
+    let separator = if url.contains('?') { '&' } else { '?' };
+    format!(
+        "{url}{separator}client_version={}",
+        crate::gateway::current_codex_user_agent_version()
+    )
+}
+
 /// 函数 `build_models_request_headers`
 ///
 /// 作者: gaohongshun
@@ -69,7 +80,7 @@ fn build_models_request_headers(
 
 fn build_models_request_url(upstream_base: &str, path: &str) -> String {
     let (url, _url_alt) = super::super::compute_upstream_url(upstream_base, path);
-    url
+    append_client_version_query(&url)
 }
 
 /// 函数 `extract_response_header`
@@ -401,12 +412,85 @@ async fn send_models_request_async(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_models_request_headers, build_models_request_url, summarize_models_error_response,
+        append_client_version_query, build_models_request_headers, build_models_request_url,
+        summarize_models_error_response,
     };
     use reqwest::header::{HeaderMap, HeaderValue};
     use reqwest::StatusCode;
 
-    /// 函数 `build_models_request_url_omits_client_version_for_codex_backend`
+    /// 函数 `append_client_version_query_adds_missing_param`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-02
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn append_client_version_query_adds_missing_param() {
+        let _guard = crate::test_env_guard();
+        crate::gateway::set_codex_user_agent_version("0.101.0")
+            .expect("set default codex user agent version");
+        let actual = append_client_version_query("https://example.com/backend-api/codex/models");
+        assert_eq!(
+            actual,
+            "https://example.com/backend-api/codex/models?client_version=0.101.0"
+        );
+    }
+
+    /// 函数 `append_client_version_query_preserves_existing_query`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-02
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn append_client_version_query_preserves_existing_query() {
+        let _guard = crate::test_env_guard();
+        crate::gateway::set_codex_user_agent_version("0.101.0")
+            .expect("set default codex user agent version");
+        let actual =
+            append_client_version_query("https://example.com/backend-api/codex/models?limit=20");
+        assert_eq!(
+            actual,
+            "https://example.com/backend-api/codex/models?limit=20&client_version=0.101.0"
+        );
+    }
+
+    /// 函数 `append_client_version_query_does_not_duplicate_param`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-02
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn append_client_version_query_does_not_duplicate_param() {
+        let _guard = crate::test_env_guard();
+        crate::gateway::set_codex_user_agent_version("0.101.0")
+            .expect("set default codex user agent version");
+        let actual = append_client_version_query(
+            "https://example.com/backend-api/codex/models?client_version=0.101.0",
+        );
+        assert_eq!(
+            actual,
+            "https://example.com/backend-api/codex/models?client_version=0.101.0"
+        );
+    }
+
+    /// 函数 `build_models_request_url_appends_client_version_for_codex_backend`
     ///
     /// 作者: gaohongshun
     ///
@@ -418,17 +502,19 @@ mod tests {
     /// # 返回
     /// 无
     #[test]
-    fn build_models_request_url_omits_client_version_for_codex_backend() {
+    fn build_models_request_url_appends_client_version_for_codex_backend() {
         let _guard = crate::test_env_guard();
         crate::gateway::set_codex_user_agent_version("0.101.0")
             .expect("set default codex user agent version");
         let actual =
             build_models_request_url("https://example.com/backend-api/codex", "/v1/models");
-        assert_eq!(actual, "https://example.com/backend-api/codex/models");
-        assert!(!actual.contains("client_version"));
+        assert_eq!(
+            actual,
+            "https://example.com/backend-api/codex/models?client_version=0.101.0"
+        );
     }
 
-    /// 函数 `build_models_request_url_preserves_existing_query_without_client_version`
+    /// 函数 `build_models_request_url_preserves_existing_query_with_client_version`
     ///
     /// 作者: gaohongshun
     ///
@@ -440,7 +526,7 @@ mod tests {
     /// # 返回
     /// 无
     #[test]
-    fn build_models_request_url_preserves_existing_query_without_client_version() {
+    fn build_models_request_url_preserves_existing_query_with_client_version() {
         let _guard = crate::test_env_guard();
         crate::gateway::set_codex_user_agent_version("0.101.0")
             .expect("set default codex user agent version");
@@ -450,9 +536,8 @@ mod tests {
         );
         assert_eq!(
             actual,
-            "https://example.com/backend-api/codex/models?limit=20"
+            "https://example.com/backend-api/codex/models?limit=20&client_version=0.101.0"
         );
-        assert!(!actual.contains("client_version"));
     }
 
     /// 函数 `build_models_request_headers_match_codex_profile`

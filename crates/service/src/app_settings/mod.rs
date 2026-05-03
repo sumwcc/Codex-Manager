@@ -1,4 +1,5 @@
 mod api;
+mod codex_latest_sync;
 mod env_overrides;
 mod gateway;
 mod runtime_sync;
@@ -8,10 +9,12 @@ mod store;
 mod ui;
 
 pub use api::{app_settings_get, app_settings_get_with_overrides, app_settings_set};
+pub(crate) use codex_latest_sync::ensure_codex_latest_version_sync;
 pub(crate) use env_overrides::{
     apply_env_overrides_to_process, persisted_env_overrides_missing_process_env,
     reload_runtime_after_env_override_apply,
 };
+pub(crate) use gateway::sync_gateway_user_agent_version_from_codex_latest;
 #[allow(unused_imports)]
 pub use gateway::{
     current_gateway_account_max_inflight, current_gateway_free_account_max_model,

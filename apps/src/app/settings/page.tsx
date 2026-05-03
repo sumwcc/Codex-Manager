@@ -11,10 +11,7 @@ import type {
 } from "@/lib/api/app-updates";
 import { getAppErrorMessage } from "@/lib/api/transport";
 import { useAppStore } from "@/lib/store/useAppStore";
-import {
-  DEFAULT_CODEX_ORIGINATOR,
-  DEFAULT_CODEX_USER_AGENT_VERSION,
-} from "@/lib/constants/codex";
+import { DEFAULT_CODEX_ORIGINATOR } from "@/lib/constants/codex";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
@@ -139,8 +136,6 @@ export default function SettingsPage() {
   const [gatewayOriginatorDraft, setGatewayOriginatorDraft] = useState<
     string | null
   >(null);
-  const [gatewayUserAgentVersionDraft, setGatewayUserAgentVersionDraft] =
-    useState<string | null>(null);
   const [modelForwardRulesDraft, setModelForwardRulesDraft] =
     useState<string | null>(null);
   const [lastUpdateCheck, setLastUpdateCheck] =
@@ -254,42 +249,6 @@ export default function SettingsPage() {
     },
     onError: (error: unknown) => {
       toast.error(`${t("更新失败")}: ${getAppErrorMessage(error)}`);
-    },
-  });
-
-  const syncCodexLatestVersion = useMutation({
-    mutationFn: () => appClient.getCodexLatestVersion(),
-    onSuccess: (result) => {
-      const latestVersion =
-        typeof result?.version === "string" ? result.version.trim() : "";
-      if (!latestVersion) {
-        toast.error(t("未获取到有效的 Codex latest 版本号"));
-        return;
-      }
-      if (latestVersion === snapshot.gatewayUserAgentVersion) {
-        setGatewayUserAgentVersionDraft(null);
-        toast.success(
-          `${t("当前版本号已与 Codex latest 一致")}: ${latestVersion}`,
-        );
-        return;
-      }
-      void updateSettings
-        .mutateAsync({
-          gatewayUserAgentVersion: latestVersion,
-          _silent: true,
-        })
-        .then((nextSnapshot) => {
-          setGatewayUserAgentVersionDraft(null);
-          toast.success(
-            `${t("已同步 Codex latest 版本号")}: ${nextSnapshot.gatewayUserAgentVersion}`,
-          );
-        })
-        .catch(() => undefined);
-    },
-    onError: (error: unknown) => {
-      toast.error(
-        `${t("获取 Codex latest 版本失败")}: ${getAppErrorMessage(error)}`,
-      );
     },
   });
 
@@ -593,15 +552,9 @@ export default function SettingsPage() {
     upstreamProxyDraft ?? (snapshot?.upstreamProxyUrl || "");
   const gatewayOriginatorDefault =
     snapshot?.gatewayOriginatorDefault || DEFAULT_CODEX_ORIGINATOR;
-  const gatewayUserAgentVersionDefault =
-    snapshot?.gatewayUserAgentVersionDefault ||
-    DEFAULT_CODEX_USER_AGENT_VERSION;
   const gatewayOriginatorInput =
     gatewayOriginatorDraft ??
     (snapshot?.gatewayOriginator || gatewayOriginatorDefault);
-  const gatewayUserAgentVersionInput =
-    gatewayUserAgentVersionDraft ??
-    (snapshot?.gatewayUserAgentVersion || gatewayUserAgentVersionDefault);
   const transportInputValues = {
     sseKeepaliveIntervalMs:
       transportDraft.sseKeepaliveIntervalMs ??
@@ -1542,58 +1495,6 @@ export default function SettingsPage() {
                   {t("对齐官方 Codex 的上游 Originator。默认值为")}{" "}
                   <code>{gatewayOriginatorDefault}</code>
                   {t("，会同步影响登录和网关上游请求头。")}
-                </p>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>{t("User-Agent 版本")}</Label>
-                <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                  <Input
-                    className="h-10 max-w-md font-mono"
-                    value={gatewayUserAgentVersionInput}
-                    onChange={(event) =>
-                      setGatewayUserAgentVersionDraft(event.target.value)
-                    }
-                    onBlur={() => {
-                      if (gatewayUserAgentVersionDraft == null) return;
-                      if (
-                        gatewayUserAgentVersionInput ===
-                        (snapshot.gatewayUserAgentVersion ||
-                          gatewayUserAgentVersionDefault)
-                      ) {
-                        setGatewayUserAgentVersionDraft(null);
-                        return;
-                      }
-                      void updateSettings
-                        .mutateAsync({
-                          gatewayUserAgentVersion: gatewayUserAgentVersionInput,
-                        })
-                        .then(() => setGatewayUserAgentVersionDraft(null))
-                        .catch(() => undefined);
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-10 w-fit gap-2"
-                    disabled={
-                      syncCodexLatestVersion.isPending || updateSettings.isPending
-                    }
-                    onClick={() => syncCodexLatestVersion.mutate()}
-                  >
-                    <RefreshCw
-                      className={cn(
-                        "h-4 w-4",
-                        syncCodexLatestVersion.isPending && "animate-spin",
-                      )}
-                    />
-                    {t("同步 Codex Latest")}
-                  </Button>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  {t("控制真实出站")} <code>User-Agent</code> {t("里的版本号，默认值为")}{" "}
-                  <code>{gatewayUserAgentVersionDefault}</code>。{" "}
-                  {t("点击右侧按钮可读取 @openai/codex 的 latest 版本并立即同步。")}
                 </p>
               </div>
 
