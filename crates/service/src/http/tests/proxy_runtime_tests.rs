@@ -1049,6 +1049,7 @@ async fn official_responses_websocket_retries_current_request_after_terminal_fai
             serde_json::json!({
                 "type": "response.create",
                 "model": "gpt-4.1",
+                "previous_response_id": "resp_ws_old_account",
                 "input": "first request"
             })
             .to_string()
@@ -1064,6 +1065,7 @@ async fn official_responses_websocket_retries_current_request_after_terminal_fai
     let first_payload: serde_json::Value =
         serde_json::from_str(&first_upstream_frame).expect("parse first upstream frame");
     assert_eq!(first_payload["type"], "response.create");
+    assert_eq!(first_payload["previous_response_id"], "resp_ws_old_account");
 
     let second_upstream_frame =
         tokio::time::timeout(Duration::from_secs(5), upstream_events.recv())
@@ -1074,6 +1076,7 @@ async fn official_responses_websocket_retries_current_request_after_terminal_fai
         serde_json::from_str(&second_upstream_frame).expect("parse second upstream frame");
     assert_eq!(second_payload["type"], "response.create");
     assert_eq!(second_payload["input"], "first request");
+    assert!(second_payload.get("previous_response_id").is_none());
 
     let first_client_event = tokio::time::timeout(Duration::from_secs(5), client_ws.next())
         .await

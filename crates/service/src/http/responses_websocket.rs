@@ -1327,22 +1327,36 @@ async fn try_retry_ws_request_after_terminal(
     if terminal.status_code == 200 || pending.forwarded_upstream_event {
         return false;
     }
-    if !try_rotate_ws_upstream_after_terminal(
-        context,
-        upstream,
-        pending.prepared.model.as_deref(),
-        terminal.status_code,
-    )
-    .await
-    {
-        return false;
+    let mut retry_text = None;
+    if is_previous_response_not_found_terminal(terminal) {
+        retry_text = strip_previous_response_id_from_ws_text(pending.prepared.text.as_str());
+        if retry_text.is_none() {
+            return false;
+        }
+    } else {
+        let previous_account_id = upstream.account_id.clone();
+        if !try_rotate_ws_upstream_after_terminal(
+            context,
+            upstream,
+            pending.prepared.model.as_deref(),
+            terminal.status_code,
+        )
+        .await
+        {
+            return false;
+        }
+        if upstream.account_id != previous_account_id {
+            retry_text = strip_previous_response_id_from_ws_text(pending.prepared.text.as_str());
+        }
     }
+    let retry_text = retry_text.unwrap_or_else(|| pending.prepared.text.clone());
     match upstream
         .stream
-        .send(UpstreamMessage::Text(pending.prepared.text.clone().into()))
+        .send(UpstreamMessage::Text(retry_text.clone().into()))
         .await
     {
         Ok(()) => {
+            pending.prepared.text = retry_text;
             pending.forwarded_upstream_event = false;
             pending.log.first_response_ms = None;
             true
@@ -1492,6 +1506,31 @@ fn inspect_ws_terminal_event(text: &str) -> Option<WsTerminalEvent> {
         }
         _ => None,
     }
+}
+
+fn is_previous_response_not_found_terminal(terminal: &WsTerminalEvent) -> bool {
+    if terminal.status_code != 400 {
+        return false;
+    }
+    let Some(error) = terminal.error.as_deref() else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    lower.contains("previous response") && lower.contains("not found")
+}
+
+fn strip_previous_response_id_from_ws_text(text: &str) -> Option<String> {
+    let mut value = serde_json::from_str::<Value>(text).ok()?;
+    let object = value.as_object_mut()?;
+    if object
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value == "response.create")
+        && object.remove("previous_response_id").is_some()
+    {
+        return serde_json::to_string(&value).ok();
+    }
+    None
 }
 
 fn infer_ws_terminal_status(value: &Value, error_message: Option<&str>) -> u16 {
@@ -1644,8 +1683,9 @@ impl From<String> for WsSessionError {
 mod tests {
     use super::{
         build_socks5_connect_request, infer_ws_terminal_status, inspect_ws_terminal_event,
-        merge_client_metadata, parse_websocket_target, proxy_basic_auth_header,
-        rewrite_client_frame, WsRequestContext,
+        is_previous_response_not_found_terminal, merge_client_metadata, parse_websocket_target,
+        proxy_basic_auth_header, rewrite_client_frame, strip_previous_response_id_from_ws_text,
+        WsRequestContext,
     };
     use axum::http::{HeaderMap, HeaderValue};
     use codexmanager_core::storage::ApiKey;
@@ -1953,5 +1993,35 @@ mod tests {
         assert!(object.get("truncation").is_none());
         assert!(object.get("user").is_none());
         assert!(object.get("unknown_field").is_none());
+    }
+
+    #[test]
+    fn websocket_retry_can_strip_previous_response_id() {
+        let text = json!({
+            "type": "response.create",
+            "model": "gpt-5.4",
+            "previous_response_id": "resp_previous",
+            "input": "follow up"
+        })
+        .to_string();
+
+        let stripped = strip_previous_response_id_from_ws_text(text.as_str())
+            .expect("previous_response_id should be stripped");
+        let value: serde_json::Value =
+            serde_json::from_str(stripped.as_str()).expect("parse stripped frame");
+
+        assert_eq!(value["type"], "response.create");
+        assert!(value.get("previous_response_id").is_none());
+        assert_eq!(value["input"], "follow up");
+    }
+
+    #[test]
+    fn websocket_detects_previous_response_not_found_terminal() {
+        let terminal = inspect_ws_terminal_event(
+            r#"{"type":"response.failed","status":400,"error":{"message":"Previous response with id 'resp_123' not found."}}"#,
+        )
+        .expect("terminal event");
+
+        assert!(is_previous_response_not_found_terminal(&terminal));
     }
 }
