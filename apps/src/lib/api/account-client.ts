@@ -401,6 +401,10 @@ export const accountClient = {
     );
     return normalizeUsageSnapshot(unwrapUsageSnapshotPayload(result));
   },
+  async getLatestUsage(): Promise<AccountUsage | null> {
+    const result = await invoke<unknown>("service_usage_read", withAddr());
+    return normalizeUsageSnapshot(unwrapUsageSnapshotPayload(result));
+  },
   async listUsage(): Promise<AccountUsage[]> {
     const result = await invoke<unknown>("service_usage_list", withAddr());
     return normalizeUsageList(result);

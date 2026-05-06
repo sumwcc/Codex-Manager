@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { accountClient } from "@/lib/api/account-client";
@@ -112,6 +112,17 @@ function getAccountsAutoRefreshIntervalMs(
   return Math.max(1, intervalSecs) * 1000;
 }
 
+function getUsageRefreshSignalIntervalMs(
+  enabled: boolean,
+  intervalSecs: number,
+): number | false {
+  const intervalMs = getAccountsAutoRefreshIntervalMs(enabled, intervalSecs);
+  if (!intervalMs) {
+    return false;
+  }
+  return Math.min(5_000, intervalMs);
+}
+
 /**
  * 函数 `useAccounts`
  *
@@ -141,6 +152,11 @@ export function useAccounts() {
     areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
     backgroundTasks.usagePollIntervalSecs,
   );
+  const usageRefreshSignalIntervalMs = getUsageRefreshSignalIntervalMs(
+    areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
+    backgroundTasks.usagePollIntervalSecs,
+  );
+  const latestUsageCapturedAtRef = useRef<number | null>(null);
   const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
     buildStartupSnapshotQueryKey(
       serviceStatus.addr,
@@ -202,6 +218,69 @@ export function useAccounts() {
     placeholderData: (previousData) =>
       previousData || (startupUsages.length > 0 ? startupUsages : undefined),
   });
+
+  const latestUsageSignalQuery = useQuery({
+    queryKey: ["usage", "latest-refresh-signal"],
+    queryFn: () => accountClient.getLatestUsage(),
+    enabled: areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
+    retry: 1,
+    refetchInterval: usageRefreshSignalIntervalMs,
+    refetchIntervalInBackground: false,
+  });
+
+  const maxKnownUsageCapturedAt = useMemo(() => {
+    return (usagesQuery.data || []).reduce<number | null>((latest, usage) => {
+      const capturedAt = usage.capturedAt;
+      if (capturedAt == null) {
+        return latest;
+      }
+      return latest == null ? capturedAt : Math.max(latest, capturedAt);
+    }, null);
+  }, [usagesQuery.data]);
+
+  useEffect(() => {
+    if (!areAccountQueriesEnabled) {
+      latestUsageCapturedAtRef.current = null;
+      return;
+    }
+
+    const capturedAt = latestUsageSignalQuery.data?.capturedAt ?? null;
+    if (capturedAt == null) {
+      return;
+    }
+
+    const previousCapturedAt = latestUsageCapturedAtRef.current;
+    if (
+      previousCapturedAt == null &&
+      maxKnownUsageCapturedAt == null &&
+      !usagesQuery.isFetched
+    ) {
+      return;
+    }
+
+    latestUsageCapturedAtRef.current = capturedAt;
+    const baselineCapturedAt =
+      previousCapturedAt == null
+        ? (maxKnownUsageCapturedAt ?? 0)
+        : previousCapturedAt;
+    if (capturedAt <= baselineCapturedAt) {
+      return;
+    }
+
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["accounts", "list"] }),
+      queryClient.invalidateQueries({ queryKey: ["usage", "list"] }),
+      queryClient.invalidateQueries({ queryKey: ["usage-aggregate"] }),
+      queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
+      queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+    ]);
+  }, [
+    areAccountQueriesEnabled,
+    latestUsageSignalQuery.data?.capturedAt,
+    maxKnownUsageCapturedAt,
+    queryClient,
+    usagesQuery.isFetched,
+  ]);
 
   const accounts = useMemo(() => {
     return attachUsagesToAccounts(
