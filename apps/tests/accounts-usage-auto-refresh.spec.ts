@@ -74,8 +74,8 @@ const NEW_USAGE = {
 test("accounts page refreshes usage after backend polling writes a new snapshot", async ({
   page,
 }) => {
-  const startedAt = Date.now();
   let usageListCount = 0;
+  let newSnapshotAvailable = false;
 
   await page.route("**/api/runtime", async (route) => {
     await route.fulfill({
@@ -97,7 +97,6 @@ test("accounts page refreshes usage after backend polling writes a new snapshot"
     const payload = route.request().postDataJSON();
     const method = typeof payload?.method === "string" ? payload.method : "";
     const id = payload?.id ?? 1;
-    const elapsedMs = Date.now() - startedAt;
 
     const ok = (result: unknown) =>
       route.fulfill({
@@ -141,12 +140,12 @@ test("accounts page refreshes usage after backend polling writes a new snapshot"
       return;
     }
     if (method === "account/usage/read") {
-      await ok({ snapshot: elapsedMs >= 1200 ? NEW_USAGE : OLD_USAGE });
+      await ok({ snapshot: newSnapshotAvailable ? NEW_USAGE : OLD_USAGE });
       return;
     }
     if (method === "account/usage/list") {
       usageListCount += 1;
-      await ok({ items: [elapsedMs >= 1200 ? NEW_USAGE : OLD_USAGE] });
+      await ok({ items: [newSnapshotAvailable ? NEW_USAGE : OLD_USAGE] });
       return;
     }
 
@@ -172,6 +171,7 @@ test("accounts page refreshes usage after backend polling writes a new snapshot"
     .first();
 
   await expect(row.getByText("85%", { exact: true }).first()).toBeVisible();
+  newSnapshotAvailable = true;
   await expect(row.getByText("60%", { exact: true }).first()).toBeVisible({
     timeout: 8_000,
   });
