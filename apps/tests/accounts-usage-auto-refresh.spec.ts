@@ -71,6 +71,19 @@ const NEW_USAGE = {
   capturedAt: 200,
 };
 
+const UNCHANGED_NEWER_USAGE = {
+  accountId: "acct-newer-snapshot",
+  availabilityStatus: "available",
+  usedPercent: 20,
+  windowMinutes: 300,
+  resetsAt: 1900007200,
+  secondaryUsedPercent: 30,
+  secondaryWindowMinutes: 10080,
+  secondaryResetsAt: 1900010800,
+  creditsJson: null,
+  capturedAt: 1_000,
+};
+
 test("accounts page refreshes usage after backend polling writes a new snapshot", async ({
   page,
 }) => {
@@ -132,20 +145,33 @@ test("accounts page refreshes usage after backend polling writes a new snapshot"
             status: "active",
             sort: 0,
           },
+          {
+            id: "acct-newer-snapshot",
+            name: "newer-snapshot@example.com",
+            label: "newer-snapshot@example.com",
+            plan_type: "plus",
+            status: "active",
+            sort: 1,
+          },
         ],
-        total: 1,
+        total: 2,
         page: 1,
         pageSize: 20,
       });
       return;
     }
     if (method === "account/usage/read") {
-      await ok({ snapshot: newSnapshotAvailable ? NEW_USAGE : OLD_USAGE });
+      await ok({ snapshot: UNCHANGED_NEWER_USAGE });
       return;
     }
     if (method === "account/usage/list") {
       usageListCount += 1;
-      await ok({ items: [newSnapshotAvailable ? NEW_USAGE : OLD_USAGE] });
+      await ok({
+        items: [
+          newSnapshotAvailable ? NEW_USAGE : OLD_USAGE,
+          UNCHANGED_NEWER_USAGE,
+        ],
+      });
       return;
     }
 

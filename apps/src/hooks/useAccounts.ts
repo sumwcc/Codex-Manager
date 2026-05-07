@@ -16,7 +16,7 @@ import { useLocalDayRange } from "@/hooks/useLocalDayRange";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
-import { AccountListResult, StartupSnapshot } from "@/types";
+import { AccountListResult, AccountUsage, StartupSnapshot } from "@/types";
 
 type ImportByDirectoryResult = Awaited<ReturnType<typeof accountClient.importByDirectory>>;
 type ImportByFileResult = Awaited<ReturnType<typeof accountClient.importByFile>>;
@@ -112,7 +112,7 @@ function getAccountsAutoRefreshIntervalMs(
   return Math.max(1, intervalSecs) * 1000;
 }
 
-function getUsageRefreshSignalIntervalMs(
+function getUsageListRefreshIntervalMs(
   enabled: boolean,
   intervalSecs: number,
 ): number | false {
@@ -121,6 +121,28 @@ function getUsageRefreshSignalIntervalMs(
     return false;
   }
   return Math.min(5_000, intervalMs);
+}
+
+function buildUsageListFingerprint(usages: AccountUsage[]): string {
+  if (usages.length === 0) {
+    return "";
+  }
+
+  return usages
+    .map((usage) =>
+      [
+        usage.accountId,
+        usage.capturedAt ?? "",
+        usage.usedPercent ?? "",
+        usage.secondaryUsedPercent ?? "",
+        usage.resetsAt ?? "",
+        usage.secondaryResetsAt ?? "",
+        usage.availabilityStatus ?? "",
+        usage.creditsJson ?? "",
+      ].join(":"),
+    )
+    .sort()
+    .join("|");
 }
 
 /**
@@ -152,11 +174,11 @@ export function useAccounts() {
     areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
     backgroundTasks.usagePollIntervalSecs,
   );
-  const usageRefreshSignalIntervalMs = getUsageRefreshSignalIntervalMs(
+  const usageListRefreshIntervalMs = getUsageListRefreshIntervalMs(
     areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
     backgroundTasks.usagePollIntervalSecs,
   );
-  const latestUsageCapturedAtRef = useRef<number | null>(null);
+  const usageListFingerprintRef = useRef<string | null>(null);
   const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
     buildStartupSnapshotQueryKey(
       serviceStatus.addr,
@@ -213,72 +235,43 @@ export function useAccounts() {
     queryFn: () => accountClient.listUsage(),
     enabled: areAccountQueriesEnabled,
     retry: 1,
-    refetchInterval: accountsAutoRefreshIntervalMs,
+    refetchInterval: usageListRefreshIntervalMs,
     refetchIntervalInBackground: false,
     placeholderData: (previousData) =>
       previousData || (startupUsages.length > 0 ? startupUsages : undefined),
   });
 
-  const latestUsageSignalQuery = useQuery({
-    queryKey: ["usage", "latest-refresh-signal"],
-    queryFn: () => accountClient.getLatestUsage(),
-    enabled: areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
-    retry: 1,
-    refetchInterval: usageRefreshSignalIntervalMs,
-    refetchIntervalInBackground: false,
-  });
-
-  const maxKnownUsageCapturedAt = useMemo(() => {
-    return (usagesQuery.data || []).reduce<number | null>((latest, usage) => {
-      const capturedAt = usage.capturedAt;
-      if (capturedAt == null) {
-        return latest;
-      }
-      return latest == null ? capturedAt : Math.max(latest, capturedAt);
-    }, null);
-  }, [usagesQuery.data]);
+  const usageListFingerprint = useMemo(
+    () => buildUsageListFingerprint(usagesQuery.data || []),
+    [usagesQuery.data],
+  );
 
   useEffect(() => {
     if (!areAccountQueriesEnabled) {
-      latestUsageCapturedAtRef.current = null;
+      usageListFingerprintRef.current = null;
       return;
     }
 
-    const capturedAt = latestUsageSignalQuery.data?.capturedAt ?? null;
-    if (capturedAt == null) {
+    if (!usagesQuery.isFetched) {
       return;
     }
 
-    const previousCapturedAt = latestUsageCapturedAtRef.current;
-    if (
-      previousCapturedAt == null &&
-      maxKnownUsageCapturedAt == null &&
-      !usagesQuery.isFetched
-    ) {
-      return;
-    }
-
-    latestUsageCapturedAtRef.current = capturedAt;
-    const baselineCapturedAt =
-      previousCapturedAt == null
-        ? (maxKnownUsageCapturedAt ?? 0)
-        : previousCapturedAt;
-    if (capturedAt <= baselineCapturedAt) {
+    const previousFingerprint = usageListFingerprintRef.current;
+    usageListFingerprintRef.current = usageListFingerprint;
+    if (previousFingerprint == null || previousFingerprint === usageListFingerprint) {
       return;
     }
 
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ["accounts", "list"] }),
-      queryClient.invalidateQueries({ queryKey: ["usage", "list"] }),
       queryClient.invalidateQueries({ queryKey: ["usage-aggregate"] }),
       queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
       queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
     ]);
   }, [
     areAccountQueriesEnabled,
-    latestUsageSignalQuery.data?.capturedAt,
-    maxKnownUsageCapturedAt,
     queryClient,
+    usageListFingerprint,
     usagesQuery.isFetched,
   ]);
 
