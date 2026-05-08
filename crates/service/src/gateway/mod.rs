@@ -151,8 +151,7 @@ use request_rewrite::{
     apply_request_overrides_with_service_tier_and_prompt_cache_key_scope, compute_upstream_url,
 };
 pub(super) use thread_anchor::{
-    clear_prompt_cache_key_when_native_anchor, resolve_fallback_thread_anchor,
-    resolve_local_conversation_id_with_sticky_fallback,
+    resolve_fallback_thread_anchor, resolve_local_conversation_id_with_sticky_fallback,
 };
 pub(crate) use trace_log::{
     log_client_service_tier, log_request_execution_plan, log_request_final, log_request_start,

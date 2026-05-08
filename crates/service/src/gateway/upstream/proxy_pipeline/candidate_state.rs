@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_body_for_attempt_removes_existing_prompt_cache_key() {
+    fn compact_body_for_attempt_preserves_existing_prompt_cache_key() {
         let mut state = CandidateExecutionState::default();
         let body = Bytes::from_static(
             br#"{"model":"gpt-5.5","input":"hello","prompt_cache_key":"client-thread"}"#,
@@ -454,7 +454,12 @@ mod tests {
         let value: serde_json::Value =
             serde_json::from_slice(actual.as_ref()).expect("parse rewritten body");
 
-        assert!(value.get("prompt_cache_key").is_none());
+        assert_eq!(
+            value
+                .get("prompt_cache_key")
+                .and_then(serde_json::Value::as_str),
+            Some("client-thread")
+        );
     }
 
     #[test]
