@@ -137,6 +137,10 @@ export const EN_MESSAGES: MessageCatalog = {
   启用: "Enabled",
   禁用: "Disabled",
   设置模型与推理: "Configure model and reasoning",
+  "导入 ccswitch": "Import to ccswitch",
+  "已唤起 ccswitch，请在确认窗口完成导入":
+    "ccswitch has been opened. Confirm the import in its dialog.",
+  "唤起 ccswitch 失败": "Failed to open ccswitch",
   删除密钥: "Delete key",
   全部: "All",
   低配额: "Low quota",
