@@ -120,6 +120,10 @@ export const KO_MESSAGES: MessageCatalog = {
   启用: "사용",
   禁用: "비활성화",
   设置模型与推理: "모델 및 추론 설정",
+  "导入 ccswitch": "ccswitch로 가져오기",
+  "已唤起 ccswitch，请在确认窗口完成导入":
+    "ccswitch를 열었습니다. 확인 창에서 가져오기를 완료하세요.",
+  "唤起 ccswitch 失败": "ccswitch 열기 실패",
   删除密钥: "키 삭제",
   全部: "전체",
   低配额: "낮은 할당량",
