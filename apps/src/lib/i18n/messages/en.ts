@@ -1146,8 +1146,8 @@ export const EN_MESSAGES: MessageCatalog = {
     "If you changed the service port on the Settings page, remember to update `base_url` too, or the CLI will connect to the old port.",
   "如果 CLI 已经有其它 `model_providers` 配置，不需要全删，只要保证 `cm` 这一段完整且名字一致即可。":
     "If the CLI already has other `model_providers`, you do not need to remove them. Just make sure the `cm` section is complete and the name matches.",
-  "只有勾选“下次不再显示这份引导”并点击确认后，软件才会把这个状态写入数据库；否则下次进入仍会再次提醒。":
-    "The app writes this state to the database only after you check “Don't show this guide again” and confirm it. Otherwise, the reminder will appear again next time.",
+  "勾选“下次不再显示这份引导”并点击“保存并关闭”后，软件会把这个状态写入数据库；否则仅在当前窗口会话内关闭提醒。":
+    "After you check “Don't show this guide again” and click “Save and close”, the app writes this state to the database. Otherwise, the reminder is only closed for the current window session.",
   推荐配置示例: "Recommended configuration sample",
   "已为每一行补充中文注释，可以直接复制后再按你的环境微调。":
     "Every line is annotated, so you can copy it directly and then fine-tune it for your environment.",
