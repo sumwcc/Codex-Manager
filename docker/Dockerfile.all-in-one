@@ -16,6 +16,9 @@ RUN --mount=type=cache,id=codexmanager-pnpm-store,target=/pnpm/store \
 
 FROM rust:1-bookworm AS builder
 
+ARG TARGETARCH
+ARG TARGETVARIANT
+
 WORKDIR /src
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
@@ -29,7 +32,7 @@ COPY --from=ui /src/apps/out ./apps/out
 
 RUN --mount=type=cache,id=codexmanager-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=codexmanager-cargo-git,target=/usr/local/cargo/git \
-    --mount=type=cache,id=codexmanager-cargo-target,target=/src/target \
+    --mount=type=cache,id=codexmanager-cargo-target-${TARGETARCH}${TARGETVARIANT},target=/src/target \
     cargo build --locked -p codexmanager-service --release \
     && cargo build --locked -p codexmanager-web --release --features embedded-ui \
     && cargo build --locked -p codexmanager-start --release \
