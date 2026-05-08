@@ -1248,6 +1248,11 @@ pub(super) fn build_local_validation_result(
         initial_service_tier_diagnostic.raw_value.as_deref(),
         initial_service_tier_diagnostic.normalized_value.as_deref(),
     );
+    body = super::super::clear_prompt_cache_key_when_native_anchor(
+        normalized_path.as_str(),
+        body,
+        &incoming_headers,
+    );
     let initial_request_meta = super::super::parse_request_metadata(&body);
     let native_codex_client = is_native_codex_client_request(&incoming_headers);
     log::debug!(

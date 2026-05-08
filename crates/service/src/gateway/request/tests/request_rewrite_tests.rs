@@ -1862,6 +1862,34 @@ fn responses_compact_keeps_only_codex_compact_body_fields() {
     assert!(object.get("unknown_field").is_none());
 }
 
+#[test]
+fn responses_compact_removes_prompt_cache_key_without_codex_base_rewrite() {
+    let _guard = crate::test_env_guard();
+    let body = json!({
+        "model": "gpt-5.5",
+        "instructions": "compact instructions",
+        "input": "compact me",
+        "prompt_cache_key": "pc_compact",
+        "reasoning": { "effort": "low" },
+        "text": { "verbosity": "low" },
+        "tools": [],
+        "parallel_tool_calls": false
+    });
+    let out = apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+        "/v1/responses/compact",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        None,
+        None,
+        None,
+        None,
+        Some("pc_compact"),
+        false,
+    );
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
+
+    assert!(value.get("prompt_cache_key").is_none());
+}
+
 /// 函数 `responses_compact_defaults_parallel_tool_calls_to_false_for_codex_backend`
 ///
 /// 作者: gaohongshun
