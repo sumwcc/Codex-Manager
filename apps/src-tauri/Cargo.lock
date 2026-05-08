@@ -20,6 +20,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-single-instance",
  "webbrowser",
+ "windows-sys 0.61.2",
  "zip",
 ]
 
