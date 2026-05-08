@@ -514,7 +514,7 @@ export const accountClient = {
           typeof params.actionCustomEnabled === "boolean"
             ? params.actionCustomEnabled
             : null,
-        action: params.action || null,
+        action: params.action ?? null,
         username: params.username || null,
         password: params.password || null,
       })
@@ -542,7 +542,7 @@ export const accountClient = {
           typeof params.actionCustomEnabled === "boolean"
             ? params.actionCustomEnabled
             : null,
-        action: params.action || null,
+        action: params.action ?? null,
         username: params.username || null,
         password: params.password || null,
       })
