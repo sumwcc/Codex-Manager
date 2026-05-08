@@ -124,6 +124,7 @@ export const EN_MESSAGES: MessageCatalog = {
   名称: "Name",
   账号轮转: "Account rotation",
   聚合API轮转: "Aggregate API rotation",
+  "混合轮转（账号优先）": "Hybrid rotation (accounts first)",
   "总使用 Token": "Total token usage",
   总费用: "Total cost",
   按全部平台密钥累计: "Aggregated across all API keys",
@@ -525,8 +526,10 @@ export const EN_MESSAGES: MessageCatalog = {
     "Configure gateway credentials. You can bind a specific model, reasoning tier, or custom upstream.",
   "密钥名称 (可选)": "Key name (optional)",
   "例如：主机房 / 测试": "e.g. Main room / Test",
-  "账号轮转保持现有路由逻辑；聚合API轮转会直接透传请求。":
-    "Account rotation keeps the existing routing logic; aggregate API rotation forwards requests directly.",
+  "账号轮转只走账号池；聚合API轮转只走聚合API；混合轮转先走账号池，账号耗尽后使用聚合API兜底。":
+    "Account rotation uses only the account pool; aggregate API rotation uses only aggregate APIs; hybrid rotation tries accounts first and falls back to aggregate APIs when accounts are exhausted.",
+  "仅对账号轮转和混合轮转生效，可限制这把平台密钥只从指定账号计划类型中选路由账号。":
+    "Applies only to account rotation and hybrid rotation. Limits this API key to routing through accounts with the selected plan type.",
   "默认按路径通配：": "Path matching by default:",
   "走 Claude 语义，": "uses Claude semantics,",
   "这类路径走 Gemini 语义，其它标准路径走 Codex / OpenAI 语义。":
