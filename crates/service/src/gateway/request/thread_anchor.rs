@@ -42,7 +42,13 @@ pub(crate) fn clear_prompt_cache_key_when_native_anchor(
     body: Vec<u8>,
     headers: &IncomingHeaderSnapshot,
 ) -> Vec<u8> {
-    if !has_native_thread_anchor(headers) || !path.starts_with("/v1/responses") {
+    if !path.starts_with("/v1/responses") {
+        return body;
+    }
+    // Compact requests should not forward client-side prompt cache keys.
+    let should_clear_prompt_cache_key =
+        has_native_thread_anchor(headers) || super::official_responses_http::is_compact_path(path);
+    if !should_clear_prompt_cache_key {
         return body;
     }
     let Ok(mut payload) = serde_json::from_slice::<serde_json::Value>(&body) else {
@@ -150,6 +156,24 @@ mod tests {
         .expect("serialize request body");
 
         let actual = clear_prompt_cache_key_when_native_anchor("/v1/responses", body, &headers);
+        let value: serde_json::Value =
+            serde_json::from_slice(&actual).expect("parse rewritten request body");
+
+        assert!(value.get("prompt_cache_key").is_none());
+    }
+
+    #[test]
+    fn compact_request_removes_prompt_cache_key_without_native_anchor() {
+        let headers = sample_headers(None, None, Some("pk_test"));
+        let body = serde_json::to_vec(&json!({
+            "model": "gpt-5.4",
+            "input": "hello",
+            "prompt_cache_key": "client-thread"
+        }))
+        .expect("serialize request body");
+
+        let actual =
+            clear_prompt_cache_key_when_native_anchor("/v1/responses/compact", body, &headers);
         let value: serde_json::Value =
             serde_json::from_slice(&actual).expect("parse rewritten request body");
 
