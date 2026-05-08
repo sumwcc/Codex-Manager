@@ -198,8 +198,15 @@ test("accounts page refreshes usage after backend polling writes a new snapshot"
 
   await expect(row.getByText("85%", { exact: true }).first()).toBeVisible();
   newSnapshotAvailable = true;
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent("usage-refresh-completed", {
+        detail: { source: "polling", processed: 1, total: 2 },
+      })
+    );
+  });
   await expect(row.getByText("60%", { exact: true }).first()).toBeVisible({
-    timeout: 8_000,
+    timeout: 2_000,
   });
   expect(usageListCount).toBeGreaterThanOrEqual(2);
 });

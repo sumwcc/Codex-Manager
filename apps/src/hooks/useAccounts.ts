@@ -10,6 +10,7 @@ import {
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
 } from "@/lib/api/startup-snapshot";
 import { getAppErrorMessage } from "@/lib/api/transport";
+import { listenUsageRefreshCompleted } from "@/lib/api/usage-refresh-events";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { useLocalDayRange } from "@/hooks/useLocalDayRange";
@@ -245,6 +246,39 @@ export function useAccounts() {
     () => buildUsageListFingerprint(usagesQuery.data || []),
     [usagesQuery.data],
   );
+
+  useEffect(() => {
+    if (!areAccountQueriesEnabled) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    const refreshVisibleUsageData = () => {
+      void Promise.all([
+        queryClient.refetchQueries({ queryKey: ["usage", "list"], type: "active" }),
+        queryClient.refetchQueries({ queryKey: ["accounts", "list"], type: "active" }),
+        queryClient.invalidateQueries({ queryKey: ["usage-aggregate"] }),
+        queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+      ]);
+    };
+
+    void listenUsageRefreshCompleted(() => {
+      refreshVisibleUsageData();
+    }).then((cleanup) => {
+      if (disposed) {
+        cleanup();
+        return;
+      }
+      unlisten = cleanup;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [areAccountQueriesEnabled, queryClient]);
 
   useEffect(() => {
     if (!areAccountQueriesEnabled) {
