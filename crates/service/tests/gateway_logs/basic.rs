@@ -1,4 +1,5 @@
 use super::*;
+use codexmanager_core::storage::RequestTokenStat;
 
 const MISSING_AUTH_JSON_OPENAI_API_KEY_ERROR: &str =
     "配置错误：未配置auth.json的OPENAI_API_KEY(invalid api key)";
@@ -71,6 +72,70 @@ fn gateway_logs_invalid_api_key_error() {
         logs.iter()
             .map(|v| (&v.request_path, v.status_code, v.error.as_deref()))
             .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn gateway_rejects_api_key_after_quota_limit() {
+    let _lock = test_env_guard();
+    let dir = new_test_dir("codexmanager-gateway-key-quota");
+    let db_path: PathBuf = dir.join("codexmanager.db");
+    let _guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
+
+    let platform_key = "pk_quota_limit_reached";
+    let storage = Storage::open(&db_path).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    storage
+        .insert_api_key(&ApiKey {
+            id: "gk_quota_limit_reached".to_string(),
+            name: Some("quota-limit".to_string()),
+            model_slug: None,
+            reasoning_effort: None,
+            service_tier: None,
+            rotation_strategy: "account_rotation".to_string(),
+            aggregate_api_id: None,
+            account_plan_filter: None,
+            aggregate_api_url: None,
+            client_type: "codex".to_string(),
+            protocol_type: "openai_compat".to_string(),
+            auth_scheme: "authorization_bearer".to_string(),
+            upstream_base_url: None,
+            static_headers_json: None,
+            key_hash: hash_platform_key_for_test(platform_key),
+            status: "active".to_string(),
+            created_at: now,
+            last_used_at: None,
+        })
+        .expect("insert api key");
+    storage
+        .upsert_api_key_quota_limit("gk_quota_limit_reached", Some(100))
+        .expect("upsert quota");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: 1,
+            key_id: Some("gk_quota_limit_reached".to_string()),
+            total_tokens: Some(100),
+            created_at: now,
+            ..RequestTokenStat::default()
+        })
+        .expect("insert token stat");
+
+    let server = TestServer::start();
+    let req_body = r#"{"model":"gpt-5.3-codex","input":"hello"}"#;
+    let (status, body) = post_http_raw(
+        &server.addr,
+        "/v1/responses",
+        req_body,
+        &[
+            ("Content-Type", "application/json"),
+            ("Authorization", &format!("Bearer {platform_key}")),
+        ],
+    );
+    assert_eq!(status, 429, "response body: {body}");
+    assert!(
+        body.contains("quota") || body.contains("额度"),
+        "gateway should report quota exhaustion, got {body}"
     );
 }
 

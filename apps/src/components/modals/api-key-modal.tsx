@@ -26,6 +26,16 @@ import { useAppStore } from "@/lib/store/useAppStore";
 import { useI18n } from "@/lib/i18n/provider";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { findBestMatchingModel } from "@/lib/api/model-catalog";
+import {
+  type QuotaLimitUnit,
+  estimateQuotaLimitUsd,
+  formatQuotaLimitUsd,
+  formatQuotaLimitValue,
+  parseQuotaLimitTokens,
+  resolveQuotaLimitUnit,
+  sanitizeQuotaLimitValue,
+  QUOTA_LIMIT_REFERENCE_PRICE_USD_PER_1K_TOKENS,
+} from "@/lib/utils/api-key-quota";
 import { toast } from "sonner";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Key, Clipboard, ShieldCheck } from "lucide-react";
@@ -104,6 +114,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const [serviceTier, setServiceTier] = useState("");
   const [rotationStrategy, setRotationStrategy] = useState("account_rotation");
   const [accountPlanFilter, setAccountPlanFilter] = useState("all");
+  const [quotaLimitValue, setQuotaLimitValue] = useState("");
+  const [quotaLimitUnit, setQuotaLimitUnit] = useState<QuotaLimitUnit>("k");
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
 
@@ -158,11 +170,17 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       ];
     }
     return baseModels;
-  }, [models?.models, selectedModelInfo]);
+  }, [modelSlug, models?.models, selectedModelInfo]);
 
   const modelLabelMap = Object.fromEntries(
     visibleModels.map((model) => [model.slug, model.displayName || model.slug]),
   );
+
+  const quotaLimitTokenPreview = useMemo(
+    () => parseQuotaLimitTokens(quotaLimitValue, quotaLimitUnit),
+    [quotaLimitUnit, quotaLimitValue],
+  );
+  const quotaLimitUsdPreview = estimateQuotaLimitUsd(quotaLimitTokenPreview);
 
   useEffect(() => {
     if (!open) return;
@@ -175,6 +193,8 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setServiceTier("");
       setRotationStrategy("account_rotation");
       setAccountPlanFilter("all");
+      setQuotaLimitValue("");
+      setQuotaLimitUnit("k");
       setUpstreamBaseUrl("");
       setGeneratedKey("");
       return;
@@ -187,9 +207,22 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
     setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
     setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
     setAccountPlanFilter(apiKey.accountPlanFilter || "all");
+    const resolvedQuotaUnit = resolveQuotaLimitUnit(apiKey.quotaLimitTokens);
+    setQuotaLimitUnit(resolvedQuotaUnit);
+    setQuotaLimitValue(
+      formatQuotaLimitValue(apiKey.quotaLimitTokens, resolvedQuotaUnit),
+    );
     setGeneratedKey("");
     setUpstreamBaseUrl(apiKey.upstreamBaseUrl || "");
   }, [apiKey, open]);
+
+  const handleQuotaLimitUnitChange = (unit: QuotaLimitUnit) => {
+    const currentTokens = parseQuotaLimitTokens(quotaLimitValue, quotaLimitUnit);
+    setQuotaLimitUnit(unit);
+    if (currentTokens !== null) {
+      setQuotaLimitValue(formatQuotaLimitValue(currentTokens, unit));
+    }
+  };
 
   /**
    * 函数 `handleSave`
@@ -232,6 +265,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
           usesAccountPlanFilter && accountPlanFilter !== "all"
             ? accountPlanFilter
             : null,
+        quotaLimitTokens: quotaLimitTokenPreview,
       };
 
       if (apiKey?.id) {
@@ -384,6 +418,51 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               </p>
             </div>
           ) : null}
+
+          <div className="grid gap-2">
+            <Label htmlFor="quotaLimitTokens">{t("总额度限制 (Token，可选)")}</Label>
+            <div className="grid grid-cols-[minmax(0,1fr)_92px] gap-2">
+              <Input
+                id="quotaLimitTokens"
+                inputMode="decimal"
+                min={0}
+                placeholder={t("不填表示不限制")}
+                value={quotaLimitValue}
+                disabled={!isServiceReady}
+                onChange={(e) =>
+                  setQuotaLimitValue(sanitizeQuotaLimitValue(e.target.value))
+                }
+              />
+              <Select
+                value={quotaLimitUnit}
+                onValueChange={(value) =>
+                  handleQuotaLimitUnitChange(value as QuotaLimitUnit)
+                }
+                disabled={!isServiceReady}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="k">{t("K")}</SelectItem>
+                  <SelectItem value="m">{t("M")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {quotaLimitTokenPreview === null
+                ? t(
+                    "达到上限后，这把平台密钥的新请求会被拒绝；已在途请求会按完成后的真实用量继续统计。",
+                  )
+                : `${t("折算")} ${quotaLimitTokenPreview.toLocaleString(
+                    "zh-CN",
+                  )} Token ≈ ${formatQuotaLimitUsd(quotaLimitUsdPreview)} (${t(
+                    "按",
+                  )} $${QUOTA_LIMIT_REFERENCE_PRICE_USD_PER_1K_TOKENS.toFixed(
+                    2,
+                  )} / 1K Token ${t("参考估算")})`}
+            </p>
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2 content-start">

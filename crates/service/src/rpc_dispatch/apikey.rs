@@ -35,6 +35,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
             let account_plan_filter = super::string_param(req, "accountPlanFilter");
+            let quota_limit_tokens = super::i64_param(req, "quotaLimitTokens");
             super::value_or_error(apikey_create::create_api_key(
                 name,
                 model_slug,
@@ -46,6 +47,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 rotation_strategy,
                 aggregate_api_id,
                 account_plan_filter,
+                quota_limit_tokens,
             ))
         }
         "apikey/readSecret" => {
@@ -97,6 +99,13 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let rotation_strategy = super::string_param(req, "rotationStrategy");
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
             let account_plan_filter = super::string_param(req, "accountPlanFilter");
+            let has_quota_limit_tokens = req
+                .params
+                .as_ref()
+                .and_then(|value| value.as_object())
+                .map(|params| params.contains_key("quotaLimitTokens"))
+                .unwrap_or(false);
+            let quota_limit_tokens = super::i64_param(req, "quotaLimitTokens");
             super::ok_or_error(apikey_update_model::update_api_key_model(
                 key_id,
                 name,
@@ -110,6 +119,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 rotation_strategy,
                 aggregate_api_id,
                 account_plan_filter,
+                has_quota_limit_tokens,
+                quota_limit_tokens,
             ))
         }
         "apikey/delete" => {
