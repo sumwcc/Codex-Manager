@@ -61,6 +61,10 @@ import {
   buildCcSwitchProviderName,
   normalizeCodexManagerGatewayEndpoint,
 } from "@/lib/utils/ccswitch";
+import {
+  estimateQuotaLimitUsd,
+  formatQuotaLimitUsd,
+} from "@/lib/utils/api-key-quota";
 import { formatCompactNumber } from "@/lib/utils/usage";
 
 const ROTATION_STRATEGY_LABELS: Record<string, string> = {
@@ -234,14 +238,24 @@ export default function ApiKeysPage() {
         result[keyId] = Math.max(0, item.totalTokens || 0);
         return result;
       }, {});
+      const costByKey = stats.reduce<Record<string, number>>((result, item) => {
+        const keyId = String(item.keyId || "").trim();
+        if (!keyId) return result;
+        result[keyId] = Math.max(0, item.estimatedCostUsd || 0);
+        return result;
+      }, {});
 
-      const totalTokens = Object.values(usageByKey).reduce((sum, value) => sum + value, 0);
+      const totalTokens = Object.values(usageByKey).reduce(
+        (sum, value) => sum + value,
+        0,
+      );
       const totalCostUsd = stats.reduce(
         (sum, item) => sum + Math.max(0, item.estimatedCostUsd || 0),
         0,
       );
       return {
         usageByKey,
+        costByKey,
         totalTokens,
         totalCostUsd,
       };
@@ -250,6 +264,7 @@ export default function ApiKeysPage() {
     retry: 1,
   });
   const usageByKey = usageOverview?.usageByKey || {};
+  const costByKey = usageOverview?.costByKey || {};
   const showOverviewLoading = isServiceReady && isPageActive && isUsageOverviewLoading;
 
   /**
@@ -561,7 +576,7 @@ export default function ApiKeysPage() {
                 <TableHead>{t("协议")}</TableHead>
                 <TableHead>{t("轮转策略")}</TableHead>
                 <TableHead>{t("绑定模型")}</TableHead>
-                <TableHead>{t("总使用 Token")}</TableHead>
+                <TableHead>{t("Token / 金额")}</TableHead>
                 <TableHead>{t("状态")}</TableHead>
                 <TableHead className="table-sticky-action-head w-[144px] text-center">
                   {t("操作")}
@@ -597,6 +612,24 @@ export default function ApiKeysPage() {
                 apiKeys.map((key) => {
                   const revealed = revealedSecrets[key.id];
                   const isEnabled = String(key.status).toLowerCase() !== "disabled";
+                  const usedTokens = usageByKey[key.id] ?? 0;
+                  const usedCostUsd = costByKey[key.id] ?? 0;
+                  const quotaLimitTokens =
+                    typeof key.quotaLimitTokens === "number" &&
+                    Number.isFinite(key.quotaLimitTokens) &&
+                    key.quotaLimitTokens > 0
+                      ? key.quotaLimitTokens
+                      : null;
+                  const quotaRemaining =
+                    quotaLimitTokens === null
+                      ? null
+                      : Math.max(0, quotaLimitTokens - usedTokens);
+                  const isQuotaExhausted =
+                    quotaLimitTokens !== null && usedTokens >= quotaLimitTokens;
+                  const quotaLimitUsd =
+                    quotaLimitTokens === null
+                      ? null
+                      : estimateQuotaLimitUsd(quotaLimitTokens);
 
                   return (
                     <TableRow key={key.id} className="group">
@@ -660,7 +693,38 @@ export default function ApiKeysPage() {
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
-                        {formatCompactTokenAmount(usageByKey[key.id] ?? 0)}
+                        <div className="space-y-1">
+                          <div
+                            className={
+                              isQuotaExhausted
+                                ? "font-semibold text-red-500"
+                                : "text-foreground"
+                            }
+                          >
+                            {formatCompactTokenAmount(usedTokens)}
+                            {quotaLimitTokens !== null ? (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                / {formatCompactTokenAmount(quotaLimitTokens)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="text-[10px] font-normal text-muted-foreground">
+                            {quotaLimitTokens === null
+                              ? `${t("已花费")} ${formatQuotaLimitUsd(
+                                  usedCostUsd,
+                                )} · ${t("不限额")}`
+                              : isQuotaExhausted
+                                ? `${t("已达上限")} · ${formatQuotaLimitUsd(
+                                    usedCostUsd,
+                                  )} / ${formatQuotaLimitUsd(quotaLimitUsd)}`
+                                : `${t("剩余")} ${formatCompactTokenAmount(
+                                    quotaRemaining,
+                                  )} · ${formatQuotaLimitUsd(
+                                    usedCostUsd,
+                                  )} / ${formatQuotaLimitUsd(quotaLimitUsd)}`}
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

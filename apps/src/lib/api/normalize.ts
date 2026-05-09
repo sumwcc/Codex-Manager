@@ -677,6 +677,7 @@ export function normalizeApiKey(item: unknown): ApiKey | null {
     aggregateApiId: asString(source.aggregateApiId ?? source.aggregate_api_id) || null,
     accountPlanFilter: asString(source.accountPlanFilter ?? source.account_plan_filter) || null,
     aggregateApiUrl: asString(source.aggregateApiUrl ?? source.aggregate_api_url) || null,
+    quotaLimitTokens: toNullableNumber(source.quotaLimitTokens ?? source.quota_limit_tokens),
     protocol: asString(source.protocolType ?? source.protocol_type) || "openai_compat",
     clientType: asString(source.clientType ?? source.client_type),
     authScheme: asString(source.authScheme ?? source.auth_scheme),

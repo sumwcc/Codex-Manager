@@ -33,6 +33,7 @@ pub(crate) fn create_api_key(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     account_plan_filter: Option<String>,
+    quota_limit_tokens: Option<i64>,
 ) -> Result<ApiKeyCreateResult, String> {
     // 创建平台 Key 并写入存储
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
@@ -81,6 +82,10 @@ pub(crate) fn create_api_key(
         last_used_at: None,
     };
     storage.insert_api_key(&record).map_err(|e| e.to_string())?;
+    if let Err(err) = storage.upsert_api_key_quota_limit(&key_id, quota_limit_tokens) {
+        let _ = storage.delete_api_key(&key_id);
+        return Err(format!("persist api key quota limit failed: {err}"));
+    }
     if let Err(err) = storage.upsert_api_key_secret(&key_id, &key) {
         let _ = storage.delete_api_key(&key_id);
         return Err(format!("persist api key secret failed: {err}"));

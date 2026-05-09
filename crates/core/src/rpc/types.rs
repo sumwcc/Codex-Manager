@@ -365,6 +365,7 @@ pub struct ApiKeySummary {
     pub aggregate_api_id: Option<String>,
     pub account_plan_filter: Option<String>,
     pub aggregate_api_url: Option<String>,
+    pub quota_limit_tokens: Option<i64>,
     pub client_type: String,
     pub protocol_type: String,
     pub auth_scheme: String,
