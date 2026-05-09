@@ -40,6 +40,7 @@ import { useApiKeys } from "@/hooks/useApiKeys";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { accountClient } from "@/lib/api/account-client";
 import { appClient } from "@/lib/api/app-client";
@@ -148,6 +149,7 @@ function ApiKeyStatCard({
 
 export default function ApiKeysPage() {
   const { t } = useI18n();
+  const { mode } = useRuntimeCapabilities();
   const serviceAddr = useAppStore((state) => state.serviceStatus.addr);
   const {
     apiKeys,
@@ -348,7 +350,11 @@ export default function ApiKeysPage() {
       const importUrl = buildCcSwitchProviderImportUrl({
         app: "codex",
         name: buildCcSwitchProviderName(key.name, key.id),
-        endpoint: normalizeCodexManagerGatewayEndpoint(serviceAddr),
+        endpoint: normalizeCodexManagerGatewayEndpoint(serviceAddr, {
+          preferPublicOrigin: mode === "web-gateway",
+          publicOrigin:
+            typeof window === "undefined" ? null : window.location.origin,
+        }),
         apiKey: secret,
         model: key.model || key.modelSlug || null,
         notes: "Imported from CodexManager",
