@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Link2,
   MoreVertical,
   Plus,
   Settings2,
@@ -23,7 +24,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,10 +44,16 @@ import { useApiKeys } from "@/hooks/useApiKeys";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { accountClient } from "@/lib/api/account-client";
 import { appClient } from "@/lib/api/app-client";
 import { isTauriRuntime } from "@/lib/api/transport";
+import {
+  buildGeminiGatewayEndpoint,
+  buildOpenAiGatewayEndpoint,
+  resolveGatewayOrigin,
+} from "@/lib/gateway/endpoints";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import {
@@ -149,6 +159,7 @@ function ApiKeyStatCard({
 export default function ApiKeysPage() {
   const { t } = useI18n();
   const serviceAddr = useAppStore((state) => state.serviceStatus.addr);
+  const { mode } = useRuntimeCapabilities();
   const {
     apiKeys,
     isLoading,
@@ -171,6 +182,32 @@ export default function ApiKeysPage() {
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
   const [ccSwitchImportingId, setCcSwitchImportingId] = useState<string | null>(null);
+  const [browserOrigin, setBrowserOrigin] = useState("");
+  const gatewayOrigin = useMemo(
+    () =>
+      resolveGatewayOrigin({
+        browserOrigin,
+        runtimeMode: mode,
+        serviceAddr,
+      }),
+    [browserOrigin, mode, serviceAddr],
+  );
+  const openAiEndpoint = useMemo(
+    () => buildOpenAiGatewayEndpoint(gatewayOrigin),
+    [gatewayOrigin],
+  );
+  const nativeProtocolEndpoint = useMemo(
+    () => buildGeminiGatewayEndpoint(gatewayOrigin),
+    [gatewayOrigin],
+  );
+
+  useEffect(() => {
+    if (mode !== "web-gateway" || typeof window === "undefined") {
+      setBrowserOrigin("");
+      return;
+    }
+    setBrowserOrigin(window.location.origin);
+  }, [mode]);
 
   useEffect(() => {
     if (isPageActive) {
@@ -333,6 +370,15 @@ export default function ApiKeysPage() {
     }
   };
 
+  const copyEndpoint = async (endpoint: string) => {
+    try {
+      await copyTextToClipboard(endpoint);
+      toast.success(t("端点已复制"));
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const openCcSwitchImportUrl = async (url: string) => {
     if (isTauriRuntime()) {
       await appClient.openInBrowser(url);
@@ -393,14 +439,77 @@ export default function ApiKeysPage() {
           </CardContent>
         </Card>
       ) : null}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
           <h2 className="text-xl font-bold tracking-tight">{t("平台密钥")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {t("创建和管理网关调用所需的访问令牌")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end lg:shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="outline"
+                  className="glass-card h-10 gap-2 rounded-xl px-3 shadow-sm"
+                  render={<span />}
+                  nativeButton={false}
+                />
+              }
+              nativeButton={false}
+              disabled={!gatewayOrigin}
+              aria-label={t("复制端点")}
+            >
+              <Link2 className="h-4 w-4" />
+              <span>{t("网关端点")}</span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-[min(92vw,390px)] rounded-xl border border-border/70 bg-popover/95 p-2 shadow-xl backdrop-blur-md"
+            >
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase text-muted-foreground/80">
+                  {t("复制调用地址")}
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  className="h-auto cursor-pointer items-start gap-3 rounded-lg p-3"
+                  onClick={() => void copyEndpoint(openAiEndpoint)}
+                >
+                  <Copy className="mt-0.5 h-4 w-4 text-primary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold">
+                      {t("复制 OpenAI / Codex 端点")}
+                    </span>
+                    <code
+                      className="mt-1 block truncate font-mono text-[11px] text-muted-foreground"
+                      title={openAiEndpoint}
+                    >
+                      {openAiEndpoint}
+                    </code>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="h-auto cursor-pointer items-start gap-3 rounded-lg p-3"
+                  onClick={() => void copyEndpoint(nativeProtocolEndpoint)}
+                >
+                  <Copy className="mt-0.5 h-4 w-4 text-primary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold">
+                      {t("复制 Claude Code / Gemini CLI 端点")}
+                    </span>
+                    <code
+                      className="mt-1 block truncate font-mono text-[11px] text-muted-foreground"
+                      title={nativeProtocolEndpoint}
+                    >
+                      {nativeProtocolEndpoint}
+                    </code>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             className="h-10 gap-2 shadow-lg shadow-primary/20"
             onClick={openCreateModal}
