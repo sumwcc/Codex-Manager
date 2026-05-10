@@ -75,6 +75,17 @@ fn resolve_upstream_is_stream(client_is_stream: bool, path: &str) -> bool {
     client_is_stream || (path.starts_with("/v1/responses") && !is_compact_path)
 }
 
+fn request_deadline_for_path(
+    started_at: Instant,
+    client_is_stream: bool,
+    path: &str,
+) -> Option<Instant> {
+    let upstream_is_stream = resolve_upstream_is_stream(client_is_stream, path);
+    // 中文注释：deadline 要按真实上游传输形态计算，避免 /v1/responses 在下游非流式时
+    // 仍被较短 total timeout 抢先截断 SSE 上游读取。
+    super::support::deadline::request_deadline(started_at, upstream_is_stream)
+}
+
 fn should_try_provider_executor_aggregate_route(
     execution_plan: super::executor::GatewayUpstreamExecutionPlan,
 ) -> bool {
@@ -354,7 +365,7 @@ pub(in super::super) fn proxy_validated_request(
     // 中文注释：对齐 Codex 上游协议：/v1/responses 固定走 SSE。
     // 下游是否流式仍由客户端 `stream` 参数决定（在 response bridge 层聚合/透传）。
     let upstream_is_stream = resolve_upstream_is_stream(client_is_stream, path.as_str());
-    let request_deadline = super::support::deadline::request_deadline(started_at, client_is_stream);
+    let request_deadline = request_deadline_for_path(started_at, client_is_stream, path.as_str());
 
     super::super::trace_log::log_request_start(
         trace_id.as_str(),
@@ -676,13 +687,15 @@ pub(in super::super) fn proxy_validated_request(
 mod tests {
     use super::{
         exhausted_gateway_error_for_log, hybrid_route_error_message, provider_upstream_hint,
-        resolve_upstream_is_stream, respond_when_account_candidates_empty,
+        request_deadline_for_path, resolve_upstream_is_stream,
+        respond_when_account_candidates_empty,
         should_fallback_to_aggregate_after_account_exhaustion,
         should_try_provider_executor_aggregate_route,
     };
     use crate::gateway::upstream::executor::{
         GatewayUpstreamExecutionPlan, GatewayUpstreamExecutorKind, GatewayUpstreamRouteKind,
     };
+    use std::time::{Duration, Instant};
 
     /// 函数 `exhausted_gateway_error_includes_attempts_skips_and_last_error`
     ///
@@ -739,6 +752,29 @@ mod tests {
         assert!(!resolve_upstream_is_stream(false, "/v1/responses/compact"));
         assert!(!resolve_upstream_is_stream(false, "/v1/chat/completions"));
         assert!(resolve_upstream_is_stream(true, "/v1/chat/completions"));
+    }
+
+    #[test]
+    fn request_deadline_for_responses_uses_upstream_stream_semantics() {
+        let _guard = crate::test_env_guard();
+        let previous_total = crate::gateway::current_upstream_total_timeout_ms();
+        let previous_stream = crate::gateway::current_upstream_stream_timeout_ms();
+
+        crate::gateway::set_upstream_total_timeout_ms(120_000);
+        crate::gateway::set_upstream_stream_timeout_ms(300_000);
+
+        let started_at = Instant::now();
+        let deadline = request_deadline_for_path(started_at, false, "/v1/responses")
+            .expect("responses deadline");
+        let timeout = deadline
+            .checked_duration_since(started_at)
+            .expect("deadline should be after start");
+
+        crate::gateway::set_upstream_total_timeout_ms(previous_total);
+        crate::gateway::set_upstream_stream_timeout_ms(previous_stream);
+
+        assert!(timeout > Duration::from_secs(250));
+        assert!(timeout <= Duration::from_secs(300));
     }
 
     #[test]
