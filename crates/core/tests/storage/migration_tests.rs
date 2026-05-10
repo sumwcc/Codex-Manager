@@ -250,6 +250,15 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 052 migration");
     assert_eq!(applied_052, 1);
+    let applied_053: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '053_api_key_quota_limits'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 053 migration");
+    assert_eq!(applied_053, 1);
 
     assert!(!storage
         .has_column("accounts", "note")
@@ -329,6 +338,12 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert!(storage
         .has_column("api_key_profiles", "service_tier")
         .expect("check api_key_profiles.service_tier"));
+    assert!(storage
+        .has_table("api_key_quota_limits")
+        .expect("check api_key_quota_limits table"));
+    assert!(storage
+        .has_column("api_key_quota_limits", "quota_limit_tokens")
+        .expect("check api_key_quota_limits.quota_limit_tokens"));
     assert!(!storage
         .has_column("request_logs", "input_tokens")
         .expect("check request_logs.input_tokens"));
