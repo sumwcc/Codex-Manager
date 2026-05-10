@@ -87,10 +87,12 @@ type PartnerRow = {
 function PartnerTable({
   items,
   onOpenLink,
+  translate,
   emptyVisualLabel,
 }: {
   items: readonly PartnerRow[];
   onOpenLink: (url: string) => Promise<void>;
+  translate: (message: string) => string;
   emptyVisualLabel: string;
 }) {
   return (
@@ -107,13 +109,13 @@ function PartnerTable({
                   {item.imageSrc ? (
                     <img
                       src={item.imageSrc}
-                      alt={item.imageAlt ?? item.name}
+                      alt={translate(item.imageAlt ?? item.name)}
                       className="max-h-20 w-auto object-contain"
                     />
                   ) : (
                     <div className="flex h-20 w-full max-w-[180px] items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 via-background to-primary/5 px-4 text-center">
                       <span className="text-lg font-semibold tracking-tight text-foreground">
-                        {emptyVisualLabel}
+                        {translate(emptyVisualLabel)}
                       </span>
                     </div>
                   )}
@@ -123,10 +125,10 @@ function PartnerTable({
                 <div className="space-y-3">
                   <div className="space-y-1">
                     <h3 className="text-base font-semibold text-foreground">
-                      {item.name}
+                      {translate(item.name)}
                     </h3>
                     <p className="text-sm leading-7 text-muted-foreground">
-                      {item.description}
+                      {translate(item.description)}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
@@ -137,7 +139,7 @@ function PartnerTable({
                       }}
                       className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-sm font-medium text-primary transition-all duration-200 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
-                      {item.actionLabel}
+                      {translate(item.actionLabel)}
                       <ExternalLink className="h-4 w-4" />
                     </button>
                   </div>
@@ -172,7 +174,7 @@ export default function AuthorPage() {
         <div className="flex items-center gap-2 text-primary">
           <Sparkles className="h-4 w-4" />
           <span className="text-xs font-medium uppercase tracking-[0.24em]">
-            {t("Sponsor & Referral")}
+            {t("赞助与推荐")}
           </span>
         </div>
         <div className="space-y-2">
@@ -208,6 +210,7 @@ export default function AuthorPage() {
               <PartnerTable
                 items={README_SPONSORS}
                 onOpenLink={handleOpenLink}
+                translate={t}
                 emptyVisualLabel="Sponsor"
               />
             </CardContent>
@@ -227,6 +230,7 @@ export default function AuthorPage() {
               <PartnerTable
                 items={SERVER_RECOMMENDATIONS}
                 onOpenLink={handleOpenLink}
+                translate={t}
                 emptyVisualLabel="RackNerd"
               />
             </CardContent>
@@ -238,7 +242,7 @@ export default function AuthorPage() {
             <div className="flex items-center gap-2 text-primary">
               <Info className="h-4 w-4" />
               <span className="text-xs font-medium uppercase tracking-[0.24em]">
-                {t("Contact Author")}
+                {t("联系作者")}
               </span>
             </div>
             <h3 className="text-lg font-semibold tracking-tight">
@@ -248,12 +252,12 @@ export default function AuthorPage() {
 
           <Card className="glass-card border-none shadow-md">
             <CardHeader className="gap-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <HeartHandshake className="h-4 w-4 text-primary" />
-                  <CardTitle className="text-base">{t("赞助支持")}</CardTitle>
-                </div>
-                <Badge variant="secondary">{t("Support")}</Badge>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <HeartHandshake className="h-4 w-4 text-primary" />
+                    <CardTitle className="text-base">{t("赞助支持")}</CardTitle>
+                  </div>
+                <Badge variant="secondary">{t("支持")}</Badge>
               </div>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
@@ -298,7 +302,7 @@ export default function AuthorPage() {
             <CardContent className="grid gap-4 md:grid-cols-2">
               <div className="rounded-3xl border border-border/50 bg-background/40 p-5">
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  {t("WeChat")}
+                  {t("微信")}
                 </p>
                 <p className="mt-3 text-2xl font-semibold tracking-tight text-foreground">
                   {AUTHOR_WECHAT_ID}

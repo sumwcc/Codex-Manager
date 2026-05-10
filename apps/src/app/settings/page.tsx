@@ -1467,7 +1467,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="grid gap-2 border-t pt-6">
-                <Label>{t("Originator")}</Label>
+                <Label>{t("上游 Originator")}</Label>
                 <Input
                   className="h-10 max-w-md font-mono"
                   value={gatewayOriginatorInput}
@@ -1499,7 +1499,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="grid gap-2">
-                <Label>{t("Residency Requirement")}</Label>
+                <Label>{t("区域驻留要求")}</Label>
                 <Select
                   value={
                     (snapshot.gatewayResidencyRequirement ?? "") ||
