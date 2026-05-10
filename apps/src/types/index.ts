@@ -4,6 +4,7 @@ export * from "@/types/auth";
 export * from "@/types/model";
 export * from "@/types/plugin";
 export * from "@/types/request-log";
+export * from "@/types/quota";
 export * from "@/types/runtime";
 export * from "@/types/settings";
 export * from "@/types/startup";

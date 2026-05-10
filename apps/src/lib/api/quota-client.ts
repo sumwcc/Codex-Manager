@@ -1,0 +1,304 @@
+import { invoke, withAddr } from "@/lib/api/transport";
+import type {
+  QuotaApiKeyModelUsageItem,
+  QuotaApiKeyUsageItem,
+  QuotaModelUsageItem,
+  QuotaOverviewResult,
+  QuotaRefreshSourceResult,
+  QuotaRefreshSourcesParams,
+  QuotaSourceSummary,
+} from "@/types/quota";
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function asBoolean(value: unknown): boolean {
+  return typeof value === "boolean" ? value : Boolean(value);
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function readItems(payload: unknown): unknown[] {
+  const source = asRecord(payload);
+  return asArray(source.items ?? payload);
+}
+
+function normalizeModelUsageItem(payload: unknown): QuotaModelUsageItem {
+  const source = asRecord(payload);
+  return {
+    model: asString(source.model) || "unknown",
+    provider: asString(source.provider) || null,
+    inputTokens: Math.max(0, toNullableNumber(source.inputTokens ?? source.input_tokens) ?? 0),
+    cachedInputTokens: Math.max(
+      0,
+      toNullableNumber(source.cachedInputTokens ?? source.cached_input_tokens) ?? 0,
+    ),
+    outputTokens: Math.max(0, toNullableNumber(source.outputTokens ?? source.output_tokens) ?? 0),
+    reasoningOutputTokens: Math.max(
+      0,
+      toNullableNumber(source.reasoningOutputTokens ?? source.reasoning_output_tokens) ?? 0,
+    ),
+    totalTokens: Math.max(0, toNullableNumber(source.totalTokens ?? source.total_tokens) ?? 0),
+    estimatedCostUsd: toNullableNumber(source.estimatedCostUsd ?? source.estimated_cost_usd),
+    priceStatus: asString(source.priceStatus ?? source.price_status) || "missing",
+    apiKeyRemainingTokens: toNullableNumber(
+      source.apiKeyRemainingTokens ?? source.api_key_remaining_tokens,
+    ),
+    aggregateEstimatedRemainingTokens: toNullableNumber(
+      source.aggregateEstimatedRemainingTokens ??
+        source.aggregate_estimated_remaining_tokens,
+    ),
+    aggregateBalanceUsd: toNullableNumber(
+      source.aggregateBalanceUsd ?? source.aggregate_balance_usd,
+    ),
+    openaiAvailableAccountCount: Math.max(
+      0,
+      toNullableNumber(
+        source.openaiAvailableAccountCount ?? source.openai_available_account_count,
+      ) ?? 0,
+    ),
+    openaiPrimaryRemainPercent: toNullableNumber(
+      source.openaiPrimaryRemainPercent ?? source.openai_primary_remain_percent,
+    ),
+    openaiSecondaryRemainPercent: toNullableNumber(
+      source.openaiSecondaryRemainPercent ?? source.openai_secondary_remain_percent,
+    ),
+    openaiEstimatedRemainingTokens: toNullableNumber(
+      source.openaiEstimatedRemainingTokens ??
+        source.openai_estimated_remaining_tokens,
+    ),
+    openaiEstimateEnabled: asBoolean(
+      source.openaiEstimateEnabled ?? source.openai_estimate_enabled,
+    ),
+  };
+}
+
+function normalizeApiKeyModelUsageItem(payload: unknown): QuotaApiKeyModelUsageItem {
+  const source = asRecord(payload);
+  return {
+    model: asString(source.model) || "unknown",
+    inputTokens: Math.max(0, toNullableNumber(source.inputTokens ?? source.input_tokens) ?? 0),
+    cachedInputTokens: Math.max(
+      0,
+      toNullableNumber(source.cachedInputTokens ?? source.cached_input_tokens) ?? 0,
+    ),
+    outputTokens: Math.max(0, toNullableNumber(source.outputTokens ?? source.output_tokens) ?? 0),
+    reasoningOutputTokens: Math.max(
+      0,
+      toNullableNumber(source.reasoningOutputTokens ?? source.reasoning_output_tokens) ?? 0,
+    ),
+    totalTokens: Math.max(0, toNullableNumber(source.totalTokens ?? source.total_tokens) ?? 0),
+    estimatedCostUsd: toNullableNumber(source.estimatedCostUsd ?? source.estimated_cost_usd),
+    priceStatus: asString(source.priceStatus ?? source.price_status) || "missing",
+  };
+}
+
+function normalizeApiKeyUsageItem(payload: unknown): QuotaApiKeyUsageItem {
+  const source = asRecord(payload);
+  return {
+    keyId: asString(source.keyId ?? source.key_id),
+    name: asString(source.name) || null,
+    modelSlug: asString(source.modelSlug ?? source.model_slug) || null,
+    quotaLimitTokens: toNullableNumber(source.quotaLimitTokens ?? source.quota_limit_tokens),
+    usedTokens: Math.max(0, toNullableNumber(source.usedTokens ?? source.used_tokens) ?? 0),
+    remainingTokens: toNullableNumber(source.remainingTokens ?? source.remaining_tokens),
+    estimatedCostUsd: Math.max(
+      0,
+      toNullableNumber(source.estimatedCostUsd ?? source.estimated_cost_usd) ?? 0,
+    ),
+    models: asArray(source.models).map(normalizeApiKeyModelUsageItem),
+  };
+}
+
+function normalizeSourceSummary(payload: unknown): QuotaSourceSummary {
+  const source = asRecord(payload);
+  return {
+    id: asString(source.id),
+    kind: asString(source.kind),
+    name: asString(source.name),
+    status: asString(source.status) || "unknown",
+    metricKind: asString(source.metricKind ?? source.metric_kind),
+    remaining: toNullableNumber(source.remaining),
+    total: toNullableNumber(source.total),
+    used: toNullableNumber(source.used),
+    unit: asString(source.unit) || null,
+    models: asArray(source.models).map(asString).filter(Boolean),
+    provider: asString(source.provider) || null,
+    capturedAt: toNullableNumber(source.capturedAt ?? source.captured_at),
+    error: asString(source.error) || null,
+  };
+}
+
+function normalizeRefreshSource(payload: unknown): QuotaRefreshSourceResult {
+  const source = asRecord(payload);
+  return {
+    id: asString(source.id),
+    kind: asString(source.kind),
+    ok: asBoolean(source.ok),
+    error: asString(source.error) || null,
+  };
+}
+
+function normalizeOverview(payload: unknown): QuotaOverviewResult {
+  const source = asRecord(payload);
+  const apiKey = asRecord(source.apiKey ?? source.api_key);
+  const aggregateApi = asRecord(source.aggregateApi ?? source.aggregate_api);
+  const openaiAccount = asRecord(source.openaiAccount ?? source.openai_account);
+  const todayUsage = asRecord(source.todayUsage ?? source.today_usage);
+  return {
+    apiKey: {
+      keyCount: Math.max(0, toNullableNumber(apiKey.keyCount ?? apiKey.key_count) ?? 0),
+      limitedKeyCount: Math.max(
+        0,
+        toNullableNumber(apiKey.limitedKeyCount ?? apiKey.limited_key_count) ?? 0,
+      ),
+      totalLimitTokens: toNullableNumber(
+        apiKey.totalLimitTokens ?? apiKey.total_limit_tokens,
+      ),
+      totalUsedTokens: Math.max(
+        0,
+        toNullableNumber(apiKey.totalUsedTokens ?? apiKey.total_used_tokens) ?? 0,
+      ),
+      totalRemainingTokens: toNullableNumber(
+        apiKey.totalRemainingTokens ?? apiKey.total_remaining_tokens,
+      ),
+      estimatedCostUsd: Math.max(
+        0,
+        toNullableNumber(apiKey.estimatedCostUsd ?? apiKey.estimated_cost_usd) ?? 0,
+      ),
+    },
+    aggregateApi: {
+      sourceCount: Math.max(
+        0,
+        toNullableNumber(aggregateApi.sourceCount ?? aggregateApi.source_count) ?? 0,
+      ),
+      enabledBalanceQueryCount: Math.max(
+        0,
+        toNullableNumber(
+          aggregateApi.enabledBalanceQueryCount ??
+            aggregateApi.enabled_balance_query_count,
+        ) ?? 0,
+      ),
+      okCount: Math.max(0, toNullableNumber(aggregateApi.okCount ?? aggregateApi.ok_count) ?? 0),
+      errorCount: Math.max(
+        0,
+        toNullableNumber(aggregateApi.errorCount ?? aggregateApi.error_count) ?? 0,
+      ),
+      totalBalanceUsd: toNullableNumber(
+        aggregateApi.totalBalanceUsd ?? aggregateApi.total_balance_usd,
+      ),
+      lastRefreshedAt: toNullableNumber(
+        aggregateApi.lastRefreshedAt ?? aggregateApi.last_refreshed_at,
+      ),
+    },
+    openaiAccount: {
+      accountCount: Math.max(
+        0,
+        toNullableNumber(openaiAccount.accountCount ?? openaiAccount.account_count) ?? 0,
+      ),
+      availableCount: Math.max(
+        0,
+        toNullableNumber(openaiAccount.availableCount ?? openaiAccount.available_count) ?? 0,
+      ),
+      lowQuotaCount: Math.max(
+        0,
+        toNullableNumber(openaiAccount.lowQuotaCount ?? openaiAccount.low_quota_count) ?? 0,
+      ),
+      primaryRemainPercent: toNullableNumber(
+        openaiAccount.primaryRemainPercent ?? openaiAccount.primary_remain_percent,
+      ),
+      secondaryRemainPercent: toNullableNumber(
+        openaiAccount.secondaryRemainPercent ?? openaiAccount.secondary_remain_percent,
+      ),
+      lastRefreshedAt: toNullableNumber(
+        openaiAccount.lastRefreshedAt ?? openaiAccount.last_refreshed_at,
+      ),
+    },
+    todayUsage: {
+      inputTokens: Math.max(
+        0,
+        toNullableNumber(todayUsage.inputTokens ?? todayUsage.input_tokens) ?? 0,
+      ),
+      cachedInputTokens: Math.max(
+        0,
+        toNullableNumber(todayUsage.cachedInputTokens ?? todayUsage.cached_input_tokens) ?? 0,
+      ),
+      outputTokens: Math.max(
+        0,
+        toNullableNumber(todayUsage.outputTokens ?? todayUsage.output_tokens) ?? 0,
+      ),
+      reasoningOutputTokens: Math.max(
+        0,
+        toNullableNumber(
+          todayUsage.reasoningOutputTokens ?? todayUsage.reasoning_output_tokens,
+        ) ?? 0,
+      ),
+      totalTokens: Math.max(
+        0,
+        toNullableNumber(todayUsage.totalTokens ?? todayUsage.total_tokens) ?? 0,
+      ),
+      estimatedCostUsd: Math.max(
+        0,
+        toNullableNumber(todayUsage.estimatedCostUsd ?? todayUsage.estimated_cost_usd) ?? 0,
+      ),
+    },
+  };
+}
+
+export const quotaClient = {
+  async overview(): Promise<QuotaOverviewResult> {
+    return normalizeOverview(await invoke<unknown>("service_quota_overview", withAddr()));
+  },
+  async modelUsage(params?: {
+    startTs?: number | null;
+    endTs?: number | null;
+  }): Promise<QuotaModelUsageItem[]> {
+    const result = await invoke<unknown>(
+      "service_quota_model_usage",
+      withAddr({
+        startTs: params?.startTs ?? null,
+        endTs: params?.endTs ?? null,
+      }),
+    );
+    return readItems(result).map(normalizeModelUsageItem);
+  },
+  async apiKeyUsage(): Promise<QuotaApiKeyUsageItem[]> {
+    const result = await invoke<unknown>("service_quota_api_key_usage", withAddr());
+    return readItems(result).map(normalizeApiKeyUsageItem);
+  },
+  async sourceList(): Promise<QuotaSourceSummary[]> {
+    const result = await invoke<unknown>("service_quota_source_list", withAddr());
+    return readItems(result).map(normalizeSourceSummary);
+  },
+  async refreshSources(
+    params: QuotaRefreshSourcesParams = {},
+  ): Promise<QuotaRefreshSourceResult[]> {
+    const result = await invoke<unknown>(
+      "service_quota_refresh_sources",
+      withAddr({
+        kinds: params.kinds ?? [],
+        sourceIds: params.sourceIds ?? [],
+        source_ids: params.sourceIds ?? [],
+      }),
+    );
+    return readItems(result).map(normalizeRefreshSource);
+  },
+};

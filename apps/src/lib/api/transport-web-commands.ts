@@ -257,6 +257,21 @@ export function createWebCommandMap(
     service_usage_list: { rpcMethod: "account/usage/list" },
     service_usage_refresh: { rpcMethod: "account/usage/refresh" },
     service_usage_aggregate: { rpcMethod: "account/usage/aggregate" },
+    service_quota_overview: { rpcMethod: "quota/overview" },
+    service_quota_model_usage: { rpcMethod: "quota/modelUsage" },
+    service_quota_api_key_usage: { rpcMethod: "quota/apiKeyUsage" },
+    service_quota_source_list: { rpcMethod: "quota/sourceList" },
+    service_quota_refresh_sources: {
+      rpcMethod: "quota/refreshSources",
+      mapParams: (params) => ({
+        kinds: Array.isArray(params?.kinds) ? params.kinds : [],
+        sourceIds: Array.isArray(params?.sourceIds)
+          ? params.sourceIds
+          : Array.isArray(params?.source_ids)
+            ? params.source_ids
+            : [],
+      }),
+    },
     service_aggregate_api_list: { rpcMethod: "aggregateApi/list" },
     service_aggregate_api_create: { rpcMethod: "aggregateApi/create" },
     service_aggregate_api_update: { rpcMethod: "aggregateApi/update" },

@@ -13,6 +13,7 @@ mod aggregate_api;
 mod apikey;
 mod app_settings;
 mod gateway;
+mod quota;
 mod requestlog;
 mod service_config;
 mod startup;
@@ -225,6 +226,9 @@ pub(crate) fn handle_request(req: JsonRpcRequest) -> JsonRpcMessage {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = gateway::try_handle(&req) {
+        return JsonRpcMessage::Response(resp);
+    }
+    if let Some(resp) = quota::try_handle(&req) {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = crate::plugin::try_handle(&req) {

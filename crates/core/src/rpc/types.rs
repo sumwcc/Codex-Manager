@@ -394,6 +394,158 @@ pub struct ApiKeyUsageStatListResult {
     pub items: Vec<ApiKeyUsageStatSummary>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaApiKeyOverviewResult {
+    pub key_count: i64,
+    pub limited_key_count: i64,
+    pub total_limit_tokens: Option<i64>,
+    pub total_used_tokens: i64,
+    pub total_remaining_tokens: Option<i64>,
+    pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaAggregateApiOverviewResult {
+    pub source_count: i64,
+    pub enabled_balance_query_count: i64,
+    pub ok_count: i64,
+    pub error_count: i64,
+    pub total_balance_usd: Option<f64>,
+    pub last_refreshed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaOpenAiAccountOverviewResult {
+    pub account_count: i64,
+    pub available_count: i64,
+    pub low_quota_count: i64,
+    pub primary_remain_percent: Option<i64>,
+    pub secondary_remain_percent: Option<i64>,
+    pub last_refreshed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaTodayUsageResult {
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub output_tokens: i64,
+    pub reasoning_output_tokens: i64,
+    pub total_tokens: i64,
+    pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaOverviewResult {
+    pub api_key: QuotaApiKeyOverviewResult,
+    pub aggregate_api: QuotaAggregateApiOverviewResult,
+    pub openai_account: QuotaOpenAiAccountOverviewResult,
+    pub today_usage: QuotaTodayUsageResult,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaModelUsageItem {
+    pub model: String,
+    pub provider: Option<String>,
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub output_tokens: i64,
+    pub reasoning_output_tokens: i64,
+    pub total_tokens: i64,
+    pub estimated_cost_usd: Option<f64>,
+    pub price_status: String,
+    pub api_key_remaining_tokens: Option<i64>,
+    pub aggregate_estimated_remaining_tokens: Option<i64>,
+    pub aggregate_balance_usd: Option<f64>,
+    pub openai_available_account_count: i64,
+    pub openai_primary_remain_percent: Option<i64>,
+    pub openai_secondary_remain_percent: Option<i64>,
+    pub openai_estimated_remaining_tokens: Option<i64>,
+    pub openai_estimate_enabled: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaModelUsageResult {
+    pub items: Vec<QuotaModelUsageItem>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaApiKeyModelUsageItem {
+    pub model: String,
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub output_tokens: i64,
+    pub reasoning_output_tokens: i64,
+    pub total_tokens: i64,
+    pub estimated_cost_usd: Option<f64>,
+    pub price_status: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaApiKeyUsageItem {
+    pub key_id: String,
+    pub name: Option<String>,
+    pub model_slug: Option<String>,
+    pub quota_limit_tokens: Option<i64>,
+    pub used_tokens: i64,
+    pub remaining_tokens: Option<i64>,
+    pub estimated_cost_usd: f64,
+    pub models: Vec<QuotaApiKeyModelUsageItem>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaApiKeyUsageResult {
+    pub items: Vec<QuotaApiKeyUsageItem>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaSourceSummary {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub status: String,
+    pub metric_kind: String,
+    pub remaining: Option<f64>,
+    pub total: Option<f64>,
+    pub used: Option<f64>,
+    pub unit: Option<String>,
+    pub models: Vec<String>,
+    pub provider: Option<String>,
+    pub captured_at: Option<i64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaSourceListResult {
+    pub items: Vec<QuotaSourceSummary>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaRefreshSourceResult {
+    pub id: String,
+    pub kind: String,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaRefreshSourcesResult {
+    pub items: Vec<QuotaRefreshSourceResult>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyCreateResult {
