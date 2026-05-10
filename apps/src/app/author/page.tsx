@@ -12,12 +12,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { appClient } from "@/lib/api/app-client";
 import { useI18n } from "@/lib/i18n/provider";
-import { useAppStore } from "@/lib/store/useAppStore";
 import {
   normalizeSponsorLinkItems,
   type SponsorLinkItem,
 } from "@/lib/sponsor-links";
-import { normalizeAuthorContentUrl } from "@/lib/runtime/runtime-capabilities";
 import {
   ExternalLink,
   HeartHandshake,
@@ -114,11 +112,10 @@ function PartnerTable({
   );
 }
 
+const AUTHOR_CONTENT_API = "https://author.qxnm.top/api/public/author-content";
+
 export default function AuthorPage() {
   const { t } = useI18n();
-  const authorContentUrl = useAppStore(
-    (state) => state.runtimeCapabilities?.authorContentUrl ?? null,
-  );
   const [authorContent, setAuthorContent] = useState<{
     authorSponsors: SponsorLinkItem[];
     authorServerRecommendations: SponsorLinkItem[];
@@ -126,39 +123,36 @@ export default function AuthorPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const resolvedAuthorContentUrl =
-      normalizeAuthorContentUrl(authorContentUrl) ||
-      normalizeAuthorContentUrl(
-        process.env.NEXT_PUBLIC_CODEXMANAGER_AUTHOR_CONTENT_URL,
-      );
-    if (!resolvedAuthorContentUrl) return;
 
     let cancelled = false;
-    void fetch(resolvedAuthorContentUrl, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-      },
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = (await response.json()) as Record<string, unknown>;
-        if (cancelled) return;
-        setAuthorContent({
-          authorSponsors: normalizeSponsorLinkItems(payload.authorSponsors),
-          authorServerRecommendations: normalizeSponsorLinkItems(
-            payload.authorServerRecommendations,
-          ),
-        });
+
+    const loadContent = () => {
+      void fetch(AUTHOR_CONTENT_API, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
       })
-      .catch(() => undefined);
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = (await response.json()) as Record<string, unknown>;
+          if (cancelled) return;
+          setAuthorContent({
+            authorSponsors: normalizeSponsorLinkItems(payload.authorSponsors),
+            authorServerRecommendations: normalizeSponsorLinkItems(
+              payload.authorServerRecommendations,
+            ),
+          });
+        })
+        .catch(() => undefined);
+    };
+
+    loadContent();
+    const timer = setInterval(loadContent, 30 * 1000);
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
-  }, [authorContentUrl]);
+  }, []);
 
   const visibleSponsors = authorContent?.authorSponsors ?? [];
   const visibleServerRecommendations =
