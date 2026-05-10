@@ -146,7 +146,7 @@ export default function AuthorPage() {
     };
 
     loadContent();
-    const timer = setInterval(loadContent, 30 * 1000);
+    const timer = setInterval(loadContent, 5 * 60 * 1000);
 
     return () => {
       cancelled = true;
