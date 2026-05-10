@@ -164,7 +164,6 @@ export default function ApiKeysPage() {
   const { t } = useI18n();
   const { mode } = useRuntimeCapabilities();
   const serviceAddr = useAppStore((state) => state.serviceStatus.addr);
-  const { mode } = useRuntimeCapabilities();
   const {
     apiKeys,
     isLoading,
