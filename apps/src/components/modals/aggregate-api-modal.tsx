@@ -92,6 +92,7 @@ export function AggregateApiModal({
   const [password, setPassword] = useState("");
   const [actionCustomEnabled, setActionCustomEnabled] = useState(false);
   const [action, setAction] = useState("");
+  const [modelOverride, setModelOverride] = useState("");
   const [key, setKey] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -154,6 +155,7 @@ export function AggregateApiModal({
     const nextAction = aggregateApi?.action ?? "";
     setAction(nextAction);
     setActionCustomEnabled(aggregateApi?.action !== null && aggregateApi?.action !== undefined);
+    setModelOverride(aggregateApi?.modelOverride || "");
     setKey("");
     setUsername("");
     setPassword("");
@@ -277,6 +279,7 @@ export function AggregateApiModal({
           authParams,
           actionCustomEnabled,
           action: actionCustomEnabled ? action.trim() : null,
+          modelOverride: modelOverride.trim(),
           username: authType === "userpass" ? username.trim() || null : null,
           password: authType === "userpass" ? password.trim() || null : null,
         });
@@ -301,6 +304,7 @@ export function AggregateApiModal({
         authParams,
         actionCustomEnabled,
         action: actionCustomEnabled ? action.trim() : null,
+        modelOverride: modelOverride.trim(),
         username: authType === "userpass" ? username.trim() : null,
         password: authType === "userpass" ? password.trim() : null,
       });
@@ -469,6 +473,26 @@ export function AggregateApiModal({
                   disabled={!isServiceReady}
                   onChange={(event) => setUrl(event.target.value)}
                 />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="aggregate-api-model-override">
+                  {t("上游模型覆盖")}
+                </Label>
+                <Input
+                  id="aggregate-api-model-override"
+                  placeholder={
+                    providerType === "claude"
+                      ? "qwen3.5-plus"
+                      : t("留空则使用请求中的模型")
+                  }
+                  value={modelOverride}
+                  disabled={!isServiceReady}
+                  onChange={(event) => setModelOverride(event.target.value)}
+                />
+                <p className="text-[11px] leading-4 text-muted-foreground">
+                  {t("用于 API 转发服务要求固定模型名的场景；连接测试和真实转发都会使用该模型。")}
+                </p>
               </div>
 
               {authType === "apikey" ? (

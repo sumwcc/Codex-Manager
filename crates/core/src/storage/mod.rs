@@ -241,6 +241,7 @@ pub struct AggregateApi {
     pub auth_type: String,
     pub auth_params_json: Option<String>,
     pub action: Option<String>,
+    pub model_override: Option<String>,
     pub status: String,
     pub created_at: i64,
     pub updated_at: i64,
@@ -667,6 +668,11 @@ impl Storage {
             "052_account_subscriptions",
             include_str!("../../migrations/052_account_subscriptions.sql"),
             |s| s.ensure_account_subscriptions_table(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "053_aggregate_api_model_override",
+            include_str!("../../migrations/053_aggregate_api_model_override.sql"),
+            |s| s.ensure_aggregate_apis_table(),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;

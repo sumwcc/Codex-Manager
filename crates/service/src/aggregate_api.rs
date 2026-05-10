@@ -17,6 +17,9 @@ pub(crate) const AGGREGATE_API_PROVIDER_CLAUDE: &str = "claude";
 pub(crate) const AGGREGATE_API_PROVIDER_GEMINI: &str = "gemini";
 pub(crate) const AGGREGATE_API_AUTH_APIKEY: &str = "apikey";
 pub(crate) const AGGREGATE_API_AUTH_USERPASS: &str = "userpass";
+const CLAUDE_DEFAULT_PROBE_MODEL: &str = "claude-haiku-4-5-20251001";
+const ALIBABA_CODING_PLAN_PROBE_MODEL: &str = "qwen3.5-plus";
+const MAX_DISCOVERED_CLAUDE_PROBE_MODELS: usize = 8;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -153,6 +156,23 @@ fn normalize_action(value: Option<String>) -> Result<Option<String>, String> {
     Ok(Some(with_slash))
 }
 
+fn normalize_model_override(value: Option<String>) -> Result<Option<String>, String> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
+        return Ok(None);
+    }
+    if trimmed
+        .chars()
+        .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':')))
+    {
+        return Err("aggregate api modelOverride contains unsupported characters".to_string());
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
 fn normalize_auth_params_json(
     auth_type: &str,
     enabled: Option<bool>,
@@ -248,11 +268,18 @@ fn normalize_action_override(
 #[cfg(test)]
 mod tests {
     use codexmanager_core::storage::AggregateApi;
+    use serde_json::Value;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+    use tiny_http::{Response, Server, StatusCode};
 
     use super::{
-        action_path_or_default, build_codex_models_probe_url, normalize_action_override,
-        normalize_provider_type, normalize_provider_type_value, provider_default_url,
-        AGGREGATE_API_PROVIDER_CLAUDE, AGGREGATE_API_PROVIDER_GEMINI,
+        action_path_or_default, build_codex_models_probe_url, claude_probe_fallback_models_for_api,
+        extract_model_ids_from_models_response, normalize_action_override, normalize_provider_type,
+        normalize_provider_type_value, probe_claude_endpoint, probe_codex_endpoint,
+        provider_default_url, AGGREGATE_API_PROVIDER_CLAUDE, AGGREGATE_API_PROVIDER_GEMINI,
+        ALIBABA_CODING_PLAN_PROBE_MODEL, CLAUDE_DEFAULT_PROBE_MODEL,
     };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
@@ -265,6 +292,7 @@ mod tests {
             auth_type: "apikey".to_string(),
             auth_params_json: None,
             action: action.map(str::to_string),
+            model_override: None,
             status: "active".to_string(),
             created_at: 0,
             updated_at: 0,
@@ -344,6 +372,286 @@ mod tests {
             normalize_provider_type(Some("claude".to_string())).unwrap(),
             AGGREGATE_API_PROVIDER_CLAUDE
         );
+    }
+
+    #[test]
+    fn claude_probe_models_prefer_alibaba_coding_plan_model_for_dashscope() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic".to_string();
+
+        assert_eq!(
+            claude_probe_fallback_models_for_api(&api),
+            vec![ALIBABA_CODING_PLAN_PROBE_MODEL, CLAUDE_DEFAULT_PROBE_MODEL]
+        );
+    }
+
+    #[test]
+    fn claude_probe_models_keep_anthropic_default_first_for_generic_urls() {
+        let mut api = aggregate_api_with_action(None);
+        api.url = "https://api.anthropic.com/v1".to_string();
+
+        assert_eq!(
+            claude_probe_fallback_models_for_api(&api),
+            vec![CLAUDE_DEFAULT_PROBE_MODEL, ALIBABA_CODING_PLAN_PROBE_MODEL]
+        );
+    }
+
+    #[test]
+    fn extract_model_ids_from_models_response_accepts_common_shapes() {
+        let body = r#"{
+            "data": [
+                {"id":"provider-model-a"},
+                {"model":"provider-model-b"},
+                "provider-model-c"
+            ],
+            "models": [{"slug":"ignored-because-data-wins"}]
+        }"#;
+
+        assert_eq!(
+            extract_model_ids_from_models_response(body),
+            vec![
+                "provider-model-a".to_string(),
+                "provider-model-b".to_string(),
+                "provider-model-c".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn claude_probe_uses_configured_model_without_model_discovery() {
+        let server = Server::http("127.0.0.1:0").expect("start mock server");
+        let base_url = format!("http://{}", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let join = thread::spawn(move || {
+            let mut request = server
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive messages request")
+                .expect("messages request present");
+            let mut body = String::new();
+            request
+                .as_reader()
+                .read_to_string(&mut body)
+                .expect("read request body");
+            tx.send((
+                request.method().as_str().to_string(),
+                request.url().to_string(),
+                body,
+            ))
+            .expect("send messages request");
+            request
+                .respond(Response::from_string(
+                    r#"{"id":"msg_probe","type":"message"}"#,
+                ))
+                .expect("respond messages");
+        });
+
+        let mut api = aggregate_api_with_action(None);
+        api.url = base_url;
+        api.model_override = Some("qwen3.5-plus".to_string());
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("build client");
+
+        let status = probe_claude_endpoint(&client, &api, "secret").expect("probe succeeds");
+
+        assert_eq!(status, 200);
+        let captured = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("captured request");
+        join.join().expect("join mock server");
+        assert_eq!(captured.0, "POST");
+        assert_eq!(captured.1, "/v1/messages?beta=true");
+        let body: Value = serde_json::from_str(captured.2.as_str()).expect("parse body");
+        assert_eq!(body["model"], "qwen3.5-plus");
+    }
+
+    #[test]
+    fn codex_probe_uses_configured_model_without_model_discovery() {
+        let server = Server::http("127.0.0.1:0").expect("start mock server");
+        let base_url = format!("http://{}", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let join = thread::spawn(move || {
+            let mut request = server
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive chat completions request")
+                .expect("chat completions request present");
+            let mut body = String::new();
+            request
+                .as_reader()
+                .read_to_string(&mut body)
+                .expect("read request body");
+            tx.send((
+                request.method().as_str().to_string(),
+                request.url().to_string(),
+                body,
+            ))
+            .expect("send chat completions request");
+            request
+                .respond(Response::from_string(r#"{"id":"chatcmpl_probe"}"#))
+                .expect("respond chat completions");
+        });
+
+        let mut api = aggregate_api_with_action(Some("/chat/completions"));
+        api.url = base_url;
+        api.model_override = Some("qwen3.5-plus".to_string());
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("build client");
+
+        let status = probe_codex_endpoint(&client, &api, "secret").expect("probe succeeds");
+
+        assert_eq!(status, 200);
+        let captured = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("captured request");
+        join.join().expect("join mock server");
+        assert_eq!(captured.0, "POST");
+        assert_eq!(captured.1, "/v1/chat/completions");
+        let body: Value = serde_json::from_str(captured.2.as_str()).expect("parse body");
+        assert_eq!(body["model"], "qwen3.5-plus");
+    }
+
+    #[test]
+    fn claude_probe_uses_discovered_model_before_fallbacks() {
+        let server = Server::http("127.0.0.1:0").expect("start mock server");
+        let base_url = format!("http://{}", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let join = thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive model list request")
+                .expect("model list request present");
+            tx.send((
+                request.method().as_str().to_string(),
+                request.url().to_string(),
+                None,
+            ))
+            .expect("send model list request");
+            request
+                .respond(Response::from_string(
+                    r#"{"data":[{"id":"provider-model"}]}"#,
+                ))
+                .expect("respond model list");
+
+            let mut request = server
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive messages request")
+                .expect("messages request present");
+            let mut body = String::new();
+            request
+                .as_reader()
+                .read_to_string(&mut body)
+                .expect("read request body");
+            tx.send((
+                request.method().as_str().to_string(),
+                request.url().to_string(),
+                Some(body),
+            ))
+            .expect("send messages request");
+            request
+                .respond(Response::from_string(
+                    r#"{"id":"msg_probe","type":"message"}"#,
+                ))
+                .expect("respond messages");
+        });
+
+        let mut api = aggregate_api_with_action(None);
+        api.url = base_url;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("build client");
+
+        let status = probe_claude_endpoint(&client, &api, "secret").expect("probe succeeds");
+
+        assert_eq!(status, 200);
+        let first = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("first captured request");
+        let second = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("second captured request");
+        join.join().expect("join mock server");
+        assert_eq!(first.0, "GET");
+        assert_eq!(first.1, "/v1/models");
+        assert_eq!(second.0, "POST");
+        assert_eq!(second.1, "/v1/messages?beta=true");
+        let second_body: Value =
+            serde_json::from_str(second.2.as_deref().expect("second body")).expect("parse body");
+        assert_eq!(second_body["model"], "provider-model");
+    }
+
+    #[test]
+    fn claude_probe_retries_with_alibaba_model_after_default_model_bad_request() {
+        let server = Server::http("127.0.0.1:0").expect("start mock server");
+        let base_url = format!("http://{}/apps/anthropic", server.server_addr());
+        let (tx, rx) = mpsc::channel();
+        let join = thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive model list request")
+                .expect("model list request present");
+            tx.send((request.url().to_string(), String::new()))
+                .expect("send captured model list request");
+            request
+                .respond(Response::from_string("").with_status_code(StatusCode(404)))
+                .expect("respond model list request");
+
+            for (index, status) in [400u16, 200u16].into_iter().enumerate() {
+                let mut request = server
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("receive mock request")
+                    .expect("mock request present");
+                let mut body = String::new();
+                request
+                    .as_reader()
+                    .read_to_string(&mut body)
+                    .expect("read request body");
+                tx.send((request.url().to_string(), body))
+                    .expect("send captured request");
+                let response_body = if index == 0 {
+                    r#"{"error":{"message":"model not found"}}"#
+                } else {
+                    r#"{"id":"msg_probe","type":"message","content":[]}"#
+                };
+                request
+                    .respond(
+                        Response::from_string(response_body).with_status_code(StatusCode(status)),
+                    )
+                    .expect("respond mock request");
+            }
+        });
+
+        let mut api = aggregate_api_with_action(None);
+        api.url = base_url;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("build client");
+
+        let status = probe_claude_endpoint(&client, &api, "secret").expect("probe succeeds");
+
+        assert_eq!(status, 200);
+        let models_request = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("captured model list request");
+        let first = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("first captured request");
+        let second = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("second captured request");
+        join.join().expect("join mock server");
+        assert_eq!(models_request.0, "/apps/anthropic/v1/models");
+        assert_eq!(first.0, "/apps/anthropic/v1/messages?beta=true");
+        assert_eq!(second.0, "/apps/anthropic/v1/messages?beta=true");
+        let first_body: Value = serde_json::from_str(first.1.as_str()).expect("parse first body");
+        let second_body: Value =
+            serde_json::from_str(second.1.as_str()).expect("parse second body");
+        assert_eq!(first_body["model"], CLAUDE_DEFAULT_PROBE_MODEL);
+        assert_eq!(second_body["model"], ALIBABA_CODING_PLAN_PROBE_MODEL);
     }
 }
 
@@ -595,9 +903,9 @@ fn read_first_chunk(mut response: reqwest::blocking::Response) -> Result<(), Str
 ///
 /// # 返回
 /// 返回函数执行结果
-fn build_claude_probe_body() -> serde_json::Value {
+fn build_claude_probe_body(model: &str) -> serde_json::Value {
     json!({
-        "model": "claude-haiku-4-5-20251001",
+        "model": model,
         "max_tokens": 1,
         "messages": [{
             "role": "user",
@@ -673,6 +981,147 @@ fn probe_codex_only_for_provider(provider_type: &str) -> bool {
         provider_type,
         AGGREGATE_API_PROVIDER_CLAUDE | AGGREGATE_API_PROVIDER_GEMINI
     )
+}
+
+fn is_alibaba_claude_compat_url(url: &str) -> bool {
+    let normalized = url.trim().to_ascii_lowercase();
+    normalized.contains("dashscope.aliyuncs.com/apps/anthropic")
+        || normalized.contains("dashscope-intl.aliyuncs.com/apps/anthropic")
+        || normalized.contains("coding-intl.dashscope.aliyuncs.com/apps/anthropic")
+}
+
+fn claude_probe_fallback_models_for_api(api: &AggregateApi) -> Vec<&'static str> {
+    if is_alibaba_claude_compat_url(api.url.as_str()) {
+        return vec![ALIBABA_CODING_PLAN_PROBE_MODEL, CLAUDE_DEFAULT_PROBE_MODEL];
+    }
+    vec![CLAUDE_DEFAULT_PROBE_MODEL, ALIBABA_CODING_PLAN_PROBE_MODEL]
+}
+
+fn push_unique_model(models: &mut Vec<String>, model: &str) {
+    let trimmed = model.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if !models.iter().any(|item| item == trimmed) {
+        models.push(trimmed.to_string());
+    }
+}
+
+fn model_id_from_value(value: &serde_json::Value) -> Option<String> {
+    if let Some(model) = value.as_str() {
+        let trimmed = model.trim();
+        return if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    }
+    let object = value.as_object()?;
+    ["id", "model", "slug", "name"]
+        .iter()
+        .find_map(|key| object.get(*key).and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_string)
+}
+
+fn extract_model_ids_from_models_response(body: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let items = value
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .or_else(|| value.get("models").and_then(serde_json::Value::as_array))
+        .or_else(|| value.as_array());
+    let Some(items) = items else {
+        return Vec::new();
+    };
+    let mut models = Vec::new();
+    for item in items {
+        if models.len() >= MAX_DISCOVERED_CLAUDE_PROBE_MODELS {
+            break;
+        }
+        if let Some(model) = model_id_from_value(item) {
+            push_unique_model(&mut models, model.as_str());
+        }
+    }
+    models
+}
+
+fn add_claude_probe_headers(
+    builder: reqwest::blocking::RequestBuilder,
+) -> reqwest::blocking::RequestBuilder {
+    builder
+        .header("anthropic-version", "2023-06-01")
+        .header(
+            "anthropic-beta",
+            "claude-code-20250219,interleaved-thinking-2025-05-14",
+        )
+        .header("accept", "application/json")
+        .header("accept-encoding", "identity")
+        .header("user-agent", "claude-cli/2.1.2 (external, cli)")
+        .header("x-app", "cli")
+}
+
+fn build_claude_models_probe_url(api: &AggregateApi) -> String {
+    normalize_probe_url(api.url.as_str(), "/models")
+}
+
+fn probe_claude_models_endpoint(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+) -> Result<Vec<String>, String> {
+    let url = build_claude_models_probe_url(api);
+    let builder = client.get(url.as_str());
+    let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
+    let builder = if updated_url != url {
+        let rebuilt = client.get(updated_url.as_str());
+        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
+        rebuilt
+    } else {
+        builder
+    };
+    let response = add_claude_probe_headers(builder)
+        .send()
+        .map_err(|err| err.to_string())?;
+
+    let status_code = response.status().as_u16() as i64;
+    if !response.status().is_success() {
+        return Err(format!("claude models probe http_status={status_code}"));
+    }
+    let body = response.text().map_err(|err| err.to_string())?;
+    let models = extract_model_ids_from_models_response(body.as_str());
+    if models.is_empty() {
+        return Err("claude models probe returned empty model list".to_string());
+    }
+    Ok(models)
+}
+
+fn claude_probe_models_for_api(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+) -> (Vec<String>, Option<String>) {
+    let mut models = Vec::new();
+    let discovery_error = match probe_claude_models_endpoint(client, api, secret) {
+        Ok(discovered) => {
+            for model in discovered {
+                push_unique_model(&mut models, model.as_str());
+            }
+            None
+        }
+        Err(err) => Some(err),
+    };
+    for fallback in claude_probe_fallback_models_for_api(api) {
+        push_unique_model(&mut models, fallback);
+    }
+    (models, discovery_error)
+}
+
+fn should_retry_claude_probe_with_next_model(status_code: u16) -> bool {
+    status_code == 400
 }
 
 /// 函数 `add_codex_probe_headers`
@@ -787,10 +1236,16 @@ fn probe_codex_responses_endpoint(
     };
     let request_body = if probe_path.to_ascii_lowercase().contains("chat/completions") {
         json!({
-            "model": "gpt-4o-mini",
+            "model": api.model_override.as_deref().unwrap_or("gpt-4o-mini"),
             "messages": [{"role":"user","content":"hi"}],
             "stream": false
         })
+    } else if let Some(model_override) = api.model_override.as_deref() {
+        let mut body = build_codex_probe_body();
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("model".to_string(), json!(model_override));
+        }
+        body
     } else {
         build_codex_probe_body()
     };
@@ -827,11 +1282,19 @@ fn probe_codex_endpoint(
     api: &AggregateApi,
     secret: &str,
 ) -> Result<i64, String> {
+    let has_model_override = api
+        .model_override
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    if has_model_override {
+        return probe_codex_responses_endpoint(client, api, secret);
+    }
+
     let models_result = probe_codex_models_endpoint(client, api, secret);
     if let Ok(code) = models_result {
         return Ok(code);
     }
-
     let models_err = models_result
         .err()
         .unwrap_or_else(|| "codex models probe failed".to_string());
@@ -866,36 +1329,69 @@ fn probe_claude_endpoint(
 ) -> Result<i64, String> {
     let probe_path = action_path_or_default(api, "/messages?beta=true");
     let url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
-    let builder = client.post(url.as_str());
-    let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
-    let builder = if updated_url != url {
-        let rebuilt = client.post(updated_url.as_str());
-        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
-        rebuilt
+    let (mut models, discovery_error) = if let Some(model_override) = api
+        .model_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        (vec![model_override.to_string()], None)
     } else {
-        builder
+        claude_probe_models_for_api(client, api, secret)
     };
-    let response = builder
-        .header("anthropic-version", "2023-06-01")
-        .header(
-            "anthropic-beta",
-            "claude-code-20250219,interleaved-thinking-2025-05-14",
-        )
-        .header("content-type", "application/json")
-        .header("accept", "application/json")
-        .header("accept-encoding", "identity")
-        .header("user-agent", "claude-cli/2.1.2 (external, cli)")
-        .header("x-app", "cli")
-        .json(&build_claude_probe_body())
-        .send()
-        .map_err(|err| err.to_string())?;
-
-    let status_code = response.status().as_u16() as i64;
-    if !response.status().is_success() {
-        return Err(format!("claude probe http_status={status_code}"));
+    if models.is_empty() {
+        models = claude_probe_fallback_models_for_api(api)
+            .into_iter()
+            .map(str::to_string)
+            .collect();
     }
-    read_first_chunk(response)?;
-    Ok(status_code)
+    let mut last_error = None;
+    for (index, model) in models.iter().enumerate() {
+        let builder = client.post(url.as_str());
+        let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
+        let builder = if updated_url != url {
+            let rebuilt = client.post(updated_url.as_str());
+            let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
+            rebuilt
+        } else {
+            builder
+        };
+        let response = builder
+            .header("anthropic-version", "2023-06-01")
+            .header(
+                "anthropic-beta",
+                "claude-code-20250219,interleaved-thinking-2025-05-14",
+            )
+            .header("content-type", "application/json")
+            .header("accept", "application/json")
+            .header("accept-encoding", "identity")
+            .header("user-agent", "claude-cli/2.1.2 (external, cli)")
+            .header("x-app", "cli")
+            .json(&build_claude_probe_body(model))
+            .send()
+            .map_err(|err| err.to_string())?;
+
+        let status_code = response.status().as_u16() as i64;
+        if response.status().is_success() {
+            read_first_chunk(response)?;
+            return Ok(status_code);
+        }
+
+        let status_code_u16 = response.status().as_u16();
+        last_error = Some(format!(
+            "claude probe http_status={status_code} model={model}"
+        ));
+        if index + 1 >= models.len() || !should_retry_claude_probe_with_next_model(status_code_u16)
+        {
+            break;
+        }
+    }
+    Err(match (discovery_error, last_error) {
+        (Some(discovery), Some(probe)) => format!("{discovery}; {probe}"),
+        (None, Some(probe)) => probe,
+        (Some(discovery), None) => discovery,
+        (None, None) => "claude probe failed".to_string(),
+    })
 }
 
 fn probe_gemini_endpoint(
@@ -962,6 +1458,7 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
                 .filter(|value| !value.is_empty())
                 .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok()),
             action: item.action,
+            model_override: item.model_override,
             status: item.status,
             created_at: item.created_at,
             updated_at: item.updated_at,
@@ -994,6 +1491,7 @@ pub(crate) fn create_aggregate_api(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    model_override: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<AggregateApiCreateResult, String> {
@@ -1011,6 +1509,7 @@ pub(crate) fn create_aggregate_api(
     )?;
     let normalized_action =
         normalize_action_override(action_custom_enabled, action)?.unwrap_or(None);
+    let normalized_model_override = normalize_model_override(model_override)?;
     let normalized_secret = if normalized_auth_type == AGGREGATE_API_AUTH_APIKEY {
         normalize_secret(key).ok_or_else(|| "key is required".to_string())?
     } else {
@@ -1039,6 +1538,7 @@ pub(crate) fn create_aggregate_api(
             .map(|value| if value.is_empty() { None } else { Some(value) })
             .unwrap_or(None),
         action: normalized_action,
+        model_override: normalized_model_override,
         status: "active".to_string(),
         created_at,
         updated_at: created_at,
@@ -1087,6 +1587,7 @@ pub(crate) fn update_aggregate_api(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    model_override: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<(), String> {
@@ -1170,6 +1671,12 @@ pub(crate) fn update_aggregate_api(
                 .update_aggregate_api_action(api_id, None)
                 .map_err(|err| err.to_string())?;
         }
+    }
+    if model_override.is_some() {
+        let normalized = normalize_model_override(model_override)?;
+        storage
+            .update_aggregate_api_model_override(api_id, normalized.as_deref())
+            .map_err(|err| err.to_string())?;
     }
 
     if next_auth_type == AGGREGATE_API_AUTH_APIKEY {

@@ -51,6 +51,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .cloned();
             let action_custom_enabled = super::bool_param(req, "actionCustomEnabled");
             let action = super::string_param(req, "action");
+            let model_override = super::string_param(req, "modelOverride");
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
             super::value_or_error(create_aggregate_api(
@@ -64,6 +65,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 auth_params,
                 action_custom_enabled,
                 action,
+                model_override,
                 username,
                 password,
             ))
@@ -85,6 +87,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .cloned();
             let action_custom_enabled = super::bool_param(req, "actionCustomEnabled");
             let action = super::string_param(req, "action");
+            let model_override = super::string_param(req, "modelOverride");
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
             super::ok_or_error(update_aggregate_api(
@@ -100,6 +103,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 auth_params,
                 action_custom_enabled,
                 action,
+                model_override,
                 username,
                 password,
             ))

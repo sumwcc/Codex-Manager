@@ -12,6 +12,7 @@ use crate::aggregate_api::{
     AGGREGATE_API_PROVIDER_CODEX, AGGREGATE_API_PROVIDER_GEMINI,
 };
 use crate::gateway::request_log::RequestLogUsage;
+use serde_json::Value;
 
 const AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL: usize = 3;
 
@@ -107,6 +108,35 @@ fn build_upstream_url(base_url: &str, effective_path: &str) -> Result<reqwest::U
     url.set_path(combined_path.as_str());
     url.set_query(query_part.filter(|query| !query.trim().is_empty()));
     Ok(url)
+}
+
+fn rewrite_body_model_override(body: &Bytes, model_override: Option<&str>) -> Bytes {
+    let Some(model_override) = model_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return body.clone();
+    };
+    let Ok(mut value) = serde_json::from_slice::<Value>(body.as_ref()) else {
+        return body.clone();
+    };
+    let Some(object) = value.as_object_mut() else {
+        return body.clone();
+    };
+    if object
+        .get("model")
+        .and_then(Value::as_str)
+        .is_some_and(|current| current == model_override)
+    {
+        return body.clone();
+    }
+    object.insert(
+        "model".to_string(),
+        Value::String(model_override.to_string()),
+    );
+    serde_json::to_vec(&value)
+        .map(Bytes::from)
+        .unwrap_or_else(|_| body.clone())
 }
 
 fn replace_query_param(mut url: reqwest::Url, name: &str, value: &str) -> reqwest::Url {
@@ -864,7 +894,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 request.as_ref().expect("request should still be available"),
                 method,
                 url.clone(),
-                body,
+                &rewrite_body_model_override(body, candidate.model_override.as_deref()),
                 secret.as_str(),
                 &auth_config,
                 &injected_headers,
@@ -1129,6 +1159,7 @@ mod bridge_tests {
             auth_type: AGGREGATE_API_AUTH_APIKEY.to_string(),
             auth_params_json: None,
             action: None,
+            model_override: None,
             status: "active".to_string(),
             created_at: sort,
             updated_at: sort,
@@ -1280,13 +1311,14 @@ mod tests {
 
     use super::{
         build_upstream_url, effective_action_path, resolve_aggregate_api_rotation_candidates,
-        resolve_passthrough_sse_protocol,
+        resolve_passthrough_sse_protocol, rewrite_body_model_override,
     };
     use crate::aggregate_api::{
         AGGREGATE_API_AUTH_APIKEY, AGGREGATE_API_PROVIDER_CLAUDE, AGGREGATE_API_PROVIDER_CODEX,
         AGGREGATE_API_PROVIDER_GEMINI,
     };
     use crate::gateway::{PassthroughSseProtocol, ResponseAdapter};
+    use bytes::Bytes;
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
         AggregateApi {
@@ -1298,6 +1330,7 @@ mod tests {
             auth_type: "apikey".to_string(),
             auth_params_json: None,
             action: action.map(str::to_string),
+            model_override: None,
             status: "active".to_string(),
             created_at: 0,
             updated_at: 0,
@@ -1349,6 +1382,18 @@ mod tests {
     }
 
     #[test]
+    fn rewrite_body_model_override_replaces_json_model() {
+        let body = Bytes::from_static(br#"{"model":"claude-sonnet","messages":[]}"#);
+
+        let rewritten = rewrite_body_model_override(&body, Some("qwen3.5-plus"));
+
+        let value: serde_json::Value =
+            serde_json::from_slice(rewritten.as_ref()).expect("parse rewritten body");
+        assert_eq!(value["model"], "qwen3.5-plus");
+        assert_eq!(value["messages"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
     fn gemini_native_candidates_resolve_to_gemini_provider_only() {
         let storage = Storage::open_in_memory().expect("open storage");
         storage.init().expect("init storage");
@@ -1368,6 +1413,7 @@ mod tests {
                     auth_type: AGGREGATE_API_AUTH_APIKEY.to_string(),
                     auth_params_json: None,
                     action: None,
+                    model_override: None,
                     status: "active".to_string(),
                     created_at: now,
                     updated_at: now,

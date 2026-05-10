@@ -732,6 +732,11 @@ export default function AggregateApiPage() {
                                 <span className="block truncate font-mono text-[11px] text-muted-foreground">
                                   {api.url}
                                 </span>
+                                {api.modelOverride ? (
+                                  <span className="block truncate font-mono text-[10px] text-muted-foreground/80">
+                                    model: {api.modelOverride}
+                                  </span>
+                                ) : null}
                               </div>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
@@ -742,6 +747,11 @@ export default function AggregateApiPage() {
                                 <div className="break-all text-xs">
                                   {api.url}
                                 </div>
+                                {api.modelOverride ? (
+                                  <div className="break-all font-mono text-[11px] opacity-80">
+                                    model: {api.modelOverride}
+                                  </div>
+                                ) : null}
                                 <div className="text-[11px] opacity-80">
                                   {t("创建时间")}: {createdTimeText}
                                 </div>
