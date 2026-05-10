@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/hash-password.mjs \"qxnmnb\")",
+      "Bash(node *)",
+      "Bash(mkdir -p ~/.ssh)",
+      "Bash(cat)",
+      "Bash(chmod 600 ~/.ssh/codexmanager-vps)",
+      "Bash(ssh *)",
+      "Bash(nc -z -w 5 172.245.94.40 22)",
+      "Bash(powershell *)",
+      "Bash(timeout 3 bash -c 'echo >/dev/tcp/172.245.94.40/__TRACKED_VAR__')",
+      "Bash(tar --exclude='node_modules' --exclude='.git' --exclude='data' -czf /tmp/author-admin.tar.gz .)",
+      "Bash(scp *)",
+      "Bash(curl *)",
+      "Bash(npm ls *)",
+      "Bash(export AUTHOR_ADMIN_PASSWORD_HASH='scrypt$857523341bf8178cc306e15027e27a12$1f75f1d955729e3e80aa402ba15af7cd16945207a22ecef12ae711ee63979d03b3e79341e07111d422db3c833c7dbca1f731724b5861bfd677d746f24ca3e208')",
+      "Bash(export AUTHOR_ADMIN_SESSION_SECRET='f510122039880f6790265ecada0e982e092acfcb530e994894e22d022517f497')",
+      "Bash(export AUTHOR_ADMIN_PORT=47861)",
+      "Bash(export AUTHOR_ADMIN_BASE_URL='http://127.0.0.1:47861')",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(rm -f data/author-admin.db)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'items: {len\\(d[\\\\\"items\\\\\"]\\)}'\\); [print\\(f'  - {i[\\\\\"name\\\\\"]} \\({i[\\\\\"type\\\\\"]}\\)'\\) for i in d['items']]\")",
+      "Bash(export AUTHOR_ADMIN_PORT=47862)",
+      "Bash(export AUTHOR_ADMIN_BASE_URL='http://127.0.0.1:47862')",
+      "Bash(npx tsc *)",
+      "Bash(npx next *)"
+    ]
+  }
+}

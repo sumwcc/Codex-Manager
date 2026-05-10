@@ -42,6 +42,11 @@ import {
   DEFAULT_CODEX_USER_AGENT_VERSION,
 } from "@/lib/constants/codex";
 import {
+  DEFAULT_AUTHOR_SERVER_RECOMMENDATIONS,
+  DEFAULT_AUTHOR_SPONSORS,
+  normalizeSponsorLinkItems,
+} from "@/lib/sponsor-links";
+import {
   calcAvailability,
   getUsageDisplayBuckets,
   isLowQuotaUsage,
@@ -1593,6 +1598,14 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
     ).map((item) => asString(item)),
     pluginMarketMode: asString(source.pluginMarketMode ?? source.plugin_market_mode) || "builtin",
     pluginMarketSourceUrl: asString(source.pluginMarketSourceUrl ?? source.plugin_market_source_url),
+    authorSponsors: normalizeSponsorLinkItems(
+      source.authorSponsors,
+      DEFAULT_AUTHOR_SPONSORS
+    ),
+    authorServerRecommendations: normalizeSponsorLinkItems(
+      source.authorServerRecommendations,
+      DEFAULT_AUTHOR_SERVER_RECOMMENDATIONS
+    ),
     upstreamProxyUrl: asString(source.upstreamProxyUrl),
     upstreamStreamTimeoutMs: asInteger(source.upstreamStreamTimeoutMs, 300_000, 0),
     upstreamTotalTimeoutMs: asInteger(source.upstreamTotalTimeoutMs, 0, 0),

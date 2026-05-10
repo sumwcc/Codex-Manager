@@ -69,7 +69,7 @@ pub(crate) use usage::snapshot_store as usage_snapshot_store;
 pub(crate) use usage::token_refresh as usage_token_refresh;
 
 pub use app_settings::{
-    app_settings_get, app_settings_get_with_overrides, app_settings_set,
+    app_settings_get, app_settings_get_with_overrides, app_settings_set, author_content_get,
     bind_all_interfaces_enabled, bind_all_interfaces_enabled_for_mode,
     current_close_to_tray_on_close_setting, current_codex_cli_guide_dismissed,
     current_gateway_account_max_inflight, current_gateway_free_account_max_model,

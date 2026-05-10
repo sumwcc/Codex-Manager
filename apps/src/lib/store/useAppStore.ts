@@ -5,6 +5,10 @@ import {
   DEFAULT_CODEX_USER_AGENT_VERSION,
 } from "../constants/codex";
 import {
+  DEFAULT_AUTHOR_SERVER_RECOMMENDATIONS,
+  DEFAULT_AUTHOR_SPONSORS,
+} from "../sponsor-links";
+import {
   type TopLevelRoutePath,
   toTopLevelRoutePath,
 } from "../app-shell/top-level-routes";
@@ -82,6 +86,8 @@ export const useAppStore = create<AppState>((set) => ({
     gatewayResidencyRequirementOptions: ["", "us"],
     pluginMarketMode: "builtin",
     pluginMarketSourceUrl: "",
+    authorSponsors: DEFAULT_AUTHOR_SPONSORS,
+    authorServerRecommendations: DEFAULT_AUTHOR_SERVER_RECOMMENDATIONS,
     upstreamProxyUrl: "",
     upstreamStreamTimeoutMs: 300000,
     upstreamTotalTimeoutMs: 0,

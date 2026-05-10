@@ -5,6 +5,10 @@ use codexmanager_core::rpc::types::ModelInfo;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+use super::author_links::{
+    default_author_server_recommendations, default_author_sponsors, load_author_link_items,
+    serialize_author_link_items,
+};
 use super::{
     current_background_tasks_snapshot_value, current_close_to_tray_on_close_setting,
     current_codex_cli_guide_dismissed, current_env_overrides, current_gateway_account_max_inflight,
@@ -19,6 +23,7 @@ use super::{
     env_override_reserved_keys, env_override_unsupported_keys, residency_requirement_options,
     save_env_overrides_value, save_persisted_app_setting, save_persisted_bool_setting,
     sync_runtime_settings_from_storage, APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY,
+    APP_SETTING_AUTHOR_SERVER_RECOMMENDATIONS_KEY, APP_SETTING_AUTHOR_SPONSORS_KEY,
     APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
     APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
     APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY,
@@ -127,6 +132,16 @@ pub(super) fn current_app_settings_value(
         .get(APP_SETTING_PLUGIN_MARKET_SOURCE_URL_KEY)
         .cloned()
         .unwrap_or_default();
+    let author_sponsors = load_author_link_items(
+        &settings,
+        APP_SETTING_AUTHOR_SPONSORS_KEY,
+        &default_author_sponsors(),
+    );
+    let author_server_recommendations = load_author_link_items(
+        &settings,
+        APP_SETTING_AUTHOR_SERVER_RECOMMENDATIONS_KEY,
+        &default_author_server_recommendations(),
+    );
     let plugin_market_mode = settings
         .get(APP_SETTING_PLUGIN_MARKET_MODE_KEY)
         .map(|value| normalize_market_mode(value))
@@ -140,6 +155,9 @@ pub(super) fn current_app_settings_value(
         .to_string();
     let background_tasks_raw = serde_json::to_string(&background_tasks)
         .map_err(|err| format!("serialize background tasks failed: {err}"))?;
+    let author_sponsors_raw = serialize_author_link_items(&author_sponsors)?;
+    let author_server_recommendations_raw =
+        serialize_author_link_items(&author_server_recommendations)?;
     let env_overrides = current_env_overrides();
 
     persist_current_snapshot(
@@ -162,6 +180,8 @@ pub(super) fn current_app_settings_value(
         &gateway_residency_requirement,
         &plugin_market_mode,
         &plugin_market_source_url,
+        &author_sponsors_raw,
+        &author_server_recommendations_raw,
         upstream_proxy_url.as_deref(),
         upstream_stream_timeout_ms,
         upstream_total_timeout_ms,
@@ -207,6 +227,8 @@ pub(super) fn current_app_settings_value(
         "gatewayResidencyRequirement": gateway_residency_requirement,
         "pluginMarketMode": plugin_market_mode,
         "pluginMarketSourceUrl": plugin_market_source_url,
+        "authorSponsors": author_sponsors,
+        "authorServerRecommendations": author_server_recommendations,
         "gatewayResidencyRequirementOptions": residency_requirement_options(),
         "upstreamProxyUrl": upstream_proxy_url.unwrap_or_default(),
         "upstreamStreamTimeoutMs": upstream_stream_timeout_ms,
@@ -218,6 +240,26 @@ pub(super) fn current_app_settings_value(
         "envOverrideReservedKeys": env_override_reserved_keys(),
         "envOverrideUnsupportedKeys": env_override_unsupported_keys(),
         "webAccessPasswordConfigured": web_access_password_configured(),
+    }))
+}
+
+pub(super) fn current_author_content_value() -> Result<Value, String> {
+    initialize_storage_if_needed()?;
+    sync_runtime_settings_from_storage();
+    let settings = list_app_settings_map();
+    let author_sponsors = load_author_link_items(
+        &settings,
+        APP_SETTING_AUTHOR_SPONSORS_KEY,
+        &default_author_sponsors(),
+    );
+    let author_server_recommendations = load_author_link_items(
+        &settings,
+        APP_SETTING_AUTHOR_SERVER_RECOMMENDATIONS_KEY,
+        &default_author_server_recommendations(),
+    );
+    Ok(serde_json::json!({
+        "authorSponsors": author_sponsors,
+        "authorServerRecommendations": author_server_recommendations,
     }))
 }
 
@@ -319,6 +361,8 @@ fn is_free_account_max_model_option(slug: &str) -> bool {
 /// - gateway_residency_requirement: 参数 gateway_residency_requirement
 /// - plugin_market_mode: 参数 plugin_market_mode
 /// - plugin_market_source_url: 参数 plugin_market_source_url
+/// - author_sponsors_raw: 参数 author_sponsors_raw
+/// - author_server_recommendations_raw: 参数 author_server_recommendations_raw
 /// - upstream_proxy_url: 参数 upstream_proxy_url
 /// - upstream_stream_timeout_ms: 参数 upstream_stream_timeout_ms
 /// - upstream_total_timeout_ms: 参数 upstream_total_timeout_ms
@@ -348,6 +392,8 @@ fn persist_current_snapshot(
     gateway_residency_requirement: &str,
     plugin_market_mode: &str,
     plugin_market_source_url: &str,
+    author_sponsors_raw: &str,
+    author_server_recommendations_raw: &str,
     upstream_proxy_url: Option<&str>,
     upstream_stream_timeout_ms: u64,
     upstream_total_timeout_ms: u64,
@@ -424,6 +470,11 @@ fn persist_current_snapshot(
         } else {
             Some(plugin_market_mode)
         },
+    );
+    let _ = save_persisted_app_setting(APP_SETTING_AUTHOR_SPONSORS_KEY, Some(author_sponsors_raw));
+    let _ = save_persisted_app_setting(
+        APP_SETTING_AUTHOR_SERVER_RECOMMENDATIONS_KEY,
+        Some(author_server_recommendations_raw),
     );
     let _ = save_persisted_app_setting(
         APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,

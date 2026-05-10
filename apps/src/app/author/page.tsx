@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -11,6 +12,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { appClient } from "@/lib/api/app-client";
 import { useI18n } from "@/lib/i18n/provider";
+import { useAppStore } from "@/lib/store/useAppStore";
+import {
+  normalizeSponsorLinkItems,
+  type SponsorLinkItem,
+} from "@/lib/sponsor-links";
+import { normalizeAuthorContentUrl } from "@/lib/runtime/runtime-capabilities";
 import {
   ExternalLink,
   HeartHandshake,
@@ -38,59 +45,13 @@ const AUTHOR_SUPPORT_IMAGES = [
   },
 ] as const;
 
-const README_SPONSORS = [
-  {
-    key: "visioncoder",
-    name: "VisionCoder",
-    description:
-      "VisionCoder 是一款高颜值、可灵活切换模型的桌面 AI 编程工具。它支持 Claude、Gemini、GPT，并集成 Claude Code、Gemini CLI、Codex、OpenCode 等多种 CLI 能力。",
-    href: "https://coder.visioncoder.cn",
-    imageSrc: "https://coder.visioncoder.cn/logo.png",
-    imageAlt: "VisionCoder",
-    actionLabel: "访问官网",
-  },
-  {
-    key: "xingsiyan",
-    name: "星思研中转站",
-    description:
-      "星思研中转站为 Claude Code、Codex、Gemini 等模型调用场景提供稳定中转与配套服务，适合需要高可用接口、便捷接入和持续交付支持的开发者与团队。",
-    href: "https://gzxsy.vip/register?aff=eapz",
-    imageSrc: "/sponsors/xingsiyan.jpg",
-    imageAlt: "星思研中转站",
-    actionLabel: "立即注册",
-  },
-] as const;
-
-const SERVER_RECOMMENDATIONS = [
-  {
-    key: "racknerd",
-    name: "RackNerd",
-    description:
-      "适合部署 CodexManager、网关转发服务和常规开发环境的 VPS 选择，适合需要稳定海外节点和可控成本的个人开发者或小团队。",
-    href: "https://my.racknerd.com/aff.php?aff=19058",
-    imageSrc: "https://racknerd.com/banners/125x125.gif",
-    imageAlt: "RackNerd Square Banner",
-    actionLabel: "查看套餐",
-  },
-] as const;
-
-type PartnerRow = {
-  key: string;
-  name: string;
-  description: string;
-  href: string;
-  actionLabel: string;
-  imageSrc?: string;
-  imageAlt?: string;
-};
-
 function PartnerTable({
   items,
   onOpenLink,
   translate,
   emptyVisualLabel,
 }: {
-  items: readonly PartnerRow[];
+  items: readonly SponsorLinkItem[];
   onOpenLink: (url: string) => Promise<void>;
   translate: (message: string) => string;
   emptyVisualLabel: string;
@@ -155,6 +116,53 @@ function PartnerTable({
 
 export default function AuthorPage() {
   const { t } = useI18n();
+  const authorContentUrl = useAppStore(
+    (state) => state.runtimeCapabilities?.authorContentUrl ?? null,
+  );
+  const [authorContent, setAuthorContent] = useState<{
+    authorSponsors: SponsorLinkItem[];
+    authorServerRecommendations: SponsorLinkItem[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const resolvedAuthorContentUrl =
+      normalizeAuthorContentUrl(authorContentUrl) ||
+      normalizeAuthorContentUrl(
+        process.env.NEXT_PUBLIC_CODEXMANAGER_AUTHOR_CONTENT_URL,
+      );
+    if (!resolvedAuthorContentUrl) return;
+
+    let cancelled = false;
+    void fetch(resolvedAuthorContentUrl, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = (await response.json()) as Record<string, unknown>;
+        if (cancelled) return;
+        setAuthorContent({
+          authorSponsors: normalizeSponsorLinkItems(payload.authorSponsors),
+          authorServerRecommendations: normalizeSponsorLinkItems(
+            payload.authorServerRecommendations,
+          ),
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authorContentUrl]);
+
+  const visibleSponsors = authorContent?.authorSponsors ?? [];
+  const visibleServerRecommendations =
+    authorContent?.authorServerRecommendations ?? [];
 
   const handleOpenLink = async (url: string) => {
     try {
@@ -196,45 +204,49 @@ export default function AuthorPage() {
         </TabsList>
 
         <TabsContent value="sponsor" className="space-y-6">
-          <Card className="glass-card border-none shadow-md">
-            <CardHeader className="gap-3">
-              <div className="flex items-center gap-2">
-                <HeartHandshake className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">{t("赞助商")}</CardTitle>
-              </div>
-              <CardDescription>
-                {t("沿用 README 的展示内容，并同步星思研邀请链接。")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <PartnerTable
-                items={README_SPONSORS}
-                onOpenLink={handleOpenLink}
-                translate={t}
-                emptyVisualLabel="Sponsor"
-              />
-            </CardContent>
-          </Card>
+          {visibleSponsors.length > 0 ? (
+            <Card className="glass-card border-none shadow-md">
+              <CardHeader className="gap-3">
+                <div className="flex items-center gap-2">
+                  <HeartHandshake className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">{t("赞助商")}</CardTitle>
+                </div>
+                <CardDescription>
+                  {t("沿用 README 的展示内容，并同步星思研邀请链接。")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <PartnerTable
+                  items={visibleSponsors}
+                  onOpenLink={handleOpenLink}
+                  translate={t}
+                  emptyVisualLabel="Sponsor"
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <Card className="glass-card border-none shadow-md">
-            <CardHeader className="gap-3">
-              <div className="flex items-center gap-2">
-                <Server className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">{t("服务器推荐")}</CardTitle>
-              </div>
-              <CardDescription>
-                {t("补充一个常用服务器选择，便于直接部署或长期运行服务。")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <PartnerTable
-                items={SERVER_RECOMMENDATIONS}
-                onOpenLink={handleOpenLink}
-                translate={t}
-                emptyVisualLabel="RackNerd"
-              />
-            </CardContent>
-          </Card>
+          {visibleServerRecommendations.length > 0 ? (
+            <Card className="glass-card border-none shadow-md">
+              <CardHeader className="gap-3">
+                <div className="flex items-center gap-2">
+                  <Server className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-base">{t("服务器推荐")}</CardTitle>
+                </div>
+                <CardDescription>
+                  {t("补充一个常用服务器选择，便于直接部署或长期运行服务。")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <PartnerTable
+                  items={visibleServerRecommendations}
+                  onOpenLink={handleOpenLink}
+                  translate={t}
+                  emptyVisualLabel="RackNerd"
+                />
+              </CardContent>
+            </Card>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="contact" className="space-y-6">

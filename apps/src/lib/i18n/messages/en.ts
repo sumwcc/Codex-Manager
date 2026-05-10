@@ -1278,16 +1278,47 @@ export const EN_MESSAGES: MessageCatalog = {
   "已花费": "Spent",
   "Token / 金额": "Token / Cost",
   "赞助与推荐": "Sponsors & Recommendations",
+  "赞助": "Sponsors",
   "赞助 / 推荐": "Sponsors / Recommendations",
   "联系作者": "Contact author",
   "这里集中展示 README 里的赞助信息、推荐服务，以及作者联系入口。":
     "This page brings together sponsor information from the README, recommended services, and author contact options.",
   "赞助商": "Sponsors",
+  "赞助商列表": "Sponsor list",
   "沿用 README 的展示内容，并同步星思研邀请链接。":
     "Reuse the sponsor content from the README and sync the Xing Si Yan referral link.",
+  "这里维护 /author 页的赞助商内容。部署在服务器上的 codexmanager-web 会从服务器数据库读取这些内容，无需重新发版本。":
+    "Manage the sponsor content used on the /author page. Server-hosted codexmanager-web reads it from the server database, so no new release is needed.",
+  "新增赞助商": "Add sponsor",
+  "恢复默认赞助内容": "Restore default sponsor content",
+  "保存赞助商列表": "Save sponsor list",
+  "当前没有赞助商条目，可点击上方按钮新增。":
+    "There are no sponsor entries yet. Use the button above to add one.",
+  "赞助商条目": "Sponsor entry",
+  "名称、链接和按钮文案为必填项。":
+    "Name, link, and button label are required.",
+  "删除条目": "Delete entry",
+  "按钮文案": "Button label",
+  "跳转链接": "Target link",
+  "描述": "Description",
+  "图片地址": "Image URL",
+  "图片说明": "Image alt text",
   "服务器推荐": "Server recommendations",
+  "服务器推荐列表": "Server recommendation list",
   "补充一个常用服务器选择，便于直接部署或长期运行服务。":
     "Add a common server option for direct deployment or long-running services.",
+  "这里维护 /author 页的服务器推荐内容。保存后，走同一台服务器的页面会直接读取最新内容。":
+    "Manage the server recommendation content used on the /author page. After saving, pages served by the same server will read the latest content immediately.",
+  "新增服务器推荐": "Add server recommendation",
+  "恢复默认服务器推荐": "Restore default server recommendations",
+  "保存服务器推荐列表": "Save server recommendation list",
+  "当前没有服务器推荐条目，可点击上方按钮新增。":
+    "There are no server recommendation entries yet. Use the button above to add one.",
+  "服务器推荐条目": "Server recommendation entry",
+  "请填写完整的条目后再保存":
+    "Please complete each entry before saving.",
+  "赞助配置已保存": "Sponsor configuration saved.",
+  "已恢复默认赞助内容": "Default sponsor content restored.",
   "赞助支持": "Sponsor support",
   "联系方式": "Contact channels",
   "持续维护中": "Actively maintained",
