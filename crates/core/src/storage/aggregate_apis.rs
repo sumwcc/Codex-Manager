@@ -1,4 +1,4 @@
-use rusqlite::{Result, Row};
+use rusqlite::{params, Result, Row};
 
 use super::{now_ts, AggregateApi, Storage};
 
@@ -17,7 +17,16 @@ const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     updated_at,
     last_test_at,
     last_test_status,
-    last_test_error
+    last_test_error,
+    balance_query_enabled,
+    balance_query_template,
+    balance_query_base_url,
+    balance_query_user_id,
+    balance_query_config_json,
+    last_balance_at,
+    last_balance_status,
+    last_balance_error,
+    last_balance_json
  FROM aggregate_apis";
 
 impl Storage {
@@ -50,9 +59,18 @@ impl Storage {
                 updated_at,
                 last_test_at,
                 last_test_status,
-                last_test_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-            (
+                last_test_error,
+                balance_query_enabled,
+                balance_query_template,
+                balance_query_base_url,
+                balance_query_user_id,
+                balance_query_config_json,
+                last_balance_at,
+                last_balance_status,
+                last_balance_error,
+                last_balance_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+            params![
                 &api.id,
                 &api.provider_type,
                 &api.supplier_name,
@@ -68,7 +86,16 @@ impl Storage {
                 &api.last_test_at,
                 &api.last_test_status,
                 &api.last_test_error,
-            ),
+                api.balance_query_enabled,
+                &api.balance_query_template,
+                &api.balance_query_base_url,
+                &api.balance_query_user_id,
+                &api.balance_query_config_json,
+                &api.last_balance_at,
+                &api.last_balance_status,
+                &api.last_balance_error,
+                &api.last_balance_json,
+            ],
         )?;
         Ok(())
     }
@@ -258,6 +285,59 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_aggregate_api_balance_query(
+        &self,
+        api_id: &str,
+        enabled: bool,
+        template: Option<&str>,
+        base_url: Option<&str>,
+        user_id: Option<&str>,
+        config_json: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET balance_query_enabled = ?1,
+                 balance_query_template = ?2,
+                 balance_query_base_url = ?3,
+                 balance_query_user_id = ?4,
+                 balance_query_config_json = ?5,
+                 updated_at = ?6
+             WHERE id = ?7",
+            (
+                enabled,
+                template,
+                base_url,
+                user_id,
+                config_json,
+                now_ts(),
+                api_id,
+            ),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_aggregate_api_balance_result(
+        &self,
+        api_id: &str,
+        ok: bool,
+        balance_json: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let now = now_ts();
+        let status = if ok { Some("success") } else { Some("failed") };
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET last_balance_at = ?1,
+                 last_balance_status = ?2,
+                 last_balance_error = ?3,
+                 last_balance_json = ?4,
+                 updated_at = ?1
+             WHERE id = ?5",
+            (now, status, error, balance_json, api_id),
+        )?;
+        Ok(())
+    }
+
     /// 函数 `delete_aggregate_api`
     ///
     /// 作者: gaohongshun
@@ -271,6 +351,10 @@ impl Storage {
     /// # 返回
     /// 返回函数执行结果
     pub fn delete_aggregate_api(&self, api_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM aggregate_api_balance_secrets WHERE aggregate_api_id = ?1",
+            [api_id],
+        )?;
         self.conn.execute(
             "DELETE FROM aggregate_api_secrets WHERE aggregate_api_id = ?1",
             [api_id],
@@ -321,6 +405,43 @@ impl Storage {
     pub fn find_aggregate_api_secret_by_id(&self, api_id: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT secret_value FROM aggregate_api_secrets WHERE aggregate_api_id = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query([api_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn upsert_aggregate_api_balance_secret(
+        &self,
+        api_id: &str,
+        access_token: &str,
+    ) -> Result<()> {
+        let now = now_ts();
+        self.conn.execute(
+            "INSERT INTO aggregate_api_balance_secrets (aggregate_api_id, access_token, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?3)
+             ON CONFLICT(aggregate_api_id) DO UPDATE SET
+               access_token = excluded.access_token,
+               updated_at = excluded.updated_at",
+            (api_id, access_token, now),
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_aggregate_api_balance_secret(&self, api_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM aggregate_api_balance_secrets WHERE aggregate_api_id = ?1",
+            [api_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn find_aggregate_api_balance_secret_by_id(&self, api_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT access_token FROM aggregate_api_balance_secrets WHERE aggregate_api_id = ?1 LIMIT 1",
         )?;
         let mut rows = stmt.query([api_id])?;
         if let Some(row) = rows.next()? {
@@ -403,7 +524,16 @@ impl Storage {
                 updated_at INTEGER NOT NULL,
                 last_test_at INTEGER,
                 last_test_status TEXT,
-                last_test_error TEXT
+                last_test_error TEXT,
+                balance_query_enabled INTEGER NOT NULL DEFAULT 0,
+                balance_query_template TEXT,
+                balance_query_base_url TEXT,
+                balance_query_user_id TEXT,
+                balance_query_config_json TEXT,
+                last_balance_at INTEGER,
+                last_balance_status TEXT,
+                last_balance_error TEXT,
+                last_balance_json TEXT
             )",
             [],
         )?;
@@ -422,6 +552,19 @@ impl Storage {
         self.ensure_column("aggregate_apis", "auth_params_json", "TEXT")?;
         self.ensure_column("aggregate_apis", "action", "TEXT")?;
         self.ensure_column("aggregate_apis", "model_override", "TEXT")?;
+        self.ensure_column(
+            "aggregate_apis",
+            "balance_query_enabled",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        self.ensure_column("aggregate_apis", "balance_query_template", "TEXT")?;
+        self.ensure_column("aggregate_apis", "balance_query_base_url", "TEXT")?;
+        self.ensure_column("aggregate_apis", "balance_query_user_id", "TEXT")?;
+        self.ensure_column("aggregate_apis", "balance_query_config_json", "TEXT")?;
+        self.ensure_column("aggregate_apis", "last_balance_at", "INTEGER")?;
+        self.ensure_column("aggregate_apis", "last_balance_status", "TEXT")?;
+        self.ensure_column("aggregate_apis", "last_balance_error", "TEXT")?;
+        self.ensure_column("aggregate_apis", "last_balance_json", "TEXT")?;
         self.conn.execute(
             "UPDATE aggregate_apis
              SET provider_type = COALESCE(NULLIF(TRIM(provider_type), ''), 'codex')
@@ -470,6 +613,23 @@ impl Storage {
         )?;
         Ok(())
     }
+
+    pub(super) fn ensure_aggregate_api_balance_secrets_table(&self) -> Result<()> {
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS aggregate_api_balance_secrets (
+                aggregate_api_id TEXT PRIMARY KEY REFERENCES aggregate_apis(id) ON DELETE CASCADE,
+                access_token TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_aggregate_api_balance_secrets_updated_at ON aggregate_api_balance_secrets(updated_at)",
+            [],
+        )?;
+        Ok(())
+    }
 }
 
 /// 函数 `map_aggregate_api_row`
@@ -500,5 +660,14 @@ fn map_aggregate_api_row(row: &Row<'_>) -> Result<AggregateApi> {
         last_test_at: row.get(12)?,
         last_test_status: row.get(13)?,
         last_test_error: row.get(14)?,
+        balance_query_enabled: row.get(15)?,
+        balance_query_template: row.get(16)?,
+        balance_query_base_url: row.get(17)?,
+        balance_query_user_id: row.get(18)?,
+        balance_query_config_json: row.get(19)?,
+        last_balance_at: row.get(20)?,
+        last_balance_status: row.get(21)?,
+        last_balance_error: row.get(22)?,
+        last_balance_json: row.get(23)?,
     })
 }

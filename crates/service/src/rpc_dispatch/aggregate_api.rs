@@ -2,7 +2,7 @@ use codexmanager_core::rpc::types::{AggregateApiListResult, JsonRpcRequest, Json
 
 use crate::{
     create_aggregate_api, delete_aggregate_api, list_aggregate_apis, read_aggregate_api_secret,
-    test_aggregate_api_connection, update_aggregate_api,
+    refresh_aggregate_api_balance, test_aggregate_api_connection, update_aggregate_api,
 };
 
 /// 函数 `api_id_param`
@@ -54,6 +54,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let model_override = super::string_param(req, "modelOverride");
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
+            let balance_query_enabled = super::bool_param(req, "balanceQueryEnabled");
+            let balance_query_template = super::string_param(req, "balanceQueryTemplate");
+            let balance_query_base_url = super::string_param(req, "balanceQueryBaseUrl");
+            let balance_query_access_token = super::string_param(req, "balanceQueryAccessToken");
+            let balance_query_user_id = super::string_param(req, "balanceQueryUserId");
+            let balance_query_config_json = super::string_param(req, "balanceQueryConfigJson");
             super::value_or_error(create_aggregate_api(
                 url,
                 key,
@@ -68,6 +74,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 model_override,
                 username,
                 password,
+                balance_query_enabled,
+                balance_query_template,
+                balance_query_base_url,
+                balance_query_access_token,
+                balance_query_user_id,
+                balance_query_config_json,
             ))
         }
         "aggregateApi/update" => {
@@ -90,6 +102,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let model_override = super::string_param(req, "modelOverride");
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
+            let balance_query_enabled = super::bool_param(req, "balanceQueryEnabled");
+            let balance_query_template = super::string_param(req, "balanceQueryTemplate");
+            let balance_query_base_url = super::string_param(req, "balanceQueryBaseUrl");
+            let balance_query_access_token = super::string_param(req, "balanceQueryAccessToken");
+            let balance_query_user_id = super::string_param(req, "balanceQueryUserId");
+            let balance_query_config_json = super::string_param(req, "balanceQueryConfigJson");
             super::ok_or_error(update_aggregate_api(
                 api_id,
                 url,
@@ -106,6 +124,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 model_override,
                 username,
                 password,
+                balance_query_enabled,
+                balance_query_template,
+                balance_query_base_url,
+                balance_query_access_token,
+                balance_query_user_id,
+                balance_query_config_json,
             ))
         }
         "aggregateApi/readSecret" => {
@@ -119,6 +143,10 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/testConnection" => {
             let api_id = api_id_param(req).unwrap_or("");
             super::value_or_error(test_aggregate_api_connection(api_id))
+        }
+        "aggregateApi/refreshBalance" => {
+            let api_id = api_id_param(req).unwrap_or("");
+            super::value_or_error(refresh_aggregate_api_balance(api_id))
         }
         _ => return None,
     };

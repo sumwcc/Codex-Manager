@@ -50,6 +50,12 @@ pub async fn service_aggregate_api_create(
     model_override: Option<String>,
     username: Option<String>,
     password: Option<String>,
+    balance_query_enabled: Option<bool>,
+    balance_query_template: Option<String>,
+    balance_query_base_url: Option<String>,
+    balance_query_access_token: Option<String>,
+    balance_query_user_id: Option<String>,
+    balance_query_config_json: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "providerType": provider_type,
@@ -65,6 +71,12 @@ pub async fn service_aggregate_api_create(
         "modelOverride": model_override,
         "username": username,
         "password": password,
+        "balanceQueryEnabled": balance_query_enabled,
+        "balanceQueryTemplate": balance_query_template,
+        "balanceQueryBaseUrl": balance_query_base_url,
+        "balanceQueryAccessToken": balance_query_access_token,
+        "balanceQueryUserId": balance_query_user_id,
+        "balanceQueryConfigJson": balance_query_config_json,
     });
     rpc_call_in_background("aggregateApi/create", addr, Some(params)).await
 }
@@ -104,6 +116,12 @@ pub async fn service_aggregate_api_update(
     model_override: Option<String>,
     username: Option<String>,
     password: Option<String>,
+    balance_query_enabled: Option<bool>,
+    balance_query_template: Option<String>,
+    balance_query_base_url: Option<String>,
+    balance_query_access_token: Option<String>,
+    balance_query_user_id: Option<String>,
+    balance_query_config_json: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "id": id,
@@ -121,6 +139,12 @@ pub async fn service_aggregate_api_update(
         "modelOverride": model_override,
         "username": username,
         "password": password,
+        "balanceQueryEnabled": balance_query_enabled,
+        "balanceQueryTemplate": balance_query_template,
+        "balanceQueryBaseUrl": balance_query_base_url,
+        "balanceQueryAccessToken": balance_query_access_token,
+        "balanceQueryUserId": balance_query_user_id,
+        "balanceQueryConfigJson": balance_query_config_json,
     });
     rpc_call_in_background("aggregateApi/update", addr, Some(params)).await
 }
@@ -186,4 +210,13 @@ pub async fn service_aggregate_api_test_connection(
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({ "id": id });
     rpc_call_in_background("aggregateApi/testConnection", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_refresh_balance(
+    addr: Option<String>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id });
+    rpc_call_in_background("aggregateApi/refreshBalance", addr, Some(params)).await
 }

@@ -1400,4 +1400,35 @@ export const EN_MESSAGES: MessageCatalog = {
     "This affects runtime configuration. After changing it, monitor whether the request path remains stable.",
   "上游 Originator": "Upstream Originator",
   "区域驻留要求": "Residency requirement",
+  余额: "Balance",
+  余额检测: "Balance query",
+  "开启后可在聚合 API 列表手动刷新并显示余额。":
+    "Enable manual balance refresh and display in the aggregate API list.",
+  查询模板: "Query template",
+  通用余额: "Generic balance",
+  余额接口基础地址: "Balance API base URL",
+  "留空则从 URL 推断服务根地址":
+    "Leave blank to infer the service root from URL",
+  "留空则使用上方 URL": "Leave blank to use the URL above",
+  "余额 Access Token": "Balance access token",
+  "留空则保持原值或使用密钥": "Leave blank to keep the old value or use the key",
+  "留空则使用密钥": "Leave blank to use the key",
+  "New API 用户 ID": "New API user ID",
+  未启用: "Disabled",
+  未查询: "Not queried",
+  查询失败: "Query failed",
+  套餐: "Plan",
+  已用: "Used",
+  总额: "Total",
+  余额已刷新: "Balance refreshed",
+  "余额查询失败 {reason}": "Balance query failed: {reason}",
+  余额查询失败: "Balance query failed",
+  "余额刷新完成：{count} 个成功":
+    "Balance refresh completed: {count} succeeded",
+  "余额刷新完成：{success} 个成功，{fail} 个失败":
+    "Balance refresh completed: {success} succeeded, {fail} failed",
+  批量刷新余额失败: "Batch balance refresh failed",
+  "暂无已启用余额检测的聚合 API":
+    "No aggregate APIs with balance query enabled",
+  刷新余额: "Refresh balance",
 };

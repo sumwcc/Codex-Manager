@@ -57,7 +57,11 @@ import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivati
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
-import { AggregateApi, AggregateApiSecretResult } from "@/types";
+import {
+  AggregateApi,
+  AggregateApiBalanceSnapshot,
+  AggregateApiSecretResult,
+} from "@/types";
 
 type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
 
@@ -71,6 +75,43 @@ const AGGREGATE_API_PROVIDER_FILTER_LABELS: Record<string, string> = {
   codex: "Codex",
   claude: "Claude",
 };
+
+function parseBalanceSnapshot(api: AggregateApi): AggregateApiBalanceSnapshot | null {
+  const raw = String(api.lastBalanceJson || "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AggregateApiBalanceSnapshot>;
+    return {
+      isValid: parsed.isValid ?? true,
+      invalidMessage: parsed.invalidMessage ?? null,
+      remaining: typeof parsed.remaining === "number" ? parsed.remaining : null,
+      unit: typeof parsed.unit === "string" ? parsed.unit : null,
+      planName: typeof parsed.planName === "string" ? parsed.planName : null,
+      total: typeof parsed.total === "number" ? parsed.total : null,
+      used: typeof parsed.used === "number" ? parsed.used : null,
+      extra:
+        parsed.extra && typeof parsed.extra === "object"
+          ? (parsed.extra as Record<string, unknown>)
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatBalanceAmount(snapshot: AggregateApiBalanceSnapshot | null) {
+  if (!snapshot || typeof snapshot.remaining !== "number") {
+    return "-";
+  }
+  const unit = String(snapshot.unit || "").trim();
+  const value = Number.isInteger(snapshot.remaining)
+    ? String(snapshot.remaining)
+    : snapshot.remaining.toFixed(2);
+  if (unit.toUpperCase() === "USD") {
+    return `$${value}`;
+  }
+  return unit ? `${value} ${unit}` : value;
+}
 
 /**
  * 函数 `getTestBadge`
@@ -123,6 +164,8 @@ export default function AggregateApiPage() {
   const [loadingSecretId, setLoadingSecretId] = useState<string | null>(null);
   const [testingApiId, setTestingApiId] = useState<string | null>(null);
   const [testingAll, setTestingAll] = useState(false);
+  const [refreshingBalanceId, setRefreshingBalanceId] = useState<string | null>(null);
+  const [refreshingBalances, setRefreshingBalances] = useState(false);
   const [togglingApiId, setTogglingApiId] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>(
     {},
@@ -223,6 +266,67 @@ export default function AggregateApiPage() {
     );
   };
 
+  const renderBalanceStatus = (api: AggregateApi) => {
+    if (!api.balanceQueryEnabled) {
+      return <Badge variant="secondary">{t("未启用")}</Badge>;
+    }
+
+    const snapshot = parseBalanceSnapshot(api);
+    if (api.lastBalanceStatus === "success" && snapshot) {
+      const badge = (
+        <Badge className="border-emerald-500/20 bg-emerald-500/10 text-emerald-600">
+          {formatBalanceAmount(snapshot)}
+        </Badge>
+      );
+      const details = [
+        snapshot.planName ? `${t("套餐")}: ${snapshot.planName}` : null,
+        typeof snapshot.used === "number"
+          ? `${t("已用")}: ${snapshot.used.toFixed(2)}`
+          : null,
+        typeof snapshot.total === "number"
+          ? `${t("总额")}: ${snapshot.total.toFixed(2)}`
+          : null,
+      ].filter(Boolean);
+
+      if (details.length === 0) {
+        return badge;
+      }
+      return (
+        <Tooltip>
+          <TooltipTrigger render={<div />} className="inline-flex cursor-help">
+            {badge}
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
+            {details.join("\n")}
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    if (api.lastBalanceStatus === "failed") {
+      const badge = (
+        <Badge className="border-red-500/20 bg-red-500/10 text-red-500">
+          {t("查询失败")}
+        </Badge>
+      );
+      if (!api.lastBalanceError) {
+        return badge;
+      }
+      return (
+        <Tooltip>
+          <TooltipTrigger render={<div />} className="inline-flex cursor-help">
+            {badge}
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
+            {api.lastBalanceError}
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return <Badge variant="secondary">{t("未查询")}</Badge>;
+  };
+
   const testMutation = useMutation({
     mutationFn: (apiId: string) =>
       accountClient.testAggregateApiConnection(apiId),
@@ -282,6 +386,66 @@ export default function AggregateApiPage() {
     },
     onError: (error: unknown) => {
       toast.error(`${t("批量测试失败")}: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+
+  const refreshBalanceMutation = useMutation({
+    mutationFn: (apiId: string) => accountClient.refreshAggregateApiBalance(apiId),
+    onMutate: async (apiId) => {
+      setRefreshingBalanceId(apiId);
+    },
+    onSuccess: async (result) => {
+      if (result.ok) {
+        toast.success(t("余额已刷新"));
+        return;
+      }
+      toast.warning(
+        t("余额查询失败 {reason}", {
+          reason: result.message || t("未返回具体错误信息"),
+        }),
+      );
+    },
+    onSettled: async (_result, _error, apiId) => {
+      await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
+      setRefreshingBalanceId((current) => (current === apiId ? null : current));
+    },
+    onError: (error: unknown) => {
+      toast.error(`${t("余额查询失败")}: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+
+  const refreshAllBalancesMutation = useMutation({
+    mutationFn: async (apiIds: string[]) => {
+      const results = await Promise.allSettled(
+        apiIds.map((id) => accountClient.refreshAggregateApiBalance(id))
+      );
+      return results;
+    },
+    onMutate: async () => {
+      setRefreshingBalances(true);
+    },
+    onSuccess: async (results) => {
+      const successCount = results.filter(
+        (r) => r.status === "fulfilled" && r.value.ok
+      ).length;
+      const failCount = results.length - successCount;
+      if (failCount === 0) {
+        toast.success(t("余额刷新完成：{count} 个成功", { count: successCount }));
+      } else {
+        toast.warning(
+          t("余额刷新完成：{success} 个成功，{fail} 个失败", {
+            success: successCount,
+            fail: failCount,
+          })
+        );
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
+      setRefreshingBalances(false);
+    },
+    onError: (error: unknown) => {
+      toast.error(`${t("批量刷新余额失败")}: ${error instanceof Error ? error.message : String(error)}`);
     },
   });
 
@@ -632,6 +796,28 @@ export default function AggregateApiPage() {
                   {t("测试全部")}
                 </Button>
                 <Button
+                  variant="outline"
+                  className="h-10 gap-2"
+                  onClick={() => {
+                    const apiIds = filteredAggregateApis
+                      .filter((api) => api.balanceQueryEnabled)
+                      .map((api) => api.id);
+                    if (apiIds.length === 0) {
+                      toast.info(t("暂无已启用余额检测的聚合 API"));
+                      return;
+                    }
+                    refreshAllBalancesMutation.mutate(apiIds);
+                  }}
+                  disabled={
+                    !isServiceReady ||
+                    refreshingBalances ||
+                    filteredAggregateApis.every((api) => !api.balanceQueryEnabled)
+                  }
+                >
+                  <RefreshCw className={refreshingBalances ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                  {t("刷新余额")}
+                </Button>
+                <Button
                   className="h-10 gap-2 shadow-lg shadow-primary/20"
                   onClick={openCreateModal}
                   disabled={!isServiceReady}
@@ -653,6 +839,7 @@ export default function AggregateApiPage() {
                   <TableHead className="w-[148px]">{t("密钥")}</TableHead>
                   <TableHead className="w-[64px] text-center">{t("顺序")}</TableHead>
                   <TableHead className="w-[130px]">{t("测试连通性")}</TableHead>
+                  <TableHead className="w-[150px]">{t("余额")}</TableHead>
                   <TableHead className="w-[112px] text-right pr-4">{t("状态")}</TableHead>
                   <TableHead className="table-sticky-action-head w-[112px] text-center">
                     {t("操作")}
@@ -679,6 +866,9 @@ export default function AggregateApiPage() {
                         <Skeleton className="h-6 w-20 rounded-full" />
                       </TableCell>
                       <TableCell>
+                        <Skeleton className="h-6 w-24 rounded-full" />
+                      </TableCell>
+                      <TableCell>
                         <Skeleton className="h-6 w-16 rounded-full" />
                       </TableCell>
                       <TableCell className="table-sticky-action-cell text-center">
@@ -688,7 +878,7 @@ export default function AggregateApiPage() {
                   ))
                 ) : filteredAggregateApis.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-48 text-center">
+                    <TableCell colSpan={8} className="h-48 text-center">
                       <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                         <ShieldCheck className="h-8 w-8 opacity-20" />
                         <p>
@@ -889,6 +1079,58 @@ export default function AggregateApiPage() {
                               </TooltipTrigger>
                               <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
                                 {api.lastTestError}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap align-middle">
+                          <div className="flex items-center gap-2">
+                            {renderBalanceStatus(api)}
+                            <Tooltip>
+                              <TooltipTrigger render={<span />} className="inline-flex">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  disabled={
+                                    !isServiceReady ||
+                                    !api.balanceQueryEnabled ||
+                                    refreshingBalanceId === api.id ||
+                                    refreshingBalances
+                                  }
+                                  onClick={() =>
+                                    refreshBalanceMutation.mutate(api.id)
+                                  }
+                                >
+                                  <RefreshCw
+                                    className={
+                                      refreshingBalanceId === api.id
+                                        ? "h-3.5 w-3.5 animate-spin"
+                                        : "h-3.5 w-3.5"
+                                    }
+                                  />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>{t("刷新余额")}</TooltipContent>
+                            </Tooltip>
+                          </div>
+                          {api.lastBalanceAt ? (
+                            <p className="mt-1 text-[10px] text-muted-foreground">
+                              {formatTsFromSeconds(api.lastBalanceAt, t("未知时间"))}
+                            </p>
+                          ) : null}
+                          {api.lastBalanceStatus === "failed" && api.lastBalanceError ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={<div />}
+                                className="mt-1 block max-w-full cursor-help text-left"
+                              >
+                                <p className="max-w-[180px] truncate text-[10px] text-red-500/90">
+                                  {api.lastBalanceError}
+                                </p>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
+                                {api.lastBalanceError}
                               </TooltipContent>
                             </Tooltip>
                           ) : null}

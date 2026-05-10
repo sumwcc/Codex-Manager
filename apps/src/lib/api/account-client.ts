@@ -1,6 +1,7 @@
 import { invoke, withAddr } from "./transport";
 import {
   normalizeAccountList,
+  normalizeAggregateApiBalanceRefreshResult,
   normalizeAggregateApiCreateResult,
   normalizeAggregateApiList,
   normalizeAggregateApiSecretResult,
@@ -41,6 +42,7 @@ import {
   AccountListResult,
   AccountUsage,
   AggregateApi,
+  AggregateApiBalanceRefreshResult,
   AggregateApiCreateResult,
   AggregateApiSecretResult,
   AggregateApiTestResult,
@@ -136,6 +138,12 @@ interface AggregateApiPayload {
   modelOverride?: string | null;
   username?: string | null;
   password?: string | null;
+  balanceQueryEnabled?: boolean | null;
+  balanceQueryTemplate?: string | null;
+  balanceQueryBaseUrl?: string | null;
+  balanceQueryAccessToken?: string | null;
+  balanceQueryUserId?: string | null;
+  balanceQueryConfigJson?: string | null;
 }
 
 const MAX_IMPORT_RPC_BODY_BYTES = 4 * 1024 * 1024;
@@ -521,6 +529,24 @@ export const accountClient = {
           typeof params.modelOverride === "string" ? params.modelOverride : null,
         username: params.username || null,
         password: params.password || null,
+        balanceQueryEnabled:
+          typeof params.balanceQueryEnabled === "boolean"
+            ? params.balanceQueryEnabled
+            : null,
+        balanceQueryTemplate: params.balanceQueryTemplate || null,
+        balanceQueryBaseUrl:
+          typeof params.balanceQueryBaseUrl === "string"
+            ? params.balanceQueryBaseUrl
+            : null,
+        balanceQueryAccessToken: params.balanceQueryAccessToken || null,
+        balanceQueryUserId:
+          typeof params.balanceQueryUserId === "string"
+            ? params.balanceQueryUserId
+            : null,
+        balanceQueryConfigJson:
+          typeof params.balanceQueryConfigJson === "string"
+            ? params.balanceQueryConfigJson
+            : null,
       })
     );
     return normalizeAggregateApiCreateResult(result);
@@ -551,6 +577,24 @@ export const accountClient = {
           typeof params.modelOverride === "string" ? params.modelOverride : null,
         username: params.username || null,
         password: params.password || null,
+        balanceQueryEnabled:
+          typeof params.balanceQueryEnabled === "boolean"
+            ? params.balanceQueryEnabled
+            : null,
+        balanceQueryTemplate: params.balanceQueryTemplate || null,
+        balanceQueryBaseUrl:
+          typeof params.balanceQueryBaseUrl === "string"
+            ? params.balanceQueryBaseUrl
+            : null,
+        balanceQueryAccessToken: params.balanceQueryAccessToken || null,
+        balanceQueryUserId:
+          typeof params.balanceQueryUserId === "string"
+            ? params.balanceQueryUserId
+            : null,
+        balanceQueryConfigJson:
+          typeof params.balanceQueryConfigJson === "string"
+            ? params.balanceQueryConfigJson
+            : null,
       })
     ),
   deleteAggregateApi: (apiId: string) =>
@@ -568,6 +612,13 @@ export const accountClient = {
       withAddr({ id: apiId })
     );
     return normalizeAggregateApiTestResult(result);
+  },
+  async refreshAggregateApiBalance(apiId: string): Promise<AggregateApiBalanceRefreshResult> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_refresh_balance",
+      withAddr({ id: apiId })
+    );
+    return normalizeAggregateApiBalanceRefreshResult(result);
   },
 
   async listApiKeys(): Promise<ApiKey[]> {

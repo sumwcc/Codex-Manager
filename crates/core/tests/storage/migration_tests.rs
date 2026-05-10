@@ -259,6 +259,15 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 053 migration");
     assert_eq!(applied_053, 1);
+    let applied_054: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '054_aggregate_api_balance_query'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 054 migration");
+    assert_eq!(applied_054, 1);
 
     assert!(!storage
         .has_column("accounts", "note")
@@ -344,6 +353,18 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     assert!(storage
         .has_column("api_key_quota_limits", "quota_limit_tokens")
         .expect("check api_key_quota_limits.quota_limit_tokens"));
+    assert!(storage
+        .has_column("aggregate_apis", "balance_query_enabled")
+        .expect("check aggregate_apis.balance_query_enabled"));
+    assert!(storage
+        .has_column("aggregate_apis", "balance_query_config_json")
+        .expect("check aggregate_apis.balance_query_config_json"));
+    assert!(storage
+        .has_column("aggregate_apis", "last_balance_json")
+        .expect("check aggregate_apis.last_balance_json"));
+    assert!(storage
+        .has_table("aggregate_api_balance_secrets")
+        .expect("check aggregate_api_balance_secrets table"));
     assert!(!storage
         .has_column("request_logs", "input_tokens")
         .expect("check request_logs.input_tokens"));
