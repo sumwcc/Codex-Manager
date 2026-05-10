@@ -1764,12 +1764,7 @@ fn responses_compact_uses_codex_compat_rewrite() {
         Some("https://chatgpt.com/backend-api/codex"),
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
-    assert_eq!(
-        value
-            .get("instructions")
-            .and_then(serde_json::Value::as_str),
-        Some("")
-    );
+    assert!(value.get("instructions").is_none());
     assert!(value.get("tools").is_some());
     assert_eq!(
         value
@@ -1787,7 +1782,12 @@ fn responses_compact_uses_codex_compat_rewrite() {
     assert!(value.get("text").is_some());
     assert!(value.get("stream").is_none());
     assert!(value.get("store").is_none());
-    assert!(value.get("service_tier").is_none());
+    assert_eq!(
+        value
+            .get("service_tier")
+            .and_then(serde_json::Value::as_str),
+        Some("priority")
+    );
     assert!(value.get("user").is_none());
     assert!(value
         .get("input")
@@ -1844,6 +1844,7 @@ fn responses_compact_keeps_only_codex_compact_body_fields() {
         "parallel_tool_calls",
         "prompt_cache_key",
         "reasoning",
+        "service_tier",
         "text",
         "tools",
     ]
@@ -1862,7 +1863,12 @@ fn responses_compact_keeps_only_codex_compact_body_fields() {
         Some("pc_compact")
     );
     assert!(object.get("client_metadata").is_none());
-    assert!(object.get("service_tier").is_none());
+    assert_eq!(
+        object
+            .get("service_tier")
+            .and_then(serde_json::Value::as_str),
+        Some("priority")
+    );
     assert!(object.get("metadata").is_none());
     assert!(object.get("max_output_tokens").is_none());
     assert!(object.get("temperature").is_none());
@@ -1978,7 +1984,7 @@ fn responses_compact_defaults_parallel_tool_calls_to_false_for_codex_backend() {
 }
 
 #[test]
-fn responses_compact_defaults_missing_or_null_instructions_to_empty_string() {
+fn responses_compact_omits_missing_or_empty_instructions() {
     let _guard = crate::test_env_guard();
 
     for body in [
@@ -1991,6 +1997,11 @@ fn responses_compact_defaults_missing_or_null_instructions_to_empty_string() {
             "instructions": null,
             "input": "compact me"
         }),
+        json!({
+            "model": "gpt-5.3-codex",
+            "instructions": "",
+            "input": "compact me"
+        }),
     ] {
         let out = apply_codex_compat_request_overrides(
             "/v1/responses/compact",
@@ -2000,17 +2011,12 @@ fn responses_compact_defaults_missing_or_null_instructions_to_empty_string() {
             Some("https://chatgpt.com/backend-api/codex"),
         );
         let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
-        assert_eq!(
-            value
-                .get("instructions")
-                .and_then(serde_json::Value::as_str),
-            Some("")
-        );
+        assert!(value.get("instructions").is_none());
     }
 }
 
 #[test]
-fn responses_compact_default_path_omits_service_tier_for_codex_backend() {
+fn responses_compact_default_path_keeps_normalized_service_tier_for_codex_backend() {
     let _guard = crate::test_env_guard();
     let body = json!({
         "model": "gpt-5.4",
@@ -2025,7 +2031,12 @@ fn responses_compact_default_path_omits_service_tier_for_codex_backend() {
         Some("https://chatgpt.com/backend-api/codex"),
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
-    assert!(value.get("service_tier").is_none());
+    assert_eq!(
+        value
+            .get("service_tier")
+            .and_then(serde_json::Value::as_str),
+        Some("priority")
+    );
 }
 
 /// 函数 `responses_omits_include_when_reasoning_missing_for_codex_backend`

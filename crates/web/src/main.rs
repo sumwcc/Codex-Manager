@@ -363,9 +363,11 @@ fn escape_html(text: &str) -> String {
 /// # 返回
 /// 返回函数执行结果
 async fn runtime_info() -> impl IntoResponse {
+    let author_content_url = read_env_trim("CODEXMANAGER_AUTHOR_CONTENT_URL").unwrap_or_default();
     Json(serde_json::json!({
         "mode": "web-gateway",
         "rpcBaseUrl": "/api/rpc",
+        "authorContentUrl": author_content_url,
         "canManageService": false,
         "canSelfUpdate": false,
         "canCloseToTray": false,
@@ -558,6 +560,7 @@ async fn async_main() {
             any(service_gateway::gateway_proxy),
         )
         .route("/api/runtime", get(runtime_info))
+        .route("/api/author-content", get(service_gateway::author_content))
         .route("/__auth_status", get(auth::auth_status))
         .route("/__login", get(auth::login_page).post(auth::login_submit))
         .route("/__logout", get(auth::logout).post(auth::logout))
@@ -739,6 +742,7 @@ mod tests {
 
         assert_eq!(payload["mode"], "web-gateway");
         assert_eq!(payload["rpcBaseUrl"], "/api/rpc");
+        assert_eq!(payload["authorContentUrl"], "");
         assert_eq!(payload["canManageService"], false);
         assert_eq!(payload["canSelfUpdate"], false);
         assert_eq!(payload["canCloseToTray"], false);

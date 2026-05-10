@@ -7,6 +7,7 @@ mod account_metadata;
 mod account_subscriptions;
 mod accounts;
 mod aggregate_apis;
+mod api_key_quota_limits;
 mod api_keys;
 mod conversation_bindings;
 mod events;
@@ -677,6 +678,7 @@ impl Storage {
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
+        self.ensure_api_key_quota_limits_table()?;
         self.ensure_request_token_stats_table()?;
         self.ensure_gateway_error_logs_table()?;
         self.ensure_request_log_request_type_and_service_tier_columns()?;

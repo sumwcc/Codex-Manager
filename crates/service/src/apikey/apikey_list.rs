@@ -19,9 +19,13 @@ pub(crate) fn read_api_keys() -> Result<Vec<ApiKeySummary>, String> {
     let keys = storage
         .list_api_keys()
         .map_err(|err| format!("list api keys failed: {err}"))?;
+    let quota_limits = storage
+        .list_api_key_quota_limits()
+        .map_err(|err| format!("list api key quota limits failed: {err}"))?;
     Ok(keys
         .into_iter()
         .map(|key| ApiKeySummary {
+            quota_limit_tokens: quota_limits.get(&key.id).copied(),
             id: key.id,
             name: key.name,
             model_slug: key.model_slug,

@@ -11,7 +11,7 @@ export const TOP_LEVEL_ROUTE_CONFIG = [
   { path: "/plugins", label: "插件中心" },
   { path: "/logs", label: "请求日志" },
   { path: "/settings", label: "设置" },
-  { path: "/author", label: "关于作者" },
+  { path: "/author", label: "赞助与推荐" },
 ] as const;
 
 export type TopLevelRoutePath = (typeof TOP_LEVEL_ROUTE_CONFIG)[number]["path"];

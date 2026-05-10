@@ -8,7 +8,7 @@ mod shared;
 mod store;
 mod ui;
 
-pub use api::{app_settings_get, app_settings_get_with_overrides, app_settings_set};
+pub use api::{app_settings_get, app_settings_get_with_overrides, app_settings_set, author_content_get};
 pub(crate) use codex_latest_sync::ensure_codex_latest_version_sync;
 pub(crate) use env_overrides::{
     apply_env_overrides_to_process, persisted_env_overrides_missing_process_env,
@@ -40,6 +40,7 @@ pub use service::{
 };
 pub(crate) use shared::{normalize_optional_text, parse_bool_with_default};
 pub use shared::{
+    APP_SETTING_AUTHOR_SERVER_RECOMMENDATIONS_KEY, APP_SETTING_AUTHOR_SPONSORS_KEY,
     APP_SETTING_CLOSE_TO_TRAY_ON_CLOSE_KEY, APP_SETTING_ENV_OVERRIDES_KEY,
     APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
     APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,

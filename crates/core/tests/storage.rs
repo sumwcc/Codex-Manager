@@ -1549,3 +1549,81 @@ fn storage_can_roundtrip_api_key_secret() {
         .expect("load removed secret");
     assert!(removed.is_none());
 }
+
+#[test]
+fn storage_can_roundtrip_api_key_quota_limit_and_usage() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    storage
+        .insert_api_key(&ApiKey {
+            id: "key-quota-1".to_string(),
+            name: Some("quota".to_string()),
+            model_slug: None,
+            reasoning_effort: None,
+            service_tier: None,
+            rotation_strategy: "account_rotation".to_string(),
+            aggregate_api_id: None,
+            account_plan_filter: None,
+            aggregate_api_url: None,
+            client_type: "codex".to_string(),
+            protocol_type: "openai_compat".to_string(),
+            auth_scheme: "authorization_bearer".to_string(),
+            upstream_base_url: None,
+            static_headers_json: None,
+            key_hash: "hash-quota-1".to_string(),
+            status: "active".to_string(),
+            created_at: now_ts(),
+            last_used_at: None,
+        })
+        .expect("insert key");
+
+    storage
+        .upsert_api_key_quota_limit("key-quota-1", Some(1000))
+        .expect("upsert quota");
+    assert_eq!(
+        storage
+            .find_api_key_quota_limit("key-quota-1")
+            .expect("read quota"),
+        Some(1000)
+    );
+
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: 1,
+            key_id: Some("key-quota-1".to_string()),
+            input_tokens: Some(700),
+            cached_input_tokens: Some(100),
+            output_tokens: Some(300),
+            total_tokens: None,
+            created_at: now_ts(),
+            ..RequestTokenStat::default()
+        })
+        .expect("insert stat");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: 2,
+            key_id: Some("key-quota-1".to_string()),
+            total_tokens: Some(250),
+            created_at: now_ts(),
+            ..RequestTokenStat::default()
+        })
+        .expect("insert total stat");
+
+    assert_eq!(
+        storage
+            .api_key_total_token_usage("key-quota-1")
+            .expect("read usage"),
+        1150
+    );
+
+    storage
+        .upsert_api_key_quota_limit("key-quota-1", None)
+        .expect("clear quota");
+    assert_eq!(
+        storage
+            .find_api_key_quota_limit("key-quota-1")
+            .expect("read cleared quota"),
+        None
+    );
+}

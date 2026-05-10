@@ -1755,3 +1755,64 @@ fn app_settings_set_rejects_reserved_and_bootstrap_env_override_keys() {
         assert!(bootstrap.is_err());
     });
 }
+
+#[test]
+fn app_settings_set_can_roundtrip_author_content() {
+    with_temp_db(|_| {
+        let snapshot = codexmanager_service::app_settings_set(Some(&json!({
+            "authorSponsors": [
+                {
+                    "key": "remote-sponsor",
+                    "name": "Remote Sponsor",
+                    "description": "remote sponsor description",
+                    "href": "https://example.com/sponsor",
+                    "actionLabel": "立即查看",
+                    "imageSrc": "https://example.com/logo.png",
+                    "imageAlt": "Remote Sponsor Logo"
+                }
+            ],
+            "authorServerRecommendations": []
+        })))
+        .expect("set author content");
+
+        assert_eq!(
+            snapshot
+                .get("authorSponsors")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len()),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot
+                .get("authorSponsors")
+                .and_then(|value| value.get(0))
+                .and_then(|value| value.get("name"))
+                .and_then(|value| value.as_str()),
+            Some("Remote Sponsor")
+        );
+        assert_eq!(
+            snapshot
+                .get("authorServerRecommendations")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len()),
+            Some(0)
+        );
+
+        let public = codexmanager_service::author_content_get().expect("get author content");
+        assert_eq!(
+            public
+                .get("authorSponsors")
+                .and_then(|value| value.get(0))
+                .and_then(|value| value.get("href"))
+                .and_then(|value| value.as_str()),
+            Some("https://example.com/sponsor")
+        );
+        assert_eq!(
+            public
+                .get("authorServerRecommendations")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len()),
+            Some(0)
+        );
+    });
+}

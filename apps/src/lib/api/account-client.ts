@@ -110,6 +110,7 @@ interface ApiKeyPayload {
   rotationStrategy?: string | null;
   aggregateApiId?: string | null;
   accountPlanFilter?: string | null;
+  quotaLimitTokens?: number | null;
 }
 
 export interface ManagedModelPayload {
@@ -587,6 +588,7 @@ export const accountClient = {
         rotationStrategy: params.rotationStrategy || null,
         aggregateApiId: params.aggregateApiId || null,
         accountPlanFilter: params.accountPlanFilter || null,
+        quotaLimitTokens: params.quotaLimitTokens ?? null,
       })
     );
     return normalizeApiKeyCreateResult(result);
@@ -597,23 +599,25 @@ export const accountClient = {
   },
   deleteApiKey: (keyId: string) =>
     invoke("service_apikey_delete", withAddr({ keyId })),
-  updateApiKey: (keyId: string, params: ApiKeyPayload) =>
-    invoke(
-      "service_apikey_update_model",
-      withAddr({
-        keyId,
-        name: params.name || null,
-        modelSlug: params.modelSlug || null,
-        reasoningEffort: params.reasoningEffort || null,
-        serviceTier: params.serviceTier || null,
-        protocolType: params.protocolType || null,
-        upstreamBaseUrl: params.upstreamBaseUrl || null,
-        staticHeadersJson: params.staticHeadersJson || null,
-        rotationStrategy: params.rotationStrategy || null,
-        aggregateApiId: params.aggregateApiId || null,
-        accountPlanFilter: params.accountPlanFilter || null,
-      })
-    ),
+  updateApiKey: (keyId: string, params: ApiKeyPayload) => {
+    const payload: Record<string, unknown> = {
+      keyId,
+      name: params.name || null,
+      modelSlug: params.modelSlug || null,
+      reasoningEffort: params.reasoningEffort || null,
+      serviceTier: params.serviceTier || null,
+      protocolType: params.protocolType || null,
+      upstreamBaseUrl: params.upstreamBaseUrl || null,
+      staticHeadersJson: params.staticHeadersJson || null,
+      rotationStrategy: params.rotationStrategy || null,
+      aggregateApiId: params.aggregateApiId || null,
+      accountPlanFilter: params.accountPlanFilter || null,
+    };
+    if ("quotaLimitTokens" in params) {
+      payload.quotaLimitTokens = params.quotaLimitTokens ?? null;
+    }
+    return invoke("service_apikey_update_model", withAddr(payload));
+  },
   disableApiKey: (keyId: string) =>
     invoke("service_apikey_disable", withAddr({ keyId })),
   enableApiKey: (keyId: string) =>

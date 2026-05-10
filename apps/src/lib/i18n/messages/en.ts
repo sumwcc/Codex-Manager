@@ -110,6 +110,7 @@ export const EN_MESSAGES: MessageCatalog = {
   复制用户名: "Copy username",
   复制密码: "Copy password",
   已复制到剪贴板: "Copied to clipboard",
+  端点已复制: "Endpoint copied",
   编辑配置: "Edit configuration",
   "编辑聚合 API": "Edit aggregate API",
   设为优先: "Set as priority",
@@ -118,6 +119,11 @@ export const EN_MESSAGES: MessageCatalog = {
   删除: "Delete",
   创建和管理网关调用所需的访问令牌:
     "Create and manage access tokens required for gateway requests.",
+  网关端点: "Gateway endpoint",
+  复制端点: "Copy endpoint",
+  复制调用地址: "Copy request endpoint",
+  "复制 OpenAI / Codex 端点": "Copy OpenAI / Codex endpoint",
+  "复制 Claude Code / Gemini CLI 端点": "Copy Claude Code / Gemini CLI endpoint",
   刷新模型: "Refresh models",
   创建密钥: "Create key",
   "密钥 / ID": "Key / ID",
@@ -1233,4 +1239,165 @@ export const EN_MESSAGES: MessageCatalog = {
     "Local gateway address. By default this uses port 48760 exposed by CodexManager.",
   "与本软件网关对接时使用 responses 协议":
     "Use the `responses` protocol when connecting through this app's gateway.",
+  "按状态清理账号": "Clean accounts by status",
+  "更多账号操作": "More account actions",
+  "将删除所有匹配所选状态的账号，不再额外限制账号套餐。":
+    "All accounts matching the selected statuses will be deleted without any additional plan restriction.",
+  "确认清理": "Confirm cleanup",
+  "刷新 AT/RT": "Refresh AT/RT",
+  "刷新全部 AT/RT": "Refresh all AT/RT",
+  "刷新用量": "Refresh usage",
+  "选择导出方式；如果已勾选账号，则只导出当前选中项。":
+    "Choose the export format. If accounts are selected, only the current selection will be exported.",
+  "选择要删除的账号状态；删除后不可恢复。":
+    "Select the account statuses to delete. This action cannot be undone.",
+  "预计删除": "Planned deletion",
+  "当前没有可清理的账号": "There are no accounts available for cleanup",
+  "当前没有匹配所选状态的账号":
+    "There are no accounts matching the selected statuses",
+  "明确触发 usage_limit_reached 的账号，不包含低额度账号":
+    "Accounts that explicitly triggered usage_limit_reached, excluding low-quota accounts",
+  "请至少选择一种账号状态": "Please select at least one account status",
+  "手动禁用的账号": "Manually disabled accounts",
+  "手动停用或旧版本标记的账号":
+    "Accounts manually disabled or marked by legacy versions",
+  "用量限制": "Usage limit",
+  "账号或工作区被停用的账号":
+    "Accounts whose account or workspace has been disabled",
+  "AT/RT 过期、用量接口 401/403 等不可用账号":
+    "Unavailable accounts such as expired AT/RT or usage API 401/403 failures",
+  "测试全部": "Test all",
+  "测试完成：{success} 个连通，{fail} 个失败":
+    "Testing complete: {success} connected, {fail} failed",
+  "批量测试失败": "Batch test failed",
+  "全部测试完成，{count} 个连通":
+    "All tests completed, {count} connected",
+  "暂无可测试的聚合 API": "No aggregate APIs available for testing",
+  "不限额": "Unlimited",
+  "已达上限": "Limit reached",
+  "已花费": "Spent",
+  "Token / 金额": "Token / Cost",
+  "赞助与推荐": "Sponsors & Recommendations",
+  "赞助": "Sponsors",
+  "赞助 / 推荐": "Sponsors / Recommendations",
+  "联系作者": "Contact author",
+  "这里集中展示 README 里的赞助信息、推荐服务，以及作者联系入口。":
+    "This page brings together sponsor information from the README, recommended services, and author contact options.",
+  "赞助商": "Sponsors",
+  "赞助商列表": "Sponsor list",
+  "沿用 README 的展示内容，并同步星思研邀请链接。":
+    "Reuse the sponsor content from the README and sync the Xing Si Yan referral link.",
+  "这里维护 /author 页的赞助商内容。部署在服务器上的 codexmanager-web 会从服务器数据库读取这些内容，无需重新发版本。":
+    "Manage the sponsor content used on the /author page. Server-hosted codexmanager-web reads it from the server database, so no new release is needed.",
+  "新增赞助商": "Add sponsor",
+  "恢复默认赞助内容": "Restore default sponsor content",
+  "保存赞助商列表": "Save sponsor list",
+  "当前没有赞助商条目，可点击上方按钮新增。":
+    "There are no sponsor entries yet. Use the button above to add one.",
+  "赞助商条目": "Sponsor entry",
+  "名称、链接和按钮文案为必填项。":
+    "Name, link, and button label are required.",
+  "删除条目": "Delete entry",
+  "按钮文案": "Button label",
+  "跳转链接": "Target link",
+  "描述": "Description",
+  "图片地址": "Image URL",
+  "图片说明": "Image alt text",
+  "服务器推荐": "Server recommendations",
+  "服务器推荐列表": "Server recommendation list",
+  "补充一个常用服务器选择，便于直接部署或长期运行服务。":
+    "Add a common server option for direct deployment or long-running services.",
+  "这里维护 /author 页的服务器推荐内容。保存后，走同一台服务器的页面会直接读取最新内容。":
+    "Manage the server recommendation content used on the /author page. After saving, pages served by the same server will read the latest content immediately.",
+  "新增服务器推荐": "Add server recommendation",
+  "恢复默认服务器推荐": "Restore default server recommendations",
+  "保存服务器推荐列表": "Save server recommendation list",
+  "当前没有服务器推荐条目，可点击上方按钮新增。":
+    "There are no server recommendation entries yet. Use the button above to add one.",
+  "服务器推荐条目": "Server recommendation entry",
+  "请填写完整的条目后再保存":
+    "Please complete each entry before saving.",
+  "赞助配置已保存": "Sponsor configuration saved.",
+  "已恢复默认赞助内容": "Default sponsor content restored.",
+  "赞助支持": "Sponsor support",
+  "联系方式": "Contact channels",
+  "持续维护中": "Actively maintained",
+  "需要反馈问题或进一步沟通时，可以通过微信或 TG 群联系作者。":
+    "For issue reports or further discussion, contact the author through WeChat or the Telegram group.",
+  "微信": "WeChat",
+  "扫码可直接添加作者微信，也可以手动搜索上面的微信号。":
+    "Scan the QR code to add the author's WeChat, or search the ID above manually.",
+  "加入 TG 群聊": "Join Telegram group",
+  "README 里维护的官方群链接，打开后即可加入讨论。":
+    "This is the official group link maintained in the README. Open it to join the discussion.",
+  "打开链接失败：{message}": "Failed to open link: {message}",
+  "未知错误": "Unknown error",
+  "支付宝赞助码": "Alipay sponsor QR",
+  "如果这个项目帮你省了时间，可以请作者喝杯咖啡。":
+    "If this project saved you time, you can buy the author a coffee.",
+  "微信赞助码": "WeChat sponsor QR",
+  "项目持续维护、修问题和做适配，欢迎随缘支持。":
+    "The project is actively maintained with ongoing fixes and compatibility work. Support is welcome if you feel like it.",
+  "VisionCoder 是一款高颜值、可灵活切换模型的桌面 AI 编程工具。它支持 Claude、Gemini、GPT，并集成 Claude Code、Gemini CLI、Codex、OpenCode 等多种 CLI 能力。":
+    "VisionCoder is a polished desktop AI coding tool with flexible model switching. It supports Claude, Gemini, GPT, and integrates multiple CLI capabilities such as Claude Code, Gemini CLI, Codex, and OpenCode.",
+  "访问官网": "Visit site",
+  "星思研中转站": "Xing Si Yan Gateway",
+  "星思研中转站为 Claude Code、Codex、Gemini 等模型调用场景提供稳定中转与配套服务，适合需要高可用接口、便捷接入和持续交付支持的开发者与团队。":
+    "Xing Si Yan Gateway provides stable relay and supporting services for Claude Code, Codex, Gemini, and similar model-call scenarios. It is suitable for developers and teams that require highly available APIs, easy onboarding, and continuous delivery support.",
+  "立即注册": "Register now",
+  "适合部署 CodexManager、网关转发服务和常规开发环境的 VPS 选择，适合需要稳定海外节点和可控成本的个人开发者或小团队。":
+    "A VPS choice suitable for deploying CodexManager, gateway relay services, and regular development environments. It fits solo developers and small teams that need stable overseas nodes with controllable cost.",
+  "查看套餐": "View plans",
+  "大小拒绝阶段": "Size rejection stage",
+  "规范来源": "Normalized source",
+  "显示名称": "Display name",
+  "原始路径": "Original path",
+  "模型目录": "Model catalog",
+  "模型管理": "Model management",
+  "这里维护本地结构化模型目录。默认绑定模型会优先展示 supportedInApi=true 的模型，而 Codex CLI 仍会拿到完整目录。":
+    "Maintain the local structured model catalog here. Default model binding prefers models with supportedInApi=true, while Codex CLI still receives the full catalog.",
+  "完整目录会同步到 Codex CLI": "The full catalog syncs to Codex CLI",
+  "默认绑定优先展示 API 可用模型":
+    "Default bindings prioritize models available through the API",
+  "远端刷新可与本地覆写共存":
+    "Remote refresh can coexist with local overrides",
+  "模型目录明细": "Catalog details",
+  "按 slug、显示名称或描述快速定位，并结合来源与覆写状态查看当前目录。":
+    "Quickly locate entries by slug, display name, or description, and review the current catalog together with source and override status.",
+  "远端并入": "Merge remote",
+  "新增自定义模型": "Add custom model",
+  "模型总数": "Total models",
+  "API 可用": "API available",
+  "自定义模型": "Custom models",
+  "本地覆写": "Local overrides",
+  "当前筛选": "Current filter",
+  "共 {count} 条": "{count} items",
+  "搜索 slug、显示名称或描述": "Search slug, display name, or description",
+  "全部模型": "All models",
+  "仅 API 可用": "API only",
+  "仅自定义": "Custom only",
+  "仅本地覆写": "Local overrides only",
+  "服务未连接，当前无法读取模型目录。":
+    "The service is disconnected, so the model catalog cannot be loaded right now.",
+  "没有匹配的模型。你可以调整筛选条件，或直接新增一个自定义模型。":
+    "No models match the current filters. Adjust the filters or add a custom model directly.",
+  "远端": "Remote",
+  "可见性": "Visibility",
+  "推理等级": "Reasoning level",
+  "更新时间": "Updated at",
+  "未填写描述": "No description provided",
+  "已覆写": "Overridden",
+  "隐藏": "Hidden",
+  "未配置": "Not configured",
+  "未同步": "Not synced",
+  "模型操作": "Model actions",
+  "编辑模型": "Edit model",
+  "删除模型": "Delete model",
+  "删除中...": "Deleting...",
+  "确定要删除模型 {slug} 吗？如果后续执行远端刷新，远端模型可能会再次并入本地目录。":
+    "Delete model {slug}? If you run a remote refresh later, the remote model may be merged back into the local catalog.",
+  "会影响运行时配置；修改后请观察请求链路是否稳定。":
+    "This affects runtime configuration. After changing it, monitor whether the request path remains stable.",
+  "上游 Originator": "Upstream Originator",
+  "区域驻留要求": "Residency requirement",
 };

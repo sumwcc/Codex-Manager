@@ -1,3 +1,5 @@
+import type { SponsorLinkItem } from "../lib/sponsor-links";
+
 export interface EnvOverrideCatalogItem {
   key: string;
   label: string;
@@ -50,6 +52,8 @@ export interface AppSettings {
   gatewayResidencyRequirementOptions: string[];
   pluginMarketMode: string;
   pluginMarketSourceUrl: string;
+  authorSponsors: SponsorLinkItem[];
+  authorServerRecommendations: SponsorLinkItem[];
   upstreamProxyUrl: string;
   upstreamStreamTimeoutMs: number;
   upstreamTotalTimeoutMs: number;
