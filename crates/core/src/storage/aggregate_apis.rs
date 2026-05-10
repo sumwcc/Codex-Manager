@@ -11,6 +11,7 @@ const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     auth_type,
     auth_params_json,
     action,
+    model_override,
     status,
     created_at,
     updated_at,
@@ -43,13 +44,14 @@ impl Storage {
                 auth_type,
                 auth_params_json,
                 action,
+                model_override,
                 status,
                 created_at,
                 updated_at,
                 last_test_at,
                 last_test_status,
                 last_test_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             (
                 &api.id,
                 &api.provider_type,
@@ -59,6 +61,7 @@ impl Storage {
                 &api.auth_type,
                 &api.auth_params_json,
                 &api.action,
+                &api.model_override,
                 &api.status,
                 api.created_at,
                 api.updated_at,
@@ -243,6 +246,18 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_aggregate_api_model_override(
+        &self,
+        api_id: &str,
+        model_override: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET model_override = ?1, updated_at = ?2 WHERE id = ?3",
+            (model_override, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
     /// 函数 `delete_aggregate_api`
     ///
     /// 作者: gaohongshun
@@ -382,6 +397,7 @@ impl Storage {
                 auth_type TEXT NOT NULL DEFAULT 'apikey',
                 auth_params_json TEXT,
                 action TEXT,
+                model_override TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
@@ -405,6 +421,7 @@ impl Storage {
         )?;
         self.ensure_column("aggregate_apis", "auth_params_json", "TEXT")?;
         self.ensure_column("aggregate_apis", "action", "TEXT")?;
+        self.ensure_column("aggregate_apis", "model_override", "TEXT")?;
         self.conn.execute(
             "UPDATE aggregate_apis
              SET provider_type = COALESCE(NULLIF(TRIM(provider_type), ''), 'codex')
@@ -476,11 +493,12 @@ fn map_aggregate_api_row(row: &Row<'_>) -> Result<AggregateApi> {
         auth_type: row.get(5)?,
         auth_params_json: row.get(6)?,
         action: row.get(7)?,
-        status: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        last_test_at: row.get(11)?,
-        last_test_status: row.get(12)?,
-        last_test_error: row.get(13)?,
+        model_override: row.get(8)?,
+        status: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        last_test_at: row.get(12)?,
+        last_test_status: row.get(13)?,
+        last_test_error: row.get(14)?,
     })
 }

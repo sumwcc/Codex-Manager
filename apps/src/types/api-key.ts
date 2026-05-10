@@ -34,6 +34,7 @@ export interface AggregateApi {
   authType: string;
   authParams: Record<string, unknown> | null;
   action: string | null;
+  modelOverride: string | null;
   status: string;
   createdAt: number | null;
   updatedAt: number | null;

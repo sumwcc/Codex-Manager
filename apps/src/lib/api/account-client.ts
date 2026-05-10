@@ -133,6 +133,7 @@ interface AggregateApiPayload {
   authParams?: Record<string, unknown> | null;
   actionCustomEnabled?: boolean | null;
   action?: string | null;
+  modelOverride?: string | null;
   username?: string | null;
   password?: string | null;
 }
@@ -516,6 +517,8 @@ export const accountClient = {
             ? params.actionCustomEnabled
             : null,
         action: params.action ?? null,
+        modelOverride:
+          typeof params.modelOverride === "string" ? params.modelOverride : null,
         username: params.username || null,
         password: params.password || null,
       })
@@ -544,6 +547,8 @@ export const accountClient = {
             ? params.actionCustomEnabled
             : null,
         action: params.action ?? null,
+        modelOverride:
+          typeof params.modelOverride === "string" ? params.modelOverride : null,
         username: params.username || null,
         password: params.password || null,
       })

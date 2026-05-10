@@ -771,6 +771,8 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
       typeof source.action === "string"
         ? source.action
         : asString(source.action) || null,
+    modelOverride:
+      asString(source.modelOverride ?? source.model_override) || null,
     status: asString(source.status) || "active",
     createdAt: toNullableNumber(source.createdAt ?? source.created_at),
     updatedAt: toNullableNumber(source.updatedAt ?? source.updated_at),

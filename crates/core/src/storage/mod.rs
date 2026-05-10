@@ -242,6 +242,7 @@ pub struct AggregateApi {
     pub auth_type: String,
     pub auth_params_json: Option<String>,
     pub action: Option<String>,
+    pub model_override: Option<String>,
     pub status: String,
     pub created_at: i64,
     pub updated_at: i64,
@@ -670,9 +671,9 @@ impl Storage {
             |s| s.ensure_account_subscriptions_table(),
         )?;
         self.apply_sql_or_compat_migration(
-            "053_api_key_quota_limits",
-            include_str!("../../migrations/053_api_key_quota_limits.sql"),
-            |s| s.ensure_api_key_quota_limits_table(),
+            "053_aggregate_api_model_override",
+            include_str!("../../migrations/053_aggregate_api_model_override.sql"),
+            |s| s.ensure_aggregate_apis_table(),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;

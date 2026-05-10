@@ -47,6 +47,7 @@ pub async fn service_aggregate_api_create(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    model_override: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -61,6 +62,7 @@ pub async fn service_aggregate_api_create(
         "authParams": auth_params,
         "actionCustomEnabled": action_custom_enabled,
         "action": action,
+        "modelOverride": model_override,
         "username": username,
         "password": password,
     });
@@ -99,6 +101,7 @@ pub async fn service_aggregate_api_update(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    model_override: Option<String>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -115,6 +118,7 @@ pub async fn service_aggregate_api_update(
         "authParams": auth_params,
         "actionCustomEnabled": action_custom_enabled,
         "action": action,
+        "modelOverride": model_override,
         "username": username,
         "password": password,
     });
