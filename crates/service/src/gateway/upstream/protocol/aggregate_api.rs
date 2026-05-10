@@ -1166,6 +1166,15 @@ mod bridge_tests {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            balance_query_enabled: false,
+            balance_query_template: None,
+            balance_query_base_url: None,
+            balance_query_user_id: None,
+            balance_query_config_json: None,
+            last_balance_at: None,
+            last_balance_status: None,
+            last_balance_error: None,
+            last_balance_json: None,
         }
     }
 
@@ -1337,6 +1346,15 @@ mod tests {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            balance_query_enabled: false,
+            balance_query_template: None,
+            balance_query_base_url: None,
+            balance_query_user_id: None,
+            balance_query_config_json: None,
+            last_balance_at: None,
+            last_balance_status: None,
+            last_balance_error: None,
+            last_balance_json: None,
         }
     }
 
@@ -1420,6 +1438,15 @@ mod tests {
                     last_test_at: None,
                     last_test_status: None,
                     last_test_error: None,
+                    balance_query_enabled: false,
+                    balance_query_template: None,
+                    balance_query_base_url: None,
+                    balance_query_user_id: None,
+                    balance_query_config_json: None,
+                    last_balance_at: None,
+                    last_balance_status: None,
+                    last_balance_error: None,
+                    last_balance_json: None,
                 })
                 .expect("insert aggregate api");
         }

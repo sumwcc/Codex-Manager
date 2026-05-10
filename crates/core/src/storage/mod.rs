@@ -249,6 +249,15 @@ pub struct AggregateApi {
     pub last_test_at: Option<i64>,
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
+    pub balance_query_enabled: bool,
+    pub balance_query_template: Option<String>,
+    pub balance_query_base_url: Option<String>,
+    pub balance_query_user_id: Option<String>,
+    pub balance_query_config_json: Option<String>,
+    pub last_balance_at: Option<i64>,
+    pub last_balance_status: Option<String>,
+    pub last_balance_error: Option<String>,
+    pub last_balance_json: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -675,9 +684,23 @@ impl Storage {
             include_str!("../../migrations/053_aggregate_api_model_override.sql"),
             |s| s.ensure_aggregate_apis_table(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "053_api_key_quota_limits",
+            include_str!("../../migrations/053_api_key_quota_limits.sql"),
+            |s| s.ensure_api_key_quota_limits_table(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "054_aggregate_api_balance_query",
+            include_str!("../../migrations/054_aggregate_api_balance_query.sql"),
+            |s| {
+                s.ensure_aggregate_apis_table()?;
+                s.ensure_aggregate_api_balance_secrets_table()
+            },
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
+        self.ensure_aggregate_api_balance_secrets_table()?;
         self.ensure_api_key_quota_limits_table()?;
         self.ensure_request_token_stats_table()?;
         self.ensure_gateway_error_logs_table()?;

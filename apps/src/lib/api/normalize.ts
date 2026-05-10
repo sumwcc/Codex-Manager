@@ -5,6 +5,8 @@ import {
   AccountListResult,
   AccountUsage,
   AggregateApi,
+  AggregateApiBalanceRefreshResult,
+  AggregateApiBalanceSnapshot,
   AggregateApiCreateResult,
   AggregateApiSecretResult,
   AggregateApiTestResult,
@@ -779,6 +781,27 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
     lastTestAt: toNullableNumber(source.lastTestAt ?? source.last_test_at),
     lastTestStatus: asString(source.lastTestStatus ?? source.last_test_status) || null,
     lastTestError: asString(source.lastTestError ?? source.last_test_error) || null,
+    balanceQueryEnabled: asBoolean(
+      source.balanceQueryEnabled ?? source.balance_query_enabled,
+      false
+    ),
+    balanceQueryTemplate:
+      asString(source.balanceQueryTemplate ?? source.balance_query_template) || null,
+    balanceQueryBaseUrl:
+      asString(source.balanceQueryBaseUrl ?? source.balance_query_base_url) || null,
+    balanceQueryUserId:
+      asString(source.balanceQueryUserId ?? source.balance_query_user_id) || null,
+    balanceQueryConfigJson:
+      asString(
+        source.balanceQueryConfigJson ?? source.balance_query_config_json
+      ) || null,
+    lastBalanceAt: toNullableNumber(source.lastBalanceAt ?? source.last_balance_at),
+    lastBalanceStatus:
+      asString(source.lastBalanceStatus ?? source.last_balance_status) || null,
+    lastBalanceError:
+      asString(source.lastBalanceError ?? source.last_balance_error) || null,
+    lastBalanceJson:
+      asString(source.lastBalanceJson ?? source.last_balance_json) || null,
   };
 }
 
@@ -856,6 +879,44 @@ export function normalizeAggregateApiTestResult(payload: unknown): AggregateApiT
     statusCode: toNullableNumber(source.statusCode ?? source.status_code),
     message: asString(source.message) || null,
     testedAt: asInteger(source.testedAt ?? source.tested_at, 0, 0),
+    latencyMs: asInteger(source.latencyMs ?? source.latency_ms, 0, 0),
+  };
+}
+
+export function normalizeAggregateApiBalanceSnapshot(
+  payload: unknown
+): AggregateApiBalanceSnapshot | null {
+  const source = asObject(payload);
+  const hasBalanceFields =
+    "remaining" in source ||
+    "used" in source ||
+    "total" in source ||
+    "isValid" in source ||
+    "is_valid" in source;
+  if (!hasBalanceFields) return null;
+  return {
+    isValid: asBoolean(source.isValid ?? source.is_valid, true),
+    invalidMessage:
+      asString(source.invalidMessage ?? source.invalid_message) || null,
+    remaining: toNullableNumber(source.remaining),
+    unit: asString(source.unit) || null,
+    planName: asString(source.planName ?? source.plan_name) || null,
+    total: toNullableNumber(source.total),
+    used: toNullableNumber(source.used),
+    extra: toNullableObject(source.extra),
+  };
+}
+
+export function normalizeAggregateApiBalanceRefreshResult(
+  payload: unknown
+): AggregateApiBalanceRefreshResult {
+  const source = asObject(payload);
+  return {
+    id: asString(source.id),
+    ok: asBoolean(source.ok),
+    balance: normalizeAggregateApiBalanceSnapshot(source.balance),
+    message: asString(source.message) || null,
+    queriedAt: asInteger(source.queriedAt ?? source.queried_at, 0, 0),
     latencyMs: asInteger(source.latencyMs ?? source.latency_ms, 0, 0),
   };
 }

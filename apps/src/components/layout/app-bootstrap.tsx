@@ -35,6 +35,8 @@ const DEFAULT_SERVICE_ADDR = "localhost:48760";
 const STARTUP_WARMUP_LABEL = "[startup warmup]";
 const CODEX_CLI_GUIDE_SESSION_DISMISSED_KEY =
   "codexmanager.codexCliGuide.sessionDismissed";
+const UNSUPPORTED_RUNTIME_AUTO_RETRY_LIMIT = 8;
+const UNSUPPORTED_RUNTIME_AUTO_RETRY_DELAY_MS = 1500;
 
 function readCodexCliGuideSessionDismissed() {
   if (typeof window === "undefined") {
@@ -114,6 +116,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const [isInitializing, setIsInitializing] = useState(true);
   const hasInitializedOnce = useRef(false);
   const hasBootstrappedOnce = useRef(false);
+  const unsupportedRuntimeRetryCountRef = useRef(0);
   const serviceStatusRef = useRef(serviceStatus);
   const runtimeCapabilitiesRef = useRef(runtimeCapabilities);
   const [error, setError] = useState<string | null>(null);
@@ -269,6 +272,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
         setIsInitializing(false);
         return;
       }
+      unsupportedRuntimeRetryCountRef.current = 0;
 
       const settings = await appClient.getSettings();
       const addr = normalizeServiceAddr(settings.serviceAddr || DEFAULT_SERVICE_ADDR);
@@ -420,6 +424,26 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
     hasBootstrappedOnce.current = true;
     void init();
   }, [init]);
+
+  useEffect(() => {
+    if (
+      hasInitializedOnce.current ||
+      isInitializing ||
+      !error ||
+      !isUnsupportedWebRuntime ||
+      typeof window === "undefined" ||
+      unsupportedRuntimeRetryCountRef.current >=
+        UNSUPPORTED_RUNTIME_AUTO_RETRY_LIMIT
+    ) {
+      return;
+    }
+
+    const retryId = window.setTimeout(() => {
+      unsupportedRuntimeRetryCountRef.current += 1;
+      void init();
+    }, UNSUPPORTED_RUNTIME_AUTO_RETRY_DELAY_MS);
+    return () => window.clearTimeout(retryId);
+  }, [error, init, isInitializing, isUnsupportedWebRuntime]);
 
   useEffect(() => {
     if (isDesktopRuntime || typeof window === "undefined") {
