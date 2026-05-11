@@ -1,7 +1,9 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  ArrowRight,
   BrainCircuit,
   CheckCircle2,
   Database,
@@ -16,9 +18,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { quotaClient } from "@/lib/api/quota-client";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
+import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 import { formatCompactNumber } from "@/lib/utils/usage";
 
 interface StatProgressCardProps {
@@ -262,9 +266,17 @@ export default function DashboardPage() {
   const { t } = useI18n();
   const { stats, currentAccount, recommendations, requestLogs, isLoading, isServiceReady } =
     useDashboardStats();
+  const { data: quotaModelPools, isLoading: isQuotaModelPoolsLoading } = useQuery({
+    queryKey: ["quota", "model-pools"],
+    queryFn: () => quotaClient.modelPools(),
+    enabled: isServiceReady,
+    retry: 1,
+  });
   usePageTransitionReady("/", !isServiceReady || !isLoading);
   const poolPrimary = stats.poolRemain?.primary ?? 0;
   const poolSecondary = stats.poolRemain?.secondary ?? 0;
+  const allModelPoolItems = quotaModelPools?.items ?? [];
+  const modelPoolItems = allModelPoolItems.slice(0, 8);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
@@ -341,6 +353,86 @@ export default function DashboardPage() {
           </>
         )}
       </div>
+
+      <Card className="glass-card overflow-hidden border-none shadow-md backdrop-blur-md">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <div>
+            <CardTitle className="text-sm font-medium">{t("模型额度池概览")}</CardTitle>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {t("按模型管理中的排序权重展示")}
+            </p>
+          </div>
+          <a
+            href={buildStaticRouteUrl("/models")}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {t("查看全部")}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </a>
+        </CardHeader>
+        <CardContent>
+          {isLoading || isQuotaModelPoolsLoading ? (
+            <Skeleton className="h-24 w-full rounded-xl" />
+          ) : modelPoolItems.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border/60 bg-background/35 px-4 py-5 text-sm text-muted-foreground">
+              {t("暂无可估算的模型额度池")}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {modelPoolItems.map((item) => (
+                  <div
+                    key={item.model}
+                    className="rounded-xl border border-border/50 bg-background/35 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-mono text-sm font-semibold">
+                          {item.model}
+                        </div>
+                        <div className="mt-1 text-[10px] text-muted-foreground">
+                          {item.sourceCount} {t("个来源")}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right text-sm font-bold">
+                        {item.totalRemainingTokens == null
+                          ? "--"
+                          : formatCompactTokenAmount(item.totalRemainingTokens)}
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-1 text-[10px] text-muted-foreground">
+                      <div className="flex justify-between gap-2">
+                        <span>{t("聚合 API")}</span>
+                        <span className="font-medium text-foreground/70">
+                          {item.aggregateRemainingTokens == null
+                            ? "--"
+                            : formatCompactTokenAmount(item.aggregateRemainingTokens)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span>{t("账号池")}</span>
+                        <span className="font-medium text-foreground/70">
+                          {item.accountEstimatedRemainingTokens == null
+                            ? "--"
+                            : formatCompactTokenAmount(item.accountEstimatedRemainingTokens)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {allModelPoolItems.length > modelPoolItems.length ? (
+                <div className="text-[11px] text-muted-foreground">
+                  {t("已按排序权重展示前 {visible} 个，共 {total} 个模型；完整列表在模型管理页。", {
+                    visible: modelPoolItems.length,
+                    total: allModelPoolItems.length,
+                  })}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {[ 

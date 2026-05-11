@@ -622,11 +622,14 @@ pub(crate) fn estimate_remaining_tokens_from_usd_with_rules(
     model: &str,
     balance_usd: f64,
 ) -> Option<i64> {
-    if !balance_usd.is_finite() || balance_usd <= 0.0 {
+    if !balance_usd.is_finite() || balance_usd < 0.0 {
         return None;
     }
     let price = resolve_model_price_from_rules(rules, model, 0)
         .or_else(|| resolve_model_price(model, 0))?;
+    if balance_usd == 0.0 {
+        return Some(0);
+    }
     let blended_price_per_1m = price.input_price_per_1m * 0.7 + price.output_price_per_1m * 0.3;
     if blended_price_per_1m <= 0.0 {
         return None;
@@ -763,6 +766,12 @@ mod tests {
         assert_eq!(cost.price_status, "missing");
         assert!(cost.cost_usd.is_none());
         assert!(cost.provider.is_none());
+    }
+
+    #[test]
+    fn zero_usd_balance_is_known_zero_tokens() {
+        let tokens = estimate_remaining_tokens_from_usd_with_rules(&[], "gpt-5.4-mini", 0.0);
+        assert_eq!(tokens, Some(0));
     }
 
     #[test]

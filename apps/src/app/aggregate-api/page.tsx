@@ -49,8 +49,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { accountClient } from "@/lib/api/account-client";
+import { quotaClient } from "@/lib/api/quota-client";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
-import { formatTsFromSeconds } from "@/lib/utils/usage";
+import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivation";
@@ -178,6 +179,13 @@ export default function AggregateApiPage() {
     retry: 1,
   });
 
+  const { data: quotaModelPools } = useQuery({
+    queryKey: ["quota", "model-pools"],
+    queryFn: () => quotaClient.modelPools(),
+    enabled: isQueryEnabled,
+    retry: 1,
+  });
+
   usePageTransitionReady("/aggregate-api/", !isServiceReady || !isLoading);
 
   useEffect(() => {
@@ -234,6 +242,28 @@ export default function AggregateApiPage() {
     );
     return maxSort + 5;
   }, [aggregateApis]);
+
+  const aggregateQuotaById = useMemo(() => {
+    const map = new Map<
+      string,
+      { model: string | null; tokens: number | null; models: Set<string> }
+    >();
+    for (const item of quotaModelPools?.items ?? []) {
+      for (const source of item.sources) {
+        if (source.sourceKind !== "aggregate_api") continue;
+        const current =
+          map.get(source.sourceId) ||
+          { model: null, tokens: null, models: new Set<string>() };
+        current.models.add(item.model);
+        if (current.tokens == null && source.remainingTokens != null) {
+          current.tokens = source.remainingTokens;
+          current.model = item.model;
+        }
+        map.set(source.sourceId, current);
+      }
+    }
+    return map;
+  }, [quotaModelPools]);
 
   /**
    * 函数 `renderTestStatus`
@@ -906,6 +936,12 @@ export default function AggregateApiPage() {
                       api.createdAt,
                       t("未知时间"),
                     );
+                    const quotaInfo = aggregateQuotaById.get(api.id);
+                    const assignedModels = api.modelSlugs.length
+                      ? api.modelSlugs
+                      : quotaInfo
+                        ? Array.from(quotaInfo.models).slice(0, 2)
+                        : [];
 
                     return (
                       <TableRow key={api.id} className="group">
@@ -927,6 +963,18 @@ export default function AggregateApiPage() {
                                     model: {api.modelOverride}
                                   </span>
                                 ) : null}
+                                {assignedModels.length ? (
+                                  <span className="block truncate text-[10px] text-muted-foreground/80">
+                                    {t("额度模型")}: {assignedModels.join(", ")}
+                                    {!api.modelSlugs.length && quotaInfo && quotaInfo.models.size > 2
+                                      ? ` +${quotaInfo.models.size - 2}`
+                                      : ""}
+                                  </span>
+                                ) : (
+                                  <span className="block truncate text-[10px] text-muted-foreground/80">
+                                    {t("额度模型")}: {t("全部 API 模型")}
+                                  </span>
+                                )}
                               </div>
                             </TooltipTrigger>
                             <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
@@ -942,6 +990,12 @@ export default function AggregateApiPage() {
                                     model: {api.modelOverride}
                                   </div>
                                 ) : null}
+                                <div className="break-all text-[11px] opacity-80">
+                                  {t("额度模型")}:{" "}
+                                  {api.modelSlugs.length
+                                    ? api.modelSlugs.join(", ")
+                                    : t("全部 API 可用模型")}
+                                </div>
                                 <div className="text-[11px] opacity-80">
                                   {t("创建时间")}: {createdTimeText}
                                 </div>
@@ -1117,6 +1171,14 @@ export default function AggregateApiPage() {
                           {api.lastBalanceAt ? (
                             <p className="mt-1 text-[10px] text-muted-foreground">
                               {formatTsFromSeconds(api.lastBalanceAt, t("未知时间"))}
+                            </p>
+                          ) : null}
+                          {quotaInfo?.tokens != null ? (
+                            <p className="mt-1 max-w-[180px] truncate text-[10px] text-muted-foreground">
+                              {t("折算")}{" "}
+                              {formatCompactNumber(quotaInfo.tokens, "0.00", 2, true)}{" "}
+                              token
+                              {quotaInfo.model ? ` · ${quotaInfo.model}` : ""}
                             </p>
                           ) : null}
                           {api.lastBalanceStatus === "failed" && api.lastBalanceError ? (

@@ -2,11 +2,16 @@ import { invoke, withAddr } from "@/lib/api/transport";
 import type {
   QuotaApiKeyModelUsageItem,
   QuotaApiKeyUsageItem,
+  QuotaCapacityConfigResult,
+  QuotaModelPoolItem,
+  QuotaModelPoolsResult,
   QuotaModelUsageItem,
   QuotaOverviewResult,
+  QuotaPoolSourceBreakdown,
   QuotaRefreshSourceResult,
   QuotaRefreshSourcesParams,
   QuotaSourceSummary,
+  QuotaSystemPoolResult,
 } from "@/types/quota";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -157,6 +162,132 @@ function normalizeRefreshSource(payload: unknown): QuotaRefreshSourceResult {
   };
 }
 
+function normalizePoolSource(payload: unknown): QuotaPoolSourceBreakdown {
+  const source = asRecord(payload);
+  return {
+    sourceKind: asString(source.sourceKind ?? source.source_kind),
+    sourceId: asString(source.sourceId ?? source.source_id),
+    name: asString(source.name),
+    status: asString(source.status) || "unknown",
+    remainingTokens: toNullableNumber(source.remainingTokens ?? source.remaining_tokens),
+    rawRemaining: toNullableNumber(source.rawRemaining ?? source.raw_remaining),
+    rawUnit: asString(source.rawUnit ?? source.raw_unit) || null,
+    models: asArray(source.models).map(asString).filter(Boolean),
+    capturedAt: toNullableNumber(source.capturedAt ?? source.captured_at),
+    priceStatus: asString(source.priceStatus ?? source.price_status) || "missing",
+  };
+}
+
+function normalizeModelPoolItem(payload: unknown): QuotaModelPoolItem {
+  const source = asRecord(payload);
+  return {
+    model: asString(source.model) || "unknown",
+    provider: asString(source.provider) || null,
+    totalRemainingTokens: toNullableNumber(
+      source.totalRemainingTokens ?? source.total_remaining_tokens,
+    ),
+    aggregateRemainingTokens: toNullableNumber(
+      source.aggregateRemainingTokens ?? source.aggregate_remaining_tokens,
+    ),
+    accountPrimaryRemainingTokens: toNullableNumber(
+      source.accountPrimaryRemainingTokens ?? source.account_primary_remaining_tokens,
+    ),
+    accountSecondaryRemainingTokens: toNullableNumber(
+      source.accountSecondaryRemainingTokens ?? source.account_secondary_remaining_tokens,
+    ),
+    accountEstimatedRemainingTokens: toNullableNumber(
+      source.accountEstimatedRemainingTokens ?? source.account_estimated_remaining_tokens,
+    ),
+    sourceCount: Math.max(0, toNullableNumber(source.sourceCount ?? source.source_count) ?? 0),
+    sources: asArray(source.sources).map(normalizePoolSource),
+    priceStatus: asString(source.priceStatus ?? source.price_status) || "missing",
+  };
+}
+
+function normalizeCapacityConfig(payload: unknown): QuotaCapacityConfigResult {
+  const source = asRecord(payload);
+  return {
+    sourceAssignments: asArray(source.sourceAssignments ?? source.source_assignments).map((item) => {
+      const record = asRecord(item);
+      return {
+        sourceKind: asString(record.sourceKind ?? record.source_kind),
+        sourceId: asString(record.sourceId ?? record.source_id),
+        modelSlugs: asArray(record.modelSlugs ?? record.model_slugs).map(asString).filter(Boolean),
+      };
+    }),
+    templates: asArray(source.templates).map((item) => {
+      const record = asRecord(item);
+      return {
+        planType: asString(record.planType ?? record.plan_type),
+        primaryWindowTokens: toNullableNumber(
+          record.primaryWindowTokens ?? record.primary_window_tokens,
+        ),
+        secondaryWindowTokens: toNullableNumber(
+          record.secondaryWindowTokens ?? record.secondary_window_tokens,
+        ),
+      };
+    }),
+    accountOverrides: asArray(source.accountOverrides ?? source.account_overrides).map((item) => {
+      const record = asRecord(item);
+      return {
+        accountId: asString(record.accountId ?? record.account_id),
+        primaryWindowTokens: toNullableNumber(
+          record.primaryWindowTokens ?? record.primary_window_tokens,
+        ),
+        secondaryWindowTokens: toNullableNumber(
+          record.secondaryWindowTokens ?? record.secondary_window_tokens,
+        ),
+      };
+    }),
+  };
+}
+
+function normalizeModelPools(payload: unknown): QuotaModelPoolsResult {
+  const source = asRecord(payload);
+  return {
+    items: readItems(payload).map(normalizeModelPoolItem),
+    templates: normalizeCapacityConfig(source).templates,
+    accountOverrides: normalizeCapacityConfig(source).accountOverrides,
+  };
+}
+
+function normalizeSystemPool(payload: unknown): QuotaSystemPoolResult {
+  const source = asRecord(payload);
+  return {
+    referenceModel: asString(source.referenceModel ?? source.reference_model) || "unknown",
+    provider: asString(source.provider) || null,
+    totalRemainingTokens: toNullableNumber(
+      source.totalRemainingTokens ?? source.total_remaining_tokens,
+    ),
+    aggregateRemainingTokens: toNullableNumber(
+      source.aggregateRemainingTokens ?? source.aggregate_remaining_tokens,
+    ),
+    accountPrimaryRemainingTokens: toNullableNumber(
+      source.accountPrimaryRemainingTokens ?? source.account_primary_remaining_tokens,
+    ),
+    accountSecondaryRemainingTokens: toNullableNumber(
+      source.accountSecondaryRemainingTokens ?? source.account_secondary_remaining_tokens,
+    ),
+    accountEstimatedRemainingTokens: toNullableNumber(
+      source.accountEstimatedRemainingTokens ?? source.account_estimated_remaining_tokens,
+    ),
+    aggregateSourceCount: Math.max(
+      0,
+      toNullableNumber(source.aggregateSourceCount ?? source.aggregate_source_count) ?? 0,
+    ),
+    accountSourceCount: Math.max(
+      0,
+      toNullableNumber(source.accountSourceCount ?? source.account_source_count) ?? 0,
+    ),
+    unknownSourceCount: Math.max(
+      0,
+      toNullableNumber(source.unknownSourceCount ?? source.unknown_source_count) ?? 0,
+    ),
+    priceStatus: asString(source.priceStatus ?? source.price_status) || "missing",
+    sources: asArray(source.sources).map(normalizePoolSource),
+  };
+}
+
 function normalizeOverview(payload: unknown): QuotaOverviewResult {
   const source = asRecord(payload);
   const apiKey = asRecord(source.apiKey ?? source.api_key);
@@ -287,6 +418,74 @@ export const quotaClient = {
   async sourceList(): Promise<QuotaSourceSummary[]> {
     const result = await invoke<unknown>("service_quota_source_list", withAddr());
     return readItems(result).map(normalizeSourceSummary);
+  },
+  async modelPools(): Promise<QuotaModelPoolsResult> {
+    return normalizeModelPools(await invoke<unknown>("service_quota_model_pools", withAddr()));
+  },
+  async systemPool(params?: {
+    referenceModel?: string | null;
+  }): Promise<QuotaSystemPoolResult> {
+    return normalizeSystemPool(
+      await invoke<unknown>(
+        "service_quota_system_pool",
+        withAddr({
+          referenceModel: params?.referenceModel ?? null,
+        }),
+      ),
+    );
+  },
+  async capacityConfig(): Promise<QuotaCapacityConfigResult> {
+    return normalizeCapacityConfig(
+      await invoke<unknown>("service_quota_capacity_config", withAddr()),
+    );
+  },
+  async setSourceModels(params: {
+    sourceKind: string;
+    sourceId: string;
+    modelSlugs: string[];
+  }): Promise<QuotaCapacityConfigResult> {
+    return normalizeCapacityConfig(
+      await invoke<unknown>(
+        "service_quota_source_models_set",
+        withAddr({
+          sourceKind: params.sourceKind,
+          sourceId: params.sourceId,
+          modelSlugs: params.modelSlugs,
+        }),
+      ),
+    );
+  },
+  async updateCapacityTemplate(params: {
+    planType: string;
+    primaryWindowTokens?: number | null;
+    secondaryWindowTokens?: number | null;
+  }): Promise<QuotaCapacityConfigResult> {
+    return normalizeCapacityConfig(
+      await invoke<unknown>(
+        "service_quota_capacity_template_update",
+        withAddr({
+          planType: params.planType,
+          primaryWindowTokens: params.primaryWindowTokens ?? null,
+          secondaryWindowTokens: params.secondaryWindowTokens ?? null,
+        }),
+      ),
+    );
+  },
+  async updateAccountCapacityOverride(params: {
+    accountId: string;
+    primaryWindowTokens?: number | null;
+    secondaryWindowTokens?: number | null;
+  }): Promise<QuotaCapacityConfigResult> {
+    return normalizeCapacityConfig(
+      await invoke<unknown>(
+        "service_quota_account_capacity_override_update",
+        withAddr({
+          accountId: params.accountId,
+          primaryWindowTokens: params.primaryWindowTokens ?? null,
+          secondaryWindowTokens: params.secondaryWindowTokens ?? null,
+        }),
+      ),
+    );
   },
   async refreshSources(
     params: QuotaRefreshSourcesParams = {},

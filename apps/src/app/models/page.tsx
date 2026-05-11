@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Download,
   MoreVertical,
@@ -43,8 +44,9 @@ import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
 import { useManagedModels } from "@/hooks/useManagedModels";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { findBestMatchingModel } from "@/lib/api/model-catalog";
+import { quotaClient } from "@/lib/api/quota-client";
 import { useI18n } from "@/lib/i18n/provider";
-import { formatTsFromSeconds } from "@/lib/utils/usage";
+import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
 
 type ModelFilter = "all" | "api" | "custom" | "edited";
 
@@ -89,6 +91,13 @@ export default function ModelsPage() {
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [selectedSlugs, setSelectedSlugs] = useState<string[]>([]);
   const [deleteSlugs, setDeleteSlugs] = useState<string[]>([]);
+
+  const { data: quotaModelPools } = useQuery({
+    queryKey: ["quota", "model-pools"],
+    queryFn: () => quotaClient.modelPools(),
+    enabled: isServiceReady && isPageActive,
+    retry: 1,
+  });
 
   useEffect(() => {
     if (isPageActive) return;
@@ -181,6 +190,10 @@ export default function ModelsPage() {
         return t("全部模型");
     }
   }, [filter, t]);
+
+  const quotaPoolByModel = useMemo(() => {
+    return new Map((quotaModelPools?.items ?? []).map((item) => [item.model, item]));
+  }, [quotaModelPools]);
 
   const allVisibleSelected =
     filteredModels.length > 0 && visibleSelectedSlugs.length === filteredModels.length;
@@ -364,6 +377,7 @@ export default function ModelsPage() {
                       <TableHead>{t("模型")}</TableHead>
                       <TableHead>{t("来源")}</TableHead>
                       <TableHead>{t("API")}</TableHead>
+                      <TableHead>{t("额度池")}</TableHead>
                       <TableHead>{t("可见性")}</TableHead>
                       <TableHead>{t("推理等级")}</TableHead>
                       <TableHead>{t("更新时间")}</TableHead>
@@ -373,7 +387,9 @@ export default function ModelsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredModels.map((model) => (
+                    {filteredModels.map((model) => {
+                      const quotaPool = quotaPoolByModel.get(model.slug);
+                      return (
                       <TableRow key={model.slug}>
                         <TableCell className="text-center">
                           <Checkbox
@@ -414,6 +430,46 @@ export default function ModelsPage() {
                           ) : (
                             <Badge variant="outline">{t("隐藏")}</Badge>
                           )}
+                        </TableCell>
+                        <TableCell className="min-w-[170px]">
+                          <div className="space-y-1">
+                            <div className="text-sm font-medium">
+                              {quotaPool?.totalRemainingTokens == null
+                                ? t("未估算")
+                                : `${formatCompactNumber(
+                                    quotaPool.totalRemainingTokens,
+                                    "0.00",
+                                    2,
+                                    true,
+                                  )} token`}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {t("聚合")}{" "}
+                              {quotaPool?.aggregateRemainingTokens == null
+                                ? "--"
+                                : formatCompactNumber(
+                                    quotaPool.aggregateRemainingTokens,
+                                    "0.00",
+                                    2,
+                                    true,
+                                  )}
+                              {" · "}
+                              {t("账号")}{" "}
+                              {quotaPool?.accountEstimatedRemainingTokens == null
+                                ? "--"
+                                : formatCompactNumber(
+                                    quotaPool.accountEstimatedRemainingTokens,
+                                    "0.00",
+                                    2,
+                                    true,
+                                  )}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {t("来源 {count} 个", {
+                                count: quotaPool?.sourceCount ?? 0,
+                              })}
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell>
                           {model.visibility === "list" ? (
@@ -460,7 +516,8 @@ export default function ModelsPage() {
                           </DropdownMenu>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

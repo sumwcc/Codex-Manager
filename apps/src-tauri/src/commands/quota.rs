@@ -35,6 +35,90 @@ pub async fn service_quota_source_list(addr: Option<String>) -> Result<serde_jso
 }
 
 #[tauri::command]
+pub async fn service_quota_model_pools(addr: Option<String>) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("quota/modelPools", addr, None).await
+}
+
+#[tauri::command]
+pub async fn service_quota_system_pool(
+    addr: Option<String>,
+    reference_model: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "quota/systemPool",
+        addr,
+        Some(serde_json::json!({
+            "referenceModel": reference_model,
+        })),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn service_quota_capacity_config(
+    addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("quota/capacityConfig", addr, None).await
+}
+
+#[tauri::command]
+pub async fn service_quota_source_models_set(
+    addr: Option<String>,
+    source_kind: String,
+    source_id: String,
+    model_slugs: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "quota/sourceModels/set",
+        addr,
+        Some(serde_json::json!({
+            "sourceKind": source_kind,
+            "sourceId": source_id,
+            "modelSlugs": model_slugs.unwrap_or_default(),
+        })),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn service_quota_capacity_template_update(
+    addr: Option<String>,
+    plan_type: String,
+    primary_window_tokens: Option<i64>,
+    secondary_window_tokens: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "quota/capacityTemplate/update",
+        addr,
+        Some(serde_json::json!({
+            "planType": plan_type,
+            "primaryWindowTokens": primary_window_tokens,
+            "secondaryWindowTokens": secondary_window_tokens,
+        })),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn service_quota_account_capacity_override_update(
+    addr: Option<String>,
+    account_id: String,
+    primary_window_tokens: Option<i64>,
+    secondary_window_tokens: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "quota/accountCapacityOverride/update",
+        addr,
+        Some(serde_json::json!({
+            "accountId": account_id,
+            "primaryWindowTokens": primary_window_tokens,
+            "secondaryWindowTokens": secondary_window_tokens,
+        })),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn service_quota_refresh_sources(
     addr: Option<String>,
     kinds: Option<Vec<String>>,

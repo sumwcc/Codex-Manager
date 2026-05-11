@@ -102,3 +102,74 @@ export interface QuotaRefreshSourceResult {
   ok: boolean;
   error: string | null;
 }
+
+export interface QuotaSourceModelAssignment {
+  sourceKind: string;
+  sourceId: string;
+  modelSlugs: string[];
+}
+
+export interface AccountQuotaCapacityTemplate {
+  planType: string;
+  primaryWindowTokens: number | null;
+  secondaryWindowTokens: number | null;
+}
+
+export interface AccountQuotaCapacityOverride {
+  accountId: string;
+  primaryWindowTokens: number | null;
+  secondaryWindowTokens: number | null;
+}
+
+export interface QuotaCapacityConfigResult {
+  sourceAssignments: QuotaSourceModelAssignment[];
+  templates: AccountQuotaCapacityTemplate[];
+  accountOverrides: AccountQuotaCapacityOverride[];
+}
+
+export interface QuotaPoolSourceBreakdown {
+  sourceKind: string;
+  sourceId: string;
+  name: string;
+  status: string;
+  remainingTokens: number | null;
+  rawRemaining: number | null;
+  rawUnit: string | null;
+  models: string[];
+  capturedAt: number | null;
+  priceStatus: string;
+}
+
+export interface QuotaModelPoolItem {
+  model: string;
+  provider: string | null;
+  totalRemainingTokens: number | null;
+  aggregateRemainingTokens: number | null;
+  accountPrimaryRemainingTokens: number | null;
+  accountSecondaryRemainingTokens: number | null;
+  accountEstimatedRemainingTokens: number | null;
+  sourceCount: number;
+  sources: QuotaPoolSourceBreakdown[];
+  priceStatus: string;
+}
+
+export interface QuotaModelPoolsResult {
+  items: QuotaModelPoolItem[];
+  templates: AccountQuotaCapacityTemplate[];
+  accountOverrides: AccountQuotaCapacityOverride[];
+}
+
+export interface QuotaSystemPoolResult {
+  referenceModel: string;
+  provider: string | null;
+  totalRemainingTokens: number | null;
+  aggregateRemainingTokens: number | null;
+  accountPrimaryRemainingTokens: number | null;
+  accountSecondaryRemainingTokens: number | null;
+  accountEstimatedRemainingTokens: number | null;
+  aggregateSourceCount: number;
+  accountSourceCount: number;
+  unknownSourceCount: number;
+  priceStatus: string;
+  sources: QuotaPoolSourceBreakdown[];
+}

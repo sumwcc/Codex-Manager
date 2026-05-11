@@ -261,6 +261,37 @@ export function createWebCommandMap(
     service_quota_model_usage: { rpcMethod: "quota/modelUsage" },
     service_quota_api_key_usage: { rpcMethod: "quota/apiKeyUsage" },
     service_quota_source_list: { rpcMethod: "quota/sourceList" },
+    service_quota_model_pools: { rpcMethod: "quota/modelPools" },
+    service_quota_system_pool: { rpcMethod: "quota/systemPool" },
+    service_quota_capacity_config: { rpcMethod: "quota/capacityConfig" },
+    service_quota_source_models_set: {
+      rpcMethod: "quota/sourceModels/set",
+      mapParams: (params) => ({
+        sourceKind:
+          typeof params?.sourceKind === "string"
+            ? params.sourceKind
+            : typeof params?.source_kind === "string"
+              ? params.source_kind
+              : "",
+        sourceId:
+          typeof params?.sourceId === "string"
+            ? params.sourceId
+            : typeof params?.source_id === "string"
+              ? params.source_id
+              : "",
+        modelSlugs: Array.isArray(params?.modelSlugs)
+          ? params.modelSlugs
+          : Array.isArray(params?.model_slugs)
+            ? params.model_slugs
+            : [],
+      }),
+    },
+    service_quota_capacity_template_update: {
+      rpcMethod: "quota/capacityTemplate/update",
+    },
+    service_quota_account_capacity_override_update: {
+      rpcMethod: "quota/accountCapacityOverride/update",
+    },
     service_quota_refresh_sources: {
       rpcMethod: "quota/refreshSources",
       mapParams: (params) => ({

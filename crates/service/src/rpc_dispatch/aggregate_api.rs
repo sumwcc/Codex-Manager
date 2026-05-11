@@ -60,6 +60,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let balance_query_access_token = super::string_param(req, "balanceQueryAccessToken");
             let balance_query_user_id = super::string_param(req, "balanceQueryUserId");
             let balance_query_config_json = super::string_param(req, "balanceQueryConfigJson");
+            let model_slugs = string_array_param(req, "modelSlugs");
             super::value_or_error(create_aggregate_api(
                 url,
                 key,
@@ -80,6 +81,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 balance_query_access_token,
                 balance_query_user_id,
                 balance_query_config_json,
+                model_slugs,
             ))
         }
         "aggregateApi/update" => {
@@ -108,6 +110,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let balance_query_access_token = super::string_param(req, "balanceQueryAccessToken");
             let balance_query_user_id = super::string_param(req, "balanceQueryUserId");
             let balance_query_config_json = super::string_param(req, "balanceQueryConfigJson");
+            let model_slugs = string_array_param(req, "modelSlugs");
             super::ok_or_error(update_aggregate_api(
                 api_id,
                 url,
@@ -130,6 +133,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 balance_query_access_token,
                 balance_query_user_id,
                 balance_query_config_json,
+                model_slugs,
             ))
         }
         "aggregateApi/readSecret" => {
@@ -152,6 +156,22 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
     };
 
     Some(super::response(req, result))
+}
+
+fn string_array_param(req: &JsonRpcRequest, key: &str) -> Option<Vec<String>> {
+    req.params
+        .as_ref()
+        .and_then(|params| params.get(key))
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        })
 }
 
 #[cfg(test)]

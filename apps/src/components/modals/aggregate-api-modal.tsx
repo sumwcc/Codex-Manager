@@ -74,6 +74,12 @@ const parseBalanceCustomConfig = (
 const stringConfigValue = (value: unknown, fallback = "") =>
   typeof value === "string" ? value : fallback;
 
+const parseModelSlugs = (value: string) =>
+  value
+    .split(/[,，\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
 const normalizeBalanceCustomAuth = (value: unknown): BalanceCustomAuth =>
   value === "balance_bearer" || value === "none"
     ? value
@@ -131,6 +137,7 @@ export function AggregateApiModal({
   const [actionCustomEnabled, setActionCustomEnabled] = useState(false);
   const [action, setAction] = useState("");
   const [modelOverride, setModelOverride] = useState("");
+  const [modelWhitelist, setModelWhitelist] = useState("");
   const [balanceQueryEnabled, setBalanceQueryEnabled] = useState(false);
   const [balanceQueryTemplate, setBalanceQueryTemplate] =
     useState<BalanceQueryTemplate>("generic");
@@ -215,6 +222,7 @@ export function AggregateApiModal({
     setAction(nextAction);
     setActionCustomEnabled(aggregateApi?.action !== null && aggregateApi?.action !== undefined);
     setModelOverride(aggregateApi?.modelOverride || "");
+    setModelWhitelist((aggregateApi?.modelSlugs || []).join(", "));
     setBalanceQueryEnabled(Boolean(aggregateApi?.balanceQueryEnabled));
     const nextBalanceQueryTemplate =
       aggregateApi?.balanceQueryTemplate === "new_api"
@@ -399,6 +407,7 @@ export function AggregateApiModal({
     }
     setIsLoading(true);
     try {
+      const modelSlugs = parseModelSlugs(modelWhitelist);
       if (aggregateApi?.id) {
         await accountClient.updateAggregateApi(aggregateApi.id, {
           providerType,
@@ -420,12 +429,14 @@ export function AggregateApiModal({
           balanceQueryAccessToken: balanceQueryAccessToken.trim() || null,
           balanceQueryUserId: balanceQueryUserId.trim(),
           balanceQueryConfigJson,
+          modelSlugs,
         });
         toast.success(t("聚合 API 已更新"));
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
           queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
           queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+          queryClient.invalidateQueries({ queryKey: ["quota"] }),
         ]);
         onOpenChange(false);
         return;
@@ -451,6 +462,7 @@ export function AggregateApiModal({
         balanceQueryAccessToken: balanceQueryAccessToken.trim() || null,
         balanceQueryUserId: balanceQueryUserId.trim(),
         balanceQueryConfigJson,
+        modelSlugs,
       });
       setGeneratedKey(result.key);
       toast.success(t("聚合 API 已创建"));
@@ -458,6 +470,7 @@ export function AggregateApiModal({
         queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
         queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
         queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+        queryClient.invalidateQueries({ queryKey: ["quota"] }),
       ]);
       onOpenChange(false);
     } catch (error: unknown) {
@@ -636,6 +649,22 @@ export function AggregateApiModal({
                 />
                 <p className="text-[11px] leading-4 text-muted-foreground">
                   {t("用于 API 转发服务要求固定模型名的场景；连接测试和真实转发都会使用该模型。")}
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="aggregate-api-model-whitelist">
+                  {t("额度模型白名单")}
+                </Label>
+                <Input
+                  id="aggregate-api-model-whitelist"
+                  placeholder="gpt-5.4, gpt-5.4-mini"
+                  value={modelWhitelist}
+                  disabled={!isServiceReady}
+                  onChange={(event) => setModelWhitelist(event.target.value)}
+                />
+                <p className="text-[11px] leading-4 text-muted-foreground">
+                  {t("仅用于额度池归属统计；留空表示该来源对所有 API 可用模型生效。")}
                 </p>
               </div>
 

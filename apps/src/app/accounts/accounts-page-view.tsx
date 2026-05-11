@@ -71,6 +71,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
+import { formatCompactNumber } from "@/lib/utils/usage";
 import type { Account } from "@/types";
 import {
   type AccountEditorState,
@@ -139,6 +140,9 @@ export interface AccountsPageViewProps {
   tagsDraft: string;
   noteDraft: string;
   sortDraft: string;
+  modelWhitelistDraft: string;
+  quotaPrimaryDraft: string;
+  quotaSecondaryDraft: string;
   isRefreshingAllAccounts: boolean;
   isRefreshingAccountId: string | null;
   isRefreshingRtAccountId: string | null;
@@ -166,6 +170,9 @@ export interface AccountsPageViewProps {
   setTagsDraft: Dispatch<SetStateAction<string>>;
   setNoteDraft: Dispatch<SetStateAction<string>>;
   setSortDraft: Dispatch<SetStateAction<string>>;
+  setModelWhitelistDraft: Dispatch<SetStateAction<string>>;
+  setQuotaPrimaryDraft: Dispatch<SetStateAction<string>>;
+  setQuotaSecondaryDraft: Dispatch<SetStateAction<string>>;
   setPage: Dispatch<SetStateAction<number>>;
   handleSearchChange: (value: string) => void;
   handlePlanFilterChange: (value: string | null) => void;
@@ -242,6 +249,9 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     tagsDraft,
     noteDraft,
     sortDraft,
+    modelWhitelistDraft,
+    quotaPrimaryDraft,
+    quotaSecondaryDraft,
     isRefreshingAllAccounts,
     isRefreshingAccountId,
     isRefreshingRtAccountId,
@@ -269,6 +279,9 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     setTagsDraft,
     setNoteDraft,
     setSortDraft,
+    setModelWhitelistDraft,
+    setQuotaPrimaryDraft,
+    setQuotaSecondaryDraft,
     setPage,
     handleSearchChange,
     handlePlanFilterChange,
@@ -835,6 +848,44 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                       </TableCell>
                       <TableCell>
                         <QuotaOverviewCell items={quotaItems} />
+                        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                          <span className="rounded-full border border-border/50 bg-background/40 px-2 py-0.5">
+                            {t("模型池")}:{" "}
+                            {account.modelSlugs.length
+                              ? account.modelSlugs.slice(0, 2).join(", ")
+                              : t("全部 API 模型")}
+                            {account.modelSlugs.length > 2
+                              ? ` +${account.modelSlugs.length - 2}`
+                              : ""}
+                          </span>
+                          {account.quotaCapacityPrimaryWindowTokens ||
+                          account.quotaCapacitySecondaryWindowTokens ? (
+                            <span className="rounded-full border border-border/50 bg-background/40 px-2 py-0.5">
+                              {t("容量覆盖")}:{" "}
+                              {account.quotaCapacityPrimaryWindowTokens
+                                ? `5h ${formatCompactNumber(
+                                    account.quotaCapacityPrimaryWindowTokens,
+                                    "0.00",
+                                    2,
+                                    true,
+                                  )}`
+                                : "5h --"}
+                              {" / "}
+                              {account.quotaCapacitySecondaryWindowTokens
+                                ? `7d ${formatCompactNumber(
+                                    account.quotaCapacitySecondaryWindowTokens,
+                                    "0.00",
+                                    2,
+                                    true,
+                                  )}`
+                                : "7d --"}
+                            </span>
+                          ) : (
+                            <span className="rounded-full border border-border/50 bg-background/40 px-2 py-0.5">
+                              {t("未设置账号容量覆盖")}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
@@ -1134,7 +1185,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
             <DialogTitle>{t("编辑账号信息")}</DialogTitle>
             <DialogDescription>
               {accountEditorState
-                ? `${t("修改")} ${accountEditorState.accountName} ${t("的名称、标签、备注与排序。")}`
+                ? `${t("修改")} ${accountEditorState.accountName} ${t("的名称、标签、备注、排序与额度池配置。")}`
                 : t("修改账号的基础资料。")}
             </DialogDescription>
           </DialogHeader>
@@ -1195,6 +1246,53 @@ export function AccountsPageView(props: AccountsPageViewProps) {
               <div className="grid gap-1 rounded-xl bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
                 <span>{t("值越小越靠前")}</span>
                 <span>{t("仅修改当前账号")}</span>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="account-model-whitelist-input">
+                {t("额度模型白名单")}
+              </Label>
+              <Input
+                id="account-model-whitelist-input"
+                value={modelWhitelistDraft}
+                disabled={Boolean(isUpdatingProfileAccountId)}
+                onChange={(event) => setModelWhitelistDraft(event.target.value)}
+                placeholder="gpt-5.4, gpt-5.4-mini"
+              />
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                {t("仅用于额度池统计归属；留空表示该账号对全部 API 可用模型生效。")}
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="account-quota-primary-input">
+                  {t("5h 容量覆盖（Token）")}
+                </Label>
+                <Input
+                  id="account-quota-primary-input"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={quotaPrimaryDraft}
+                  disabled={Boolean(isUpdatingProfileAccountId)}
+                  onChange={(event) => setQuotaPrimaryDraft(event.target.value)}
+                  placeholder={t("留空使用计划模板")}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="account-quota-secondary-input">
+                  {t("7d 容量覆盖（Token）")}
+                </Label>
+                <Input
+                  id="account-quota-secondary-input"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={quotaSecondaryDraft}
+                  disabled={Boolean(isUpdatingProfileAccountId)}
+                  onChange={(event) => setQuotaSecondaryDraft(event.target.value)}
+                  placeholder={t("留空使用计划模板")}
+                />
               </div>
             </div>
             <div className="grid gap-3 rounded-xl bg-muted/20 px-3 py-3 text-[11px] text-muted-foreground sm:grid-cols-2">

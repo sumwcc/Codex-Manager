@@ -15,6 +15,7 @@ mod gateway_error_logs;
 mod model_options;
 mod model_price_rules;
 mod plugins;
+mod quota_pools;
 mod request_log_query;
 mod request_logs;
 mod request_token_stats;
@@ -51,6 +52,30 @@ pub struct AccountSubscription {
     pub plan_type: Option<String>,
     pub expires_at: Option<i64>,
     pub renews_at: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct QuotaSourceModelAssignment {
+    pub source_kind: String,
+    pub source_id: String,
+    pub model_slug: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountQuotaCapacityTemplate {
+    pub plan_type: String,
+    pub primary_window_tokens: Option<i64>,
+    pub secondary_window_tokens: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountQuotaCapacityOverride {
+    pub account_id: String,
+    pub primary_window_tokens: Option<i64>,
+    pub secondary_window_tokens: Option<i64>,
     pub updated_at: i64,
 }
 
@@ -755,6 +780,11 @@ impl Storage {
             include_str!("../../migrations/055_model_price_rules.sql"),
             |s| s.ensure_model_price_rules_table(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "056_quota_pools",
+            include_str!("../../migrations/056_quota_pools.sql"),
+            |s| s.ensure_quota_pool_tables(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
@@ -768,6 +798,7 @@ impl Storage {
         self.ensure_request_log_first_response_column()?;
         self.ensure_model_catalog_models_table()?;
         self.ensure_account_subscriptions_table()?;
+        self.ensure_quota_pool_tables()?;
         Ok(())
     }
 

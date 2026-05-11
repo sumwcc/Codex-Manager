@@ -190,6 +190,10 @@ pub struct AccountSummary {
     pub subscription_renews_at: Option<i64>,
     pub note: Option<String>,
     pub tags: Option<String>,
+    #[serde(default)]
+    pub model_slugs: Vec<String>,
+    pub quota_capacity_primary_window_tokens: Option<i64>,
+    pub quota_capacity_secondary_window_tokens: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -546,6 +550,93 @@ pub struct QuotaRefreshSourcesResult {
     pub items: Vec<QuotaRefreshSourceResult>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaSourceModelAssignmentResult {
+    pub source_kind: String,
+    pub source_id: String,
+    pub model_slugs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountQuotaCapacityTemplateResult {
+    pub plan_type: String,
+    pub primary_window_tokens: Option<i64>,
+    pub secondary_window_tokens: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountQuotaCapacityOverrideResult {
+    pub account_id: String,
+    pub primary_window_tokens: Option<i64>,
+    pub secondary_window_tokens: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaCapacityConfigResult {
+    pub source_assignments: Vec<QuotaSourceModelAssignmentResult>,
+    pub templates: Vec<AccountQuotaCapacityTemplateResult>,
+    pub account_overrides: Vec<AccountQuotaCapacityOverrideResult>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaPoolSourceBreakdown {
+    pub source_kind: String,
+    pub source_id: String,
+    pub name: String,
+    pub status: String,
+    pub remaining_tokens: Option<i64>,
+    pub raw_remaining: Option<f64>,
+    pub raw_unit: Option<String>,
+    pub models: Vec<String>,
+    pub captured_at: Option<i64>,
+    pub price_status: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaModelPoolItem {
+    pub model: String,
+    pub provider: Option<String>,
+    pub total_remaining_tokens: Option<i64>,
+    pub aggregate_remaining_tokens: Option<i64>,
+    pub account_primary_remaining_tokens: Option<i64>,
+    pub account_secondary_remaining_tokens: Option<i64>,
+    pub account_estimated_remaining_tokens: Option<i64>,
+    pub source_count: i64,
+    pub sources: Vec<QuotaPoolSourceBreakdown>,
+    pub price_status: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaModelPoolsResult {
+    pub items: Vec<QuotaModelPoolItem>,
+    pub templates: Vec<AccountQuotaCapacityTemplateResult>,
+    pub account_overrides: Vec<AccountQuotaCapacityOverrideResult>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaSystemPoolResult {
+    pub reference_model: String,
+    pub provider: Option<String>,
+    pub total_remaining_tokens: Option<i64>,
+    pub aggregate_remaining_tokens: Option<i64>,
+    pub account_primary_remaining_tokens: Option<i64>,
+    pub account_secondary_remaining_tokens: Option<i64>,
+    pub account_estimated_remaining_tokens: Option<i64>,
+    pub aggregate_source_count: i64,
+    pub account_source_count: i64,
+    pub unknown_source_count: i64,
+    pub price_status: String,
+    pub sources: Vec<QuotaPoolSourceBreakdown>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyCreateResult {
@@ -587,6 +678,8 @@ pub struct AggregateApiSummary {
     pub last_balance_status: Option<String>,
     pub last_balance_error: Option<String>,
     pub last_balance_json: Option<String>,
+    #[serde(default)]
+    pub model_slugs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
