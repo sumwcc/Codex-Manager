@@ -76,3 +76,22 @@ test("createWebCommandMap 为按状态清理账号提供 Web RPC 映射", () => 
     rpcMethod: "account/deleteByStatuses",
   });
 });
+
+test("createWebCommandMap 为显示主窗口提供 Web 回退", async () => {
+  const previousWindow = globalThis.window;
+  const location = { href: "/tray-preview/" };
+  globalThis.window = { location };
+
+  try {
+    const showMainWindow = commandMap.app_show_main_window;
+    assert.ok(showMainWindow.direct);
+    assert.deepEqual(await showMainWindow.direct(), { ok: true });
+    assert.equal(location.href, "/");
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+  }
+});

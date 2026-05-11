@@ -384,6 +384,14 @@ export function createWebCommandMap(
         throw new Error("当前环境不支持打开本地目录");
       },
     },
+    app_show_main_window: {
+      direct: async () => {
+        if (typeof window !== "undefined") {
+          window.location.href = "/";
+        }
+        return { ok: true };
+      },
+    },
     app_update_open_logs_dir: {
       direct: async () => {
         throw new Error("当前环境不支持打开更新日志目录");

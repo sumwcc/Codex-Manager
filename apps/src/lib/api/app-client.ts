@@ -38,6 +38,7 @@ export const appClient = {
 
   openInBrowser: (url: string) => invoke("open_in_browser", { url }),
   openInFileManager: (path: string) => invoke("open_in_file_manager", { path }),
+  showMainWindow: () => invoke("app_show_main_window"),
   openUpdateLogsDir: (assetPath?: string) =>
     invoke("app_update_open_logs_dir", { assetPath: assetPath || null }),
 

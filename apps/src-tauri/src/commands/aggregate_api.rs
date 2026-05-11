@@ -12,9 +12,7 @@ use crate::commands::shared::rpc_call_in_background;
 /// # 返回
 /// 返回函数执行结果
 #[tauri::command]
-pub async fn service_aggregate_api_list(
-    addr: Option<String>,
-) -> Result<serde_json::Value, String> {
+pub async fn service_aggregate_api_list(addr: Option<String>) -> Result<serde_json::Value, String> {
     rpc_call_in_background("aggregateApi/list", addr, None).await
 }
 
