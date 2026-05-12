@@ -36,6 +36,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let aggregate_api_id = super::string_param(req, "aggregateApiId");
             let account_plan_filter = super::string_param(req, "accountPlanFilter");
             let quota_limit_tokens = super::i64_param(req, "quotaLimitTokens");
+            let custom_key = super::string_param(req, "customKey");
             super::value_or_error(apikey_create::create_api_key(
                 name,
                 model_slug,
@@ -48,6 +49,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 aggregate_api_id,
                 account_plan_filter,
                 quota_limit_tokens,
+                custom_key,
             ))
         }
         "apikey/readSecret" => {

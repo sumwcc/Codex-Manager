@@ -117,6 +117,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
   const [quotaLimitValue, setQuotaLimitValue] = useState("");
   const [quotaLimitUnit, setQuotaLimitUnit] = useState<QuotaLimitUnit>("k");
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
+  const [customKey, setCustomKey] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
@@ -196,6 +197,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       setQuotaLimitValue("");
       setQuotaLimitUnit("k");
       setUpstreamBaseUrl("");
+      setCustomKey("");
       setGeneratedKey("");
       return;
     }
@@ -213,6 +215,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
       formatQuotaLimitValue(apiKey.quotaLimitTokens, resolvedQuotaUnit),
     );
     setGeneratedKey("");
+    setCustomKey("");
     setUpstreamBaseUrl(apiKey.upstreamBaseUrl || "");
   }, [apiKey, open]);
 
@@ -266,6 +269,7 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
             ? accountPlanFilter
             : null,
         quotaLimitTokens: quotaLimitTokenPreview,
+        customKey: !apiKey?.id && customKey.trim() ? customKey.trim() : null,
       };
 
       if (apiKey?.id) {
@@ -382,6 +386,27 @@ export function ApiKeyModal({ open, onOpenChange, apiKey }: ApiKeyModalProps) {
               )}
             </p>
           </div>
+
+          {!apiKey?.id ? (
+            <div className="grid gap-2">
+              <Label htmlFor="customKey">{t("自定义 API Key (可选)")}</Label>
+              <Input
+                id="customKey"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={t("留空则自动生成")}
+                value={customKey}
+                disabled={!isServiceReady}
+                onChange={(e) => setCustomKey(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {t(
+                  "用于复用固定 OPENAI_API_KEY；填写后将按该值创建平台密钥，留空则继续随机生成。",
+                )}
+              </p>
+            </div>
+          ) : null}
 
           {usesAccountPlanFilter ? (
             <div className="grid gap-2">

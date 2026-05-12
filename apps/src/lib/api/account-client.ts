@@ -113,6 +113,7 @@ interface ApiKeyPayload {
   aggregateApiId?: string | null;
   accountPlanFilter?: string | null;
   quotaLimitTokens?: number | null;
+  customKey?: string | null;
 }
 
 export interface ManagedModelPayload {
@@ -640,6 +641,7 @@ export const accountClient = {
         aggregateApiId: params.aggregateApiId || null,
         accountPlanFilter: params.accountPlanFilter || null,
         quotaLimitTokens: params.quotaLimitTokens ?? null,
+        customKey: params.customKey || null,
       })
     );
     return normalizeApiKeyCreateResult(result);
