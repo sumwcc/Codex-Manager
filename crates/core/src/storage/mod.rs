@@ -13,7 +13,9 @@ mod conversation_bindings;
 mod events;
 mod gateway_error_logs;
 mod model_options;
+mod model_price_rules;
 mod plugins;
+mod quota_pools;
 mod request_log_query;
 mod request_logs;
 mod request_token_stats;
@@ -50,6 +52,30 @@ pub struct AccountSubscription {
     pub plan_type: Option<String>,
     pub expires_at: Option<i64>,
     pub renews_at: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct QuotaSourceModelAssignment {
+    pub source_kind: String,
+    pub source_id: String,
+    pub model_slug: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountQuotaCapacityTemplate {
+    pub plan_type: String,
+    pub primary_window_tokens: Option<i64>,
+    pub secondary_window_tokens: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountQuotaCapacityOverride {
+    pub account_id: String,
+    pub primary_window_tokens: Option<i64>,
+    pub secondary_window_tokens: Option<i64>,
     pub updated_at: i64,
 }
 
@@ -208,6 +234,58 @@ pub struct ApiKeyTokenUsageSummary {
     pub key_id: String,
     pub total_tokens: i64,
     pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TokenUsageSummary {
+    pub model: String,
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub output_tokens: i64,
+    pub reasoning_output_tokens: i64,
+    pub total_tokens: i64,
+    pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ApiKeyModelTokenUsageSummary {
+    pub key_id: String,
+    pub model: String,
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub output_tokens: i64,
+    pub reasoning_output_tokens: i64,
+    pub total_tokens: i64,
+    pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelPriceRule {
+    pub id: String,
+    pub provider: String,
+    pub model_pattern: String,
+    pub match_type: String,
+    pub billing_mode: String,
+    pub currency: String,
+    pub unit: String,
+    pub input_price_per_1m: Option<f64>,
+    pub cached_input_price_per_1m: Option<f64>,
+    pub output_price_per_1m: Option<f64>,
+    pub reasoning_output_price_per_1m: Option<f64>,
+    pub cache_write_5m_price_per_1m: Option<f64>,
+    pub cache_write_1h_price_per_1m: Option<f64>,
+    pub cache_hit_price_per_1m: Option<f64>,
+    pub long_context_threshold_tokens: Option<i64>,
+    pub long_context_input_price_per_1m: Option<f64>,
+    pub long_context_cached_input_price_per_1m: Option<f64>,
+    pub long_context_output_price_per_1m: Option<f64>,
+    pub source: String,
+    pub source_url: Option<String>,
+    pub seed_version: Option<String>,
+    pub enabled: bool,
+    pub priority: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -697,11 +775,22 @@ impl Storage {
                 s.ensure_aggregate_api_balance_secrets_table()
             },
         )?;
+        self.apply_sql_or_compat_migration(
+            "055_model_price_rules",
+            include_str!("../../migrations/055_model_price_rules.sql"),
+            |s| s.ensure_model_price_rules_table(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "056_quota_pools",
+            include_str!("../../migrations/056_quota_pools.sql"),
+            |s| s.ensure_quota_pool_tables(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
         self.ensure_aggregate_api_balance_secrets_table()?;
         self.ensure_api_key_quota_limits_table()?;
+        self.ensure_model_price_rules_table()?;
         self.ensure_request_token_stats_table()?;
         self.ensure_gateway_error_logs_table()?;
         self.ensure_request_log_request_type_and_service_tier_columns()?;
@@ -709,6 +798,7 @@ impl Storage {
         self.ensure_request_log_first_response_column()?;
         self.ensure_model_catalog_models_table()?;
         self.ensure_account_subscriptions_table()?;
+        self.ensure_quota_pool_tables()?;
         Ok(())
     }
 

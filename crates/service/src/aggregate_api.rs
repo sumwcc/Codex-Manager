@@ -2276,9 +2276,22 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
     let items = storage
         .list_aggregate_apis()
         .map_err(|err| format!("list aggregate apis failed: {err}"))?;
+    let assignments = storage
+        .list_quota_source_model_assignments()
+        .map_err(|err| format!("list aggregate api model assignments failed: {err}"))?;
+    let mut models_by_api = std::collections::HashMap::<String, Vec<String>>::new();
+    for assignment in assignments {
+        if assignment.source_kind == "aggregate_api" {
+            models_by_api
+                .entry(assignment.source_id)
+                .or_default()
+                .push(assignment.model_slug);
+        }
+    }
     Ok(items
         .into_iter()
         .map(|item| AggregateApiSummary {
+            model_slugs: models_by_api.remove(item.id.as_str()).unwrap_or_default(),
             id: item.id,
             provider_type: item.provider_type,
             supplier_name: item.supplier_name,
@@ -2343,8 +2356,9 @@ pub(crate) fn create_aggregate_api(
     balance_query_access_token: Option<String>,
     balance_query_user_id: Option<String>,
     balance_query_config_json: Option<String>,
+    model_slugs: Option<Vec<String>>,
 ) -> Result<AggregateApiCreateResult, String> {
-    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let mut storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let normalized_provider_type = normalize_provider_type(provider_type)?;
     let normalized_supplier_name = normalize_supplier_name(supplier_name)?;
     let normalized_sort = normalize_sort(sort);
@@ -2435,6 +2449,16 @@ pub(crate) fn create_aggregate_api(
             ));
         }
     }
+    if let Some(model_slugs) = model_slugs {
+        if let Err(err) =
+            storage.set_quota_source_model_assignments("aggregate_api", &id, model_slugs.as_slice())
+        {
+            let _ = storage.delete_aggregate_api(&id);
+            return Err(format!(
+                "persist aggregate api model assignments failed: {err}"
+            ));
+        }
+    }
     Ok(AggregateApiCreateResult {
         id,
         key: if record.auth_type == AGGREGATE_API_AUTH_APIKEY {
@@ -2478,11 +2502,12 @@ pub(crate) fn update_aggregate_api(
     balance_query_access_token: Option<String>,
     balance_query_user_id: Option<String>,
     balance_query_config_json: Option<String>,
+    model_slugs: Option<Vec<String>>,
 ) -> Result<(), String> {
     if api_id.is_empty() {
         return Err("aggregate api id required".to_string());
     }
-    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let mut storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let existing = storage
         .find_aggregate_api_by_id(api_id)
         .map_err(|err| err.to_string())?
@@ -2672,6 +2697,11 @@ pub(crate) fn update_aggregate_api(
                 .upsert_aggregate_api_secret(api_id, &secret)
                 .map_err(|err| err.to_string())?;
         }
+    }
+    if let Some(model_slugs) = model_slugs {
+        storage
+            .set_quota_source_model_assignments("aggregate_api", api_id, model_slugs.as_slice())
+            .map_err(|err| err.to_string())?;
     }
     Ok(())
 }

@@ -7,6 +7,7 @@ export const TOP_LEVEL_ROUTE_CONFIG = [
   { path: "/accounts", label: "账号管理" },
   { path: "/aggregate-api", label: "聚合API" },
   { path: "/apikeys", label: "平台密钥" },
+  { path: "/quota", label: "额度中心" },
   { path: "/models", label: "模型管理" },
   { path: "/plugins", label: "插件中心" },
   { path: "/logs", label: "请求日志" },

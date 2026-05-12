@@ -90,6 +90,9 @@ interface AccountUpdatePayload {
   label?: string | null;
   note?: string | null;
   tags?: string[] | string | null;
+  modelSlugs?: string[] | null;
+  quotaCapacityPrimaryWindowTokens?: number | null;
+  quotaCapacitySecondaryWindowTokens?: number | null;
 }
 
 interface ChatgptAuthTokensLoginPayload {
@@ -145,6 +148,7 @@ interface AggregateApiPayload {
   balanceQueryAccessToken?: string | null;
   balanceQueryUserId?: string | null;
   balanceQueryConfigJson?: string | null;
+  modelSlugs?: string[] | null;
 }
 
 const MAX_IMPORT_RPC_BODY_BYTES = 4 * 1024 * 1024;
@@ -342,6 +346,19 @@ export const accountClient = {
               .filter(Boolean)
               .join(",")
           : params.tags ?? null,
+        modelSlugs: Array.isArray(params.modelSlugs)
+          ? params.modelSlugs
+              .map((item) => String(item || "").trim())
+              .filter(Boolean)
+          : null,
+        quotaCapacityPrimaryWindowTokens:
+          typeof params.quotaCapacityPrimaryWindowTokens === "number"
+            ? params.quotaCapacityPrimaryWindowTokens
+            : null,
+        quotaCapacitySecondaryWindowTokens:
+          typeof params.quotaCapacitySecondaryWindowTokens === "number"
+            ? params.quotaCapacitySecondaryWindowTokens
+            : null,
       })
     ),
   setPreferred: (accountId: string) =>
@@ -548,6 +565,7 @@ export const accountClient = {
           typeof params.balanceQueryConfigJson === "string"
             ? params.balanceQueryConfigJson
             : null,
+        modelSlugs: Array.isArray(params.modelSlugs) ? params.modelSlugs : null,
       })
     );
     return normalizeAggregateApiCreateResult(result);
@@ -596,6 +614,7 @@ export const accountClient = {
           typeof params.balanceQueryConfigJson === "string"
             ? params.balanceQueryConfigJson
             : null,
+        modelSlugs: Array.isArray(params.modelSlugs) ? params.modelSlugs : null,
       })
     ),
   deleteAggregateApi: (apiId: string) =>

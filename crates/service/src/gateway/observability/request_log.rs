@@ -25,6 +25,7 @@ pub(crate) struct RequestLogTraceContext<'a> {
     pub attempted_aggregate_api_ids: Option<&'a [String]>,
 }
 
+#[allow(dead_code)]
 const MODEL_PRICE_PER_1K_TOKENS: &[(&str, f64, f64, f64)] = &[
     // OpenAI 官方价格（单位：USD / 1K tokens）。按模型前缀匹配，越具体越靠前。
     // GPT-5.5 官方价格。
@@ -108,6 +109,7 @@ const MODEL_PRICE_PER_1K_TOKENS: &[(&str, f64, f64, f64)] = &[
 ///
 /// # 返回
 /// 返回函数执行结果
+#[allow(dead_code)]
 fn resolve_model_price_per_1k(
     normalized: &str,
     input_tokens_total: i64,
@@ -157,6 +159,7 @@ fn resolve_model_price_per_1k(
 ///
 /// # 返回
 /// 返回函数执行结果
+#[allow(dead_code)]
 fn estimate_cost_usd(
     model: Option<&str>,
     input_tokens: Option<i64>,
@@ -372,8 +375,13 @@ pub(crate) fn write_request_log_with_attempts(
     let duration_ms = normalize_duration_ms(duration_ms);
     let first_response_ms = usage.first_response_ms.map(|value| value.max(0));
     let created_at = now_ts();
-    let estimated_cost_usd =
-        estimate_cost_usd(model, input_tokens, cached_input_tokens, output_tokens);
+    let estimated_cost_usd = crate::quota::model_pricing::estimate_cost_usd_for_log(
+        storage,
+        model,
+        input_tokens,
+        cached_input_tokens,
+        output_tokens,
+    );
     let request_type = trace_context
         .request_type
         .map(str::trim)

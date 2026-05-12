@@ -54,6 +54,7 @@ pub async fn service_aggregate_api_create(
     balance_query_access_token: Option<String>,
     balance_query_user_id: Option<String>,
     balance_query_config_json: Option<String>,
+    model_slugs: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "providerType": provider_type,
@@ -75,6 +76,7 @@ pub async fn service_aggregate_api_create(
         "balanceQueryAccessToken": balance_query_access_token,
         "balanceQueryUserId": balance_query_user_id,
         "balanceQueryConfigJson": balance_query_config_json,
+        "modelSlugs": model_slugs,
     });
     rpc_call_in_background("aggregateApi/create", addr, Some(params)).await
 }
@@ -120,6 +122,7 @@ pub async fn service_aggregate_api_update(
     balance_query_access_token: Option<String>,
     balance_query_user_id: Option<String>,
     balance_query_config_json: Option<String>,
+    model_slugs: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "id": id,
@@ -143,6 +146,7 @@ pub async fn service_aggregate_api_update(
         "balanceQueryAccessToken": balance_query_access_token,
         "balanceQueryUserId": balance_query_user_id,
         "balanceQueryConfigJson": balance_query_config_json,
+        "modelSlugs": model_slugs,
     });
     rpc_call_in_background("aggregateApi/update", addr, Some(params)).await
 }

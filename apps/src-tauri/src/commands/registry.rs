@@ -26,6 +26,18 @@ macro_rules! invoke_handler {
             crate::commands::usage::service_usage_list,
             crate::commands::usage::service_usage_aggregate,
             crate::commands::usage::service_usage_refresh,
+            // quota
+            crate::commands::quota::service_quota_overview,
+            crate::commands::quota::service_quota_model_usage,
+            crate::commands::quota::service_quota_api_key_usage,
+            crate::commands::quota::service_quota_source_list,
+            crate::commands::quota::service_quota_model_pools,
+            crate::commands::quota::service_quota_system_pool,
+            crate::commands::quota::service_quota_capacity_config,
+            crate::commands::quota::service_quota_source_models_set,
+            crate::commands::quota::service_quota_capacity_template_update,
+            crate::commands::quota::service_quota_account_capacity_override_update,
+            crate::commands::quota::service_quota_refresh_sources,
             // request log
             crate::commands::requestlog::service_requestlog_list,
             crate::commands::requestlog::service_requestlog_error_list,

@@ -50,6 +50,7 @@ export interface AggregateApi {
   lastBalanceStatus: string | null;
   lastBalanceError: string | null;
   lastBalanceJson: string | null;
+  modelSlugs: string[];
 }
 
 export interface AggregateApiCreateResult {

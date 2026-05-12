@@ -11,6 +11,7 @@ mod gateway;
 mod http;
 mod lifecycle;
 mod plugin;
+mod quota;
 mod requestlog;
 mod rpc_dispatch;
 mod runtime;

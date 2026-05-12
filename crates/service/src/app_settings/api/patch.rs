@@ -163,10 +163,8 @@ pub(super) fn apply_app_settings_patch(patch: AppSettingsPatch) -> Result<(), St
     if let Some(author_server_recommendations) = patch.author_server_recommendations {
         let normalized = normalize_author_link_items(author_server_recommendations);
         let raw = serialize_author_link_items(&normalized)?;
-        let _ = save_persisted_app_setting(
-            APP_SETTING_AUTHOR_SERVER_RECOMMENDATIONS_KEY,
-            Some(&raw),
-        )?;
+        let _ =
+            save_persisted_app_setting(APP_SETTING_AUTHOR_SERVER_RECOMMENDATIONS_KEY, Some(&raw))?;
     }
     if let Some(proxy_url) = patch.upstream_proxy_url {
         let _ = set_gateway_upstream_proxy_url(Some(&proxy_url))?;
