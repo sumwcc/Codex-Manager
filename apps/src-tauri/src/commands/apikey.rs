@@ -55,6 +55,8 @@ pub async fn service_apikey_read_secret(
 /// - rotation_strategy: 参数 rotation_strategy
 /// - aggregate_api_id: 参数 aggregate_api_id
 /// - account_plan_filter: 参数 account_plan_filter
+/// - quota_limit_tokens: 参数 quota_limit_tokens
+/// - custom_key: 参数 custom_key
 ///
 /// # 返回
 /// 返回函数执行结果
@@ -71,6 +73,8 @@ pub async fn service_apikey_create(
     rotation_strategy: Option<String>,
     aggregate_api_id: Option<String>,
     account_plan_filter: Option<String>,
+    quota_limit_tokens: Option<i64>,
+    custom_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
       "name": name,
@@ -83,6 +87,8 @@ pub async fn service_apikey_create(
       "rotationStrategy": rotation_strategy,
       "aggregateApiId": aggregate_api_id,
       "accountPlanFilter": account_plan_filter,
+      "quotaLimitTokens": quota_limit_tokens,
+      "customKey": custom_key,
     });
     rpc_call_in_background("apikey/create", addr, Some(params)).await
 }

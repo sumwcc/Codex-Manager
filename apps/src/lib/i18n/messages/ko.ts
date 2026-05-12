@@ -112,6 +112,10 @@ export const KO_MESSAGES: MessageCatalog = {
   "复制 Claude Code / Gemini CLI 端点": "Claude Code / Gemini CLI 엔드포인트 복사",
   刷新模型: "모델 새로고침",
   创建密钥: "키 생성",
+  "自定义 API Key (可选)": "사용자 지정 API Key (선택)",
+  留空则自动生成: "비워 두면 자동 생성",
+  "用于复用固定 OPENAI_API_KEY；填写后将按该值创建平台密钥，留空则继续随机生成。":
+    "고정 OPENAI_API_KEY를 재사용할 때 사용합니다. 입력하면 해당 값으로 플랫폼 키를 만들고, 비워 두면 계속 무작위로 생성합니다.",
   "密钥 / ID": "키 / ID",
   名称: "이름",
   账号轮转: "계정 로테이션",
