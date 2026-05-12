@@ -41,6 +41,44 @@ const AGGREGATE_API_URL_PLACEHOLDERS: Record<string, string> = {
   claude: "例如：https://api.anthropic.com/v1",
 };
 
+type BalanceQueryTemplate = "generic" | "new_api" | "custom";
+type BalanceCustomAuth = "provider_bearer" | "balance_bearer" | "none";
+
+interface BalanceCustomConfig {
+  path?: unknown;
+  auth?: unknown;
+  remainingPath?: unknown;
+  unit?: unknown;
+  multiplier?: unknown;
+  totalPath?: unknown;
+  usedPath?: unknown;
+  planPath?: unknown;
+  validPath?: unknown;
+  invalidMessagePath?: unknown;
+}
+
+const parseBalanceCustomConfig = (
+  value: string | null | undefined
+): BalanceCustomConfig => {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object"
+      ? (parsed as BalanceCustomConfig)
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const stringConfigValue = (value: unknown, fallback = "") =>
+  typeof value === "string" ? value : fallback;
+
+const normalizeBalanceCustomAuth = (value: unknown): BalanceCustomAuth =>
+  value === "balance_bearer" || value === "none"
+    ? value
+    : "provider_bearer";
+
 interface AggregateApiModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -93,6 +131,27 @@ export function AggregateApiModal({
   const [actionCustomEnabled, setActionCustomEnabled] = useState(false);
   const [action, setAction] = useState("");
   const [modelOverride, setModelOverride] = useState("");
+  const [balanceQueryEnabled, setBalanceQueryEnabled] = useState(false);
+  const [balanceQueryTemplate, setBalanceQueryTemplate] =
+    useState<BalanceQueryTemplate>("generic");
+  const [balanceQueryBaseUrl, setBalanceQueryBaseUrl] = useState("");
+  const [balanceQueryAccessToken, setBalanceQueryAccessToken] = useState("");
+  const [balanceQueryUserId, setBalanceQueryUserId] = useState("");
+  const [balanceCustomPath, setBalanceCustomPath] = useState("/v1/usage");
+  const [balanceCustomAuth, setBalanceCustomAuth] =
+    useState<BalanceCustomAuth>("provider_bearer");
+  const [balanceCustomRemainingPath, setBalanceCustomRemainingPath] =
+    useState("remaining");
+  const [balanceCustomUnit, setBalanceCustomUnit] = useState("USD");
+  const [balanceCustomMultiplier, setBalanceCustomMultiplier] = useState("1");
+  const [balanceCustomTotalPath, setBalanceCustomTotalPath] = useState("");
+  const [balanceCustomUsedPath, setBalanceCustomUsedPath] = useState("");
+  const [balanceCustomPlanPath, setBalanceCustomPlanPath] = useState("");
+  const [balanceCustomValidPath, setBalanceCustomValidPath] = useState("");
+  const [
+    balanceCustomInvalidMessagePath,
+    setBalanceCustomInvalidMessagePath,
+  ] = useState("");
   const [key, setKey] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -156,6 +215,39 @@ export function AggregateApiModal({
     setAction(nextAction);
     setActionCustomEnabled(aggregateApi?.action !== null && aggregateApi?.action !== undefined);
     setModelOverride(aggregateApi?.modelOverride || "");
+    setBalanceQueryEnabled(Boolean(aggregateApi?.balanceQueryEnabled));
+    const nextBalanceQueryTemplate =
+      aggregateApi?.balanceQueryTemplate === "new_api"
+        ? "new_api"
+        : aggregateApi?.balanceQueryTemplate === "custom"
+          ? "custom"
+          : "generic";
+    setBalanceQueryTemplate(nextBalanceQueryTemplate);
+    setBalanceQueryBaseUrl(aggregateApi?.balanceQueryBaseUrl || "");
+    setBalanceQueryAccessToken("");
+    setBalanceQueryUserId(aggregateApi?.balanceQueryUserId || "");
+    const customConfig = parseBalanceCustomConfig(
+      aggregateApi?.balanceQueryConfigJson
+    );
+    setBalanceCustomPath(stringConfigValue(customConfig.path, "/v1/usage"));
+    setBalanceCustomAuth(normalizeBalanceCustomAuth(customConfig.auth));
+    setBalanceCustomRemainingPath(
+      stringConfigValue(customConfig.remainingPath, "remaining")
+    );
+    setBalanceCustomUnit(stringConfigValue(customConfig.unit, "USD"));
+    setBalanceCustomMultiplier(
+      typeof customConfig.multiplier === "number" &&
+        Number.isFinite(customConfig.multiplier)
+        ? String(customConfig.multiplier)
+        : "1"
+    );
+    setBalanceCustomTotalPath(stringConfigValue(customConfig.totalPath));
+    setBalanceCustomUsedPath(stringConfigValue(customConfig.usedPath));
+    setBalanceCustomPlanPath(stringConfigValue(customConfig.planPath));
+    setBalanceCustomValidPath(stringConfigValue(customConfig.validPath));
+    setBalanceCustomInvalidMessagePath(
+      stringConfigValue(customConfig.invalidMessagePath)
+    );
     setKey("");
     setUsername("");
     setPassword("");
@@ -265,6 +357,46 @@ export function AggregateApiModal({
         }
       }
     }
+    let balanceQueryConfigJson: string | null = null;
+    if (balanceQueryTemplate === "custom") {
+      const customPath = balanceCustomPath.trim();
+      const remainingPath = balanceCustomRemainingPath.trim();
+      const multiplierText = balanceCustomMultiplier.trim() || "1";
+      const multiplier = Number(multiplierText);
+      if (!customPath) {
+        toast.error(t("请输入自定义余额查询路径"));
+        return;
+      }
+      if (!remainingPath) {
+        toast.error(t("请输入余额字段路径"));
+        return;
+      }
+      if (!Number.isFinite(multiplier) || multiplier <= 0) {
+        toast.error(t("余额倍率必须大于 0"));
+        return;
+      }
+      const config: Record<string, string | number> = {
+        method: "GET",
+        path: customPath,
+        auth: balanceCustomAuth,
+        remainingPath,
+        unit: balanceCustomUnit.trim() || "USD",
+        multiplier,
+      };
+      const totalPath = balanceCustomTotalPath.trim();
+      const usedPath = balanceCustomUsedPath.trim();
+      const planPath = balanceCustomPlanPath.trim();
+      const validPath = balanceCustomValidPath.trim();
+      const invalidMessagePath = balanceCustomInvalidMessagePath.trim();
+      if (totalPath) config.totalPath = totalPath;
+      if (usedPath) config.usedPath = usedPath;
+      if (planPath) config.planPath = planPath;
+      if (validPath) config.validPath = validPath;
+      if (invalidMessagePath) {
+        config.invalidMessagePath = invalidMessagePath;
+      }
+      balanceQueryConfigJson = JSON.stringify(config);
+    }
     setIsLoading(true);
     try {
       if (aggregateApi?.id) {
@@ -282,6 +414,12 @@ export function AggregateApiModal({
           modelOverride: modelOverride.trim(),
           username: authType === "userpass" ? username.trim() || null : null,
           password: authType === "userpass" ? password.trim() || null : null,
+          balanceQueryEnabled,
+          balanceQueryTemplate,
+          balanceQueryBaseUrl: balanceQueryBaseUrl.trim(),
+          balanceQueryAccessToken: balanceQueryAccessToken.trim() || null,
+          balanceQueryUserId: balanceQueryUserId.trim(),
+          balanceQueryConfigJson,
         });
         toast.success(t("聚合 API 已更新"));
         await Promise.all([
@@ -307,6 +445,12 @@ export function AggregateApiModal({
         modelOverride: modelOverride.trim(),
         username: authType === "userpass" ? username.trim() : null,
         password: authType === "userpass" ? password.trim() : null,
+        balanceQueryEnabled,
+        balanceQueryTemplate,
+        balanceQueryBaseUrl: balanceQueryBaseUrl.trim(),
+        balanceQueryAccessToken: balanceQueryAccessToken.trim() || null,
+        balanceQueryUserId: balanceQueryUserId.trim(),
+        balanceQueryConfigJson,
       });
       setGeneratedKey(result.key);
       toast.success(t("聚合 API 已创建"));
@@ -713,6 +857,295 @@ export function AggregateApiModal({
                     </div>
                   ) : null}
                 </div>
+              </div>
+
+              <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-sm">{t("余额检测")}</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("开启后可在聚合 API 列表手动刷新并显示余额。")}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={balanceQueryEnabled}
+                    disabled={!isServiceReady}
+                    onCheckedChange={(checked) =>
+                      setBalanceQueryEnabled(Boolean(checked))
+                    }
+                  />
+                </div>
+
+                {balanceQueryEnabled ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label className="text-xs">{t("查询模板")}</Label>
+                      <Select
+                        value={balanceQueryTemplate}
+                        disabled={!isServiceReady}
+                        onValueChange={(value) =>
+                          setBalanceQueryTemplate(
+                            value === "new_api"
+                              ? "new_api"
+                              : value === "custom"
+                                ? "custom"
+                                : "generic"
+                          )
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue>
+                            {(value) =>
+                              String(value || "") === "new_api"
+                                ? "New API"
+                                : String(value || "") === "custom"
+                                  ? "Custom"
+                                : t("通用余额")
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="generic">{t("通用余额")}</SelectItem>
+                          <SelectItem value="new_api">New API</SelectItem>
+                          <SelectItem value="custom">Custom</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="aggregate-api-balance-base-url">
+                        {t("余额接口基础地址")}
+                      </Label>
+                      <Input
+                        id="aggregate-api-balance-base-url"
+                        value={balanceQueryBaseUrl}
+                        disabled={!isServiceReady}
+                        placeholder={
+                          balanceQueryTemplate === "new_api"
+                            ? t("留空则从 URL 推断服务根地址")
+                            : t("留空则使用上方 URL")
+                        }
+                        onChange={(event) =>
+                          setBalanceQueryBaseUrl(event.target.value)
+                        }
+                      />
+                    </div>
+
+                    {balanceQueryTemplate === "custom" ? (
+                      <>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-custom-path">
+                            Custom path
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-custom-path"
+                            value={balanceCustomPath}
+                            disabled={!isServiceReady}
+                            placeholder="/v1/usage"
+                            onChange={(event) =>
+                              setBalanceCustomPath(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>Auth</Label>
+                          <Select
+                            value={balanceCustomAuth}
+                            disabled={!isServiceReady}
+                            onValueChange={(value) =>
+                              setBalanceCustomAuth(
+                                normalizeBalanceCustomAuth(value)
+                              )
+                            }
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="provider_bearer">
+                                Provider key
+                              </SelectItem>
+                              <SelectItem value="balance_bearer">
+                                Balance token
+                              </SelectItem>
+                              <SelectItem value="none">None</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-remaining-path">
+                            Remaining path
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-remaining-path"
+                            value={balanceCustomRemainingPath}
+                            disabled={!isServiceReady}
+                            placeholder="data.remaining"
+                            onChange={(event) =>
+                              setBalanceCustomRemainingPath(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-multiplier">
+                            Multiplier
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-multiplier"
+                            value={balanceCustomMultiplier}
+                            disabled={!isServiceReady}
+                            placeholder="1"
+                            onChange={(event) =>
+                              setBalanceCustomMultiplier(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-unit">
+                            Unit
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-unit"
+                            value={balanceCustomUnit}
+                            disabled={!isServiceReady}
+                            placeholder="USD"
+                            onChange={(event) =>
+                              setBalanceCustomUnit(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-total-path">
+                            Total path
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-total-path"
+                            value={balanceCustomTotalPath}
+                            disabled={!isServiceReady}
+                            placeholder="data.total"
+                            onChange={(event) =>
+                              setBalanceCustomTotalPath(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-used-path">
+                            Used path
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-used-path"
+                            value={balanceCustomUsedPath}
+                            disabled={!isServiceReady}
+                            placeholder="data.used"
+                            onChange={(event) =>
+                              setBalanceCustomUsedPath(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-plan-path">
+                            Plan path
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-plan-path"
+                            value={balanceCustomPlanPath}
+                            disabled={!isServiceReady}
+                            placeholder="data.plan"
+                            onChange={(event) =>
+                              setBalanceCustomPlanPath(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-valid-path">
+                            Valid path
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-valid-path"
+                            value={balanceCustomValidPath}
+                            disabled={!isServiceReady}
+                            placeholder="data.active"
+                            onChange={(event) =>
+                              setBalanceCustomValidPath(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-error-path">
+                            Error path
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-error-path"
+                            value={balanceCustomInvalidMessagePath}
+                            disabled={!isServiceReady}
+                            placeholder="message"
+                            onChange={(event) =>
+                              setBalanceCustomInvalidMessagePath(
+                                event.target.value
+                              )
+                            }
+                          />
+                        </div>
+                        {balanceCustomAuth === "balance_bearer" ? (
+                          <div className="grid gap-2">
+                            <Label htmlFor="aggregate-api-balance-custom-token">
+                              Balance access token
+                            </Label>
+                            <Input
+                              id="aggregate-api-balance-custom-token"
+                              type="password"
+                              value={balanceQueryAccessToken}
+                              disabled={!isServiceReady}
+                              placeholder={
+                                aggregateApi?.id ? "Keep current" : "Optional"
+                              }
+                              onChange={(event) =>
+                                setBalanceQueryAccessToken(event.target.value)
+                              }
+                            />
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+
+                    {balanceQueryTemplate === "new_api" ? (
+                      <>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-access-token">
+                            {t("余额 Access Token")}
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-access-token"
+                            type="password"
+                            value={balanceQueryAccessToken}
+                            disabled={!isServiceReady}
+                            placeholder={
+                              aggregateApi?.id
+                                ? t("留空则保持原值或使用密钥")
+                                : t("留空则使用密钥")
+                            }
+                            onChange={(event) =>
+                              setBalanceQueryAccessToken(event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="aggregate-api-balance-user-id">
+                            {t("New API 用户 ID")}
+                          </Label>
+                          <Input
+                            id="aggregate-api-balance-user-id"
+                            value={balanceQueryUserId}
+                            disabled={!isServiceReady}
+                            onChange={(event) =>
+                              setBalanceQueryUserId(event.target.value)
+                            }
+                          />
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
               {generatedKey ? (

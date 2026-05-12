@@ -41,6 +41,15 @@ export interface AggregateApi {
   lastTestAt: number | null;
   lastTestStatus: string | null;
   lastTestError: string | null;
+  balanceQueryEnabled: boolean;
+  balanceQueryTemplate: string | null;
+  balanceQueryBaseUrl: string | null;
+  balanceQueryUserId: string | null;
+  balanceQueryConfigJson: string | null;
+  lastBalanceAt: number | null;
+  lastBalanceStatus: string | null;
+  lastBalanceError: string | null;
+  lastBalanceJson: string | null;
 }
 
 export interface AggregateApiCreateResult {
@@ -62,6 +71,26 @@ export interface AggregateApiTestResult {
   statusCode: number | null;
   message: string | null;
   testedAt: number;
+  latencyMs: number;
+}
+
+export interface AggregateApiBalanceSnapshot {
+  isValid: boolean;
+  invalidMessage: string | null;
+  remaining: number | null;
+  unit: string | null;
+  planName: string | null;
+  total: number | null;
+  used: number | null;
+  extra: Record<string, unknown> | null;
+}
+
+export interface AggregateApiBalanceRefreshResult {
+  id: string;
+  ok: boolean;
+  balance: AggregateApiBalanceSnapshot | null;
+  message: string | null;
+  queriedAt: number;
   latencyMs: number;
 }
 

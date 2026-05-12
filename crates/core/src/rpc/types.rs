@@ -426,6 +426,15 @@ pub struct AggregateApiSummary {
     pub last_test_at: Option<i64>,
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
+    pub balance_query_enabled: bool,
+    pub balance_query_template: Option<String>,
+    pub balance_query_base_url: Option<String>,
+    pub balance_query_user_id: Option<String>,
+    pub balance_query_config_json: Option<String>,
+    pub last_balance_at: Option<i64>,
+    pub last_balance_status: Option<String>,
+    pub last_balance_error: Option<String>,
+    pub last_balance_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -552,6 +561,30 @@ pub struct AggregateApiTestResult {
     pub status_code: Option<i64>,
     pub message: Option<String>,
     pub tested_at: i64,
+    pub latency_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiBalanceSnapshot {
+    pub is_valid: bool,
+    pub invalid_message: Option<String>,
+    pub remaining: Option<f64>,
+    pub unit: Option<String>,
+    pub plan_name: Option<String>,
+    pub total: Option<f64>,
+    pub used: Option<f64>,
+    pub extra: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiBalanceRefreshResult {
+    pub id: String,
+    pub ok: bool,
+    pub balance: Option<AggregateApiBalanceSnapshot>,
+    pub message: Option<String>,
+    pub queried_at: i64,
     pub latency_ms: i64,
 }
 
