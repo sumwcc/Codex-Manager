@@ -20,6 +20,7 @@ import { CodexCliOnboardingDialog } from "@/components/layout/codex-cli-onboardi
 import { applyAppearancePreset } from "@/lib/appearance";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useLocalDayRange } from "@/hooks/useLocalDayRange";
+import { isTrayPreviewPath } from "@/components/layout/app-frame";
 import {
   formatServiceError,
   isExpectedInitializeResult,
@@ -111,6 +112,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const localDayRange = useLocalDayRange();
   const queryClient = useQueryClient();
   const pathname = usePathname();
+  const isTrayPreview = isTrayPreviewPath(pathname);
   const { canManageService, isDesktopRuntime, isUnsupportedWebRuntime } =
     useRuntimeCapabilities();
   const [isInitializing, setIsInitializing] = useState(true);
@@ -461,13 +463,14 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
   const showLoading = isInitializing && !hasInitializedOnce.current;
   const showError = !!error && !hasInitializedOnce.current;
   const showCodexGuide =
-    isCodexCliGuideOpen ||
-    serviceStatus.connected &&
-    !showLoading &&
-    !showError &&
-    !isUnsupportedWebRuntime &&
-    !guideSessionDismissed &&
-    !appSettings.codexCliGuideDismissed;
+    !isTrayPreview &&
+    (isCodexCliGuideOpen ||
+      (serviceStatus.connected &&
+        !showLoading &&
+        !showError &&
+        !isUnsupportedWebRuntime &&
+        !guideSessionDismissed &&
+        !appSettings.codexCliGuideDismissed));
   return (
     <>
       {/* Always keep children mounted to prevent Header/Sidebar remounting 'reload' feel */}
@@ -479,7 +482,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
         onAcknowledge={handleGuideAcknowledge}
       />
 
-      {(showLoading || showError) && (
+      {!isTrayPreview && (showLoading || showError) && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
           <div className="flex w-full max-w-md flex-col items-center gap-6 rounded-3xl glass-card p-10 shadow-2xl animate-in fade-in zoom-in duration-500">
             {showLoading ? (

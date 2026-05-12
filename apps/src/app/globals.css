@@ -204,6 +204,23 @@
     color: #cbd5e1 !important;
     opacity: 1 !important;
   }
+
+  html.tray-preview-mode,
+  html.tray-preview-mode body,
+  body.tray-preview-mode {
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+  }
+
+  html.tray-preview-mode body::before,
+  body.tray-preview-mode::before {
+    content: none !important;
+    display: none !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+  }
 }
 
 [data-appearance='classic'] {

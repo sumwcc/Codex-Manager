@@ -104,12 +104,8 @@ fn write_models_cache_file(
     let parent = cache_path
         .parent()
         .ok_or_else(|| format!("无法定位模型缓存目录: {}", cache_path.display()))?;
-    fs::create_dir_all(parent).map_err(|err| {
-        format!(
-            "创建 Codex 模型缓存目录失败 ({}): {err}",
-            parent.display()
-        )
-    })?;
+    fs::create_dir_all(parent)
+        .map_err(|err| format!("创建 Codex 模型缓存目录失败 ({}): {err}", parent.display()))?;
 
     let payload = serde_json::json!({
         "fetched_at": fetched_at,
@@ -174,18 +170,21 @@ pub async fn service_start(app: tauri::AppHandle, addr: String) -> Result<(), St
         );
         stop_service();
         spawn_service_with_addr(&app, &bind_addr, &connect_addr)?;
-        wait_for_service_ready(&connect_addr, SERVICE_READY_RETRIES, SERVICE_READY_RETRY_DELAY).map_err(
-            |err| {
-                log::error!(
-                    "service health check failed at {} (bind {}): {}",
-                    connect_addr,
-                    bind_addr,
-                    err
-                );
-                stop_service();
-                format!("service not ready at {connect_addr}: {err}")
-            },
+        wait_for_service_ready(
+            &connect_addr,
+            SERVICE_READY_RETRIES,
+            SERVICE_READY_RETRY_DELAY,
         )
+        .map_err(|err| {
+            log::error!(
+                "service health check failed at {} (bind {}): {}",
+                connect_addr,
+                bind_addr,
+                err
+            );
+            stop_service();
+            format!("service not ready at {connect_addr}: {err}")
+        })
     })
     .await
     .map_err(|err| format!("service_start task failed: {err}"))?
@@ -359,13 +358,14 @@ mod tests {
         )
         .expect("write cache");
 
-        let payload: serde_json::Value = serde_json::from_slice(
-            &fs::read(&cache_path).expect("read cache file"),
-        )
-        .expect("parse cache file");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&fs::read(&cache_path).expect("read cache file"))
+                .expect("parse cache file");
 
         assert_eq!(
-            payload.get("client_version").and_then(|value| value.as_str()),
+            payload
+                .get("client_version")
+                .and_then(|value| value.as_str()),
             Some("0.120.0")
         );
         assert_eq!(
