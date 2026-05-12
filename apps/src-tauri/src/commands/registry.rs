@@ -111,6 +111,7 @@ macro_rules! invoke_handler {
             crate::commands::system::open_in_browser,
             crate::commands::system::open_in_file_manager,
             crate::commands::system::app_window_unsaved_draft_sections_set,
+            crate::commands::system::app_show_main_window,
             // updater
             crate::commands::updater::app_update_check,
             crate::commands::updater::app_update_prepare,

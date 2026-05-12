@@ -2443,6 +2443,72 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
     );
 }
 
+#[test]
+fn rpc_apikey_create_accepts_custom_key_and_rejects_duplicate() {
+    let _ctx = RpcTestContext::new("rpc-apikey-create-custom-key");
+    let custom_key = "sk-codexmanager-custom-fixed";
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+    let create_req = JsonRpcRequest {
+        id: 80.into(),
+        method: "apikey/create".to_string(),
+        params: Some(serde_json::json!({
+            "name": "custom-key",
+            "modelSlug": "gpt-5.4",
+            "customKey": custom_key
+        })),
+        trace: None,
+    };
+    let create_json = serde_json::to_string(&create_req).expect("serialize apikey create");
+    let create_resp = post_rpc(&server.addr, &create_json);
+    let create_result = create_resp.get("result").expect("create result");
+    assert_eq!(
+        create_result.get("key").and_then(|value| value.as_str()),
+        Some(custom_key)
+    );
+    let key_id = create_result
+        .get("id")
+        .and_then(|value| value.as_str())
+        .expect("created key id")
+        .to_string();
+
+    let read_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let read_req = JsonRpcRequest {
+        id: 81.into(),
+        method: "apikey/readSecret".to_string(),
+        params: Some(serde_json::json!({ "id": key_id })),
+        trace: None,
+    };
+    let read_json = serde_json::to_string(&read_req).expect("serialize apikey read secret");
+    let read_resp = post_rpc(&read_server.addr, &read_json);
+    assert_eq!(
+        read_resp
+            .get("result")
+            .and_then(|value| value.get("key"))
+            .and_then(|value| value.as_str()),
+        Some(custom_key)
+    );
+
+    let duplicate_server = codexmanager_service::start_one_shot_server().expect("start server");
+    let duplicate_req = JsonRpcRequest {
+        id: 82.into(),
+        method: "apikey/create".to_string(),
+        params: Some(serde_json::json!({
+            "name": "duplicate-custom-key",
+            "customKey": custom_key
+        })),
+        trace: None,
+    };
+    let duplicate_json =
+        serde_json::to_string(&duplicate_req).expect("serialize duplicate apikey create");
+    let duplicate_resp = post_rpc(&duplicate_server.addr, &duplicate_json);
+    let duplicate_result = duplicate_resp.get("result").expect("duplicate result");
+    let message = duplicate_result
+        .get("error")
+        .and_then(|value| value.as_str())
+        .expect("duplicate error message");
+    assert!(message.contains("custom api key already exists"));
+}
+
 /// 函数 `rpc_apikey_update_model_updates_name_with_chinese`
 ///
 /// 作者: gaohongshun

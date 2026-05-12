@@ -20,6 +20,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { quotaClient } from "@/lib/api/quota-client";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
+import {
+  formatCompactTokenAmount,
+  formatPercent,
+} from "@/lib/dashboard/format";
 import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
@@ -47,48 +51,6 @@ interface AccountHighlightCardProps {
   tone?: "green" | "blue";
   progressLabel?: string;
   progressValue?: number | null | undefined;
-}
-
-/**
- * 函数 `formatPercent`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - value: 参数 value
- *
- * # 返回
- * 返回函数执行结果
- */
-function formatPercent(value: number | null | undefined): string {
-  return value == null ? "--" : `${Math.max(0, Math.round(value))}%`;
-}
-
-/**
- * 函数 `formatCompactTokenAmount`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - value: 参数 value
- *
- * # 返回
- * 返回函数执行结果
- */
-function formatCompactTokenAmount(value: number | null | undefined): string {
-  const normalized =
-    typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
-  if (normalized < 1000) {
-    return normalized.toLocaleString("zh-CN", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-  return formatCompactNumber(normalized, "0.00", 2, true);
 }
 
 /**
