@@ -336,11 +336,19 @@ export function createWebCommandMap(
     },
     service_account_read: { rpcMethod: "account/read" },
     service_account_logout: { rpcMethod: "account/logout" },
+    service_account_warmup_start: { rpcMethod: "account/warmup/start" },
+    service_account_warmup_status: { rpcMethod: "account/warmup/status" },
     service_chatgpt_auth_tokens_refresh: {
       rpcMethod: "account/chatgptAuthTokens/refresh",
     },
     service_chatgpt_auth_tokens_refresh_all: {
       rpcMethod: "account/chatgptAuthTokens/refreshAll",
+    },
+    service_chatgpt_auth_tokens_refresh_all_start: {
+      rpcMethod: "account/chatgptAuthTokens/refreshAll/start",
+    },
+    service_chatgpt_auth_tokens_refresh_all_status: {
+      rpcMethod: "account/chatgptAuthTokens/refreshAll/status",
     },
     service_apikey_list: { rpcMethod: "apikey/list" },
     service_apikey_create: { rpcMethod: "apikey/create" },

@@ -238,6 +238,58 @@ pub(crate) fn is_banned_status_reason(reason: &str) -> bool {
     )
 }
 
+pub(crate) fn is_bad_refresh_token_status_reason(reason: &str) -> bool {
+    reason
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("refresh_token_invalid:")
+}
+
+pub(crate) fn is_token_refresh_recoverable_status_reason(reason: &str) -> bool {
+    let normalized = reason.trim().to_ascii_lowercase();
+    is_bad_refresh_token_status_reason(&normalized)
+        || matches!(normalized.as_str(), "usage_http_401" | "usage_http_403")
+}
+
+pub(crate) fn should_skip_for_bad_refresh_token(storage: &Storage, account_id: &str) -> bool {
+    let status_is_unavailable = storage
+        .find_account_by_id(account_id)
+        .ok()
+        .flatten()
+        .map(|account| account.status.trim().eq_ignore_ascii_case("unavailable"))
+        .unwrap_or(false);
+    if !status_is_unavailable {
+        return false;
+    }
+
+    latest_status_reason(storage, account_id)
+        .as_deref()
+        .map(is_bad_refresh_token_status_reason)
+        .unwrap_or(false)
+}
+
+pub(crate) fn restore_account_after_successful_manual_token_refresh(
+    storage: &Storage,
+    account_id: &str,
+) -> bool {
+    let Some(account) = storage.find_account_by_id(account_id).ok().flatten() else {
+        return false;
+    };
+    if !account.status.trim().eq_ignore_ascii_case("unavailable") {
+        return false;
+    }
+
+    let Some(reason) = latest_status_reason(storage, account_id) else {
+        return false;
+    };
+    if !is_token_refresh_recoverable_status_reason(&reason) {
+        return false;
+    }
+
+    set_account_status(storage, account_id, "active", "token_refresh_ok");
+    true
+}
+
 /// 函数 `should_failover_for_deactivation_error`
 ///
 /// 作者: gaohongshun

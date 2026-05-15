@@ -38,7 +38,17 @@ export interface CurrentAccessTokenAccountReadResult {
   requiresOpenaiAuth: boolean;
 }
 
-export interface ChatgptAuthTokensRefreshResult {
+export interface TokenRefreshOutcome {
+  accessTokenChanged: boolean;
+  refreshTokenReturned: boolean;
+  refreshTokenChanged: boolean;
+  idTokenChanged: boolean;
+  accessTokenExpiresAt: number | null;
+  refreshTokenExpiresAt: number | null;
+  nextRefreshAt: number | null;
+}
+
+export interface ChatgptAuthTokensRefreshResult extends TokenRefreshOutcome {
   accessToken: string;
   chatgptAccountId: string;
   chatgptPlanType: string | null;
@@ -48,17 +58,29 @@ export interface ChatgptAuthTokensRefreshResult {
   subscriptionRenewsAt?: number | null;
 }
 
-export interface ChatgptAuthTokensRefreshAllItem {
+export interface ChatgptAuthTokensRefreshAllItem extends TokenRefreshOutcome {
   accountId: string;
   accountName: string;
+  status: "pending" | "running" | "success" | "failed" | "skipped" | string;
   ok: boolean;
   message: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
 }
 
 export interface ChatgptAuthTokensRefreshAllResult {
+  batchId: string | null;
+  status: "running" | "completed" | "failed" | string;
+  total: number;
   requested: number;
+  processed: number;
   succeeded: number;
   failed: number;
   skipped: number;
+  refreshTokenReturned: number;
+  refreshTokenChanged: number;
+  refreshTokenMissing: number;
+  startedAt: number | null;
+  finishedAt: number | null;
   results: ChatgptAuthTokensRefreshAllItem[];
 }

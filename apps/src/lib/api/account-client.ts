@@ -421,6 +421,25 @@ export const accountClient = {
         }),
       ),
     ),
+  startWarmupAccounts: async (
+    params?: AccountWarmupPayload
+  ): Promise<AccountWarmupResult> =>
+    readAccountWarmupResult(
+      await invoke<unknown>(
+        "service_account_warmup_start",
+        withAddr({
+          accountIds: Array.isArray(params?.accountIds) ? params.accountIds : [],
+          message: params?.message || "hi",
+        }),
+      ),
+    ),
+  getWarmupAccountsStatus: async (batchId: string): Promise<AccountWarmupResult> =>
+    readAccountWarmupResult(
+      await invoke<unknown>(
+        "service_account_warmup_status",
+        withAddr({ batchId }),
+      ),
+    ),
 
   async getUsage(accountId: string): Promise<AccountUsage | null> {
     const result = await invoke<unknown>(
@@ -514,6 +533,22 @@ export const accountClient = {
     const result = await invoke<unknown>(
       "service_chatgpt_auth_tokens_refresh_all",
       withAddr()
+    );
+    return readChatgptAuthTokensRefreshAllResult(result);
+  },
+  async startRefreshAllChatgptAuthTokens(): Promise<ChatgptAuthTokensRefreshAllResult> {
+    const result = await invoke<unknown>(
+      "service_chatgpt_auth_tokens_refresh_all_start",
+      withAddr()
+    );
+    return readChatgptAuthTokensRefreshAllResult(result);
+  },
+  async getRefreshAllChatgptAuthTokensStatus(
+    batchId: string
+  ): Promise<ChatgptAuthTokensRefreshAllResult> {
+    const result = await invoke<unknown>(
+      "service_chatgpt_auth_tokens_refresh_all_status",
+      withAddr({ batchId })
     );
     return readChatgptAuthTokensRefreshAllResult(result);
   },

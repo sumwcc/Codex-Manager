@@ -317,6 +317,55 @@ pub async fn service_account_warmup(
     rpc_call_in_background("account/warmup", addr, Some(params)).await
 }
 
+/// 函数 `service_account_warmup_start`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-05-14
+///
+/// # 参数
+/// - addr: 参数 addr
+/// - account_ids: 参数 account_ids
+/// - message: 参数 message
+///
+/// # 返回
+/// 返回函数执行结果
+#[tauri::command]
+pub async fn service_account_warmup_start(
+    addr: Option<String>,
+    account_ids: Vec<String>,
+    message: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+        "accountIds": account_ids,
+        "message": message.unwrap_or_default(),
+    });
+    rpc_call_in_background("account/warmup/start", addr, Some(params)).await
+}
+
+/// 函数 `service_account_warmup_status`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-05-14
+///
+/// # 参数
+/// - addr: 参数 addr
+/// - batch_id: 参数 batch_id
+///
+/// # 返回
+/// 返回函数执行结果
+#[tauri::command]
+pub async fn service_account_warmup_status(
+    addr: Option<String>,
+    batch_id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+        "batchId": batch_id,
+    });
+    rpc_call_in_background("account/warmup/status", addr, Some(params)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::account_update_payload;

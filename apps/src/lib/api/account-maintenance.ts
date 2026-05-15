@@ -79,14 +79,24 @@ export interface DeleteAccountsByStatusesResult {
 export interface AccountWarmupItemResult {
   accountId: string;
   accountName: string;
+  status: string;
   ok: boolean;
   message: string;
+  startedAt: number | null;
+  finishedAt: number | null;
 }
 
 export interface AccountWarmupResult {
+  batchId?: string | null;
+  status?: string;
+  total?: number;
   requested?: number;
+  processed?: number;
   succeeded?: number;
   failed?: number;
+  skipped?: number;
+  startedAt?: number | null;
+  finishedAt?: number | null;
   results?: AccountWarmupItemResult[];
 }
 
@@ -160,17 +170,27 @@ export function readAccountWarmupResult(payload: unknown): AccountWarmupResult {
           return {
             accountId: readStringField(entry, "accountId"),
             accountName: readStringField(entry, "accountName"),
+            status: readStringField(entry, "status"),
             ok: readBooleanField(entry, "ok"),
             message: readStringField(entry, "message"),
+            startedAt: readNumberField(entry, "startedAt", 0) || null,
+            finishedAt: readNumberField(entry, "finishedAt", 0) || null,
           };
         })
         .filter((item): item is AccountWarmupItemResult => Boolean(item))
     : [];
 
   return {
+    batchId: readStringField(payload, "batchId") || null,
+    status: readStringField(payload, "status"),
+    total: readNumberField(payload, "total"),
     requested: readNumberField(payload, "requested"),
+    processed: readNumberField(payload, "processed"),
     succeeded: readNumberField(payload, "succeeded"),
     failed: readNumberField(payload, "failed"),
+    skipped: readNumberField(payload, "skipped"),
+    startedAt: readNumberField(payload, "startedAt", 0) || null,
+    finishedAt: readNumberField(payload, "finishedAt", 0) || null,
     results,
   };
 }

@@ -401,6 +401,9 @@ export function normalizeAccount(item: unknown, usage?: AccountUsage | null): Ac
     sort: asInteger(source.sort ?? source.priority, 0, 0),
     status,
     statusReason,
+    statusReasonAt: toNullableNumber(
+      source.statusReasonAt ?? source.status_reason_at
+    ),
     planType:
       asString(source.planType ?? source.plan_type ?? source.subscriptionPlan ?? source.subscription_plan) ||
       null,
@@ -416,6 +419,15 @@ export function normalizeAccount(item: unknown, usage?: AccountUsage | null): Ac
     ),
     subscriptionRenewsAt: toNullableNumber(
       source.subscriptionRenewsAt ?? source.subscription_renews_at
+    ),
+    accessTokenExpiresAt: toNullableNumber(
+      source.accessTokenExpiresAt ?? source.access_token_expires_at
+    ),
+    refreshTokenExpiresAt: toNullableNumber(
+      source.refreshTokenExpiresAt ?? source.refresh_token_expires_at
+    ),
+    refreshTokenChangedAt: toNullableNumber(
+      source.refreshTokenChangedAt ?? source.refresh_token_changed_at
     ),
     note: asString(source.note) || null,
     tags: asStringArray(source.tags),
@@ -1647,9 +1659,14 @@ export function normalizeAppSettings(payload: unknown): AppSettings {
       asString(item)
     ),
     routeStrategy: asString(source.routeStrategy) || "ordered",
-    routeStrategyOptions: asArray(source.routeStrategyOptions).map((item) =>
-      asString(item)
-    ),
+    routeStrategyOptions: (() => {
+      const options = asArray(source.routeStrategyOptions)
+        .map((item) => asString(item))
+        .filter(Boolean);
+      return options.length > 0
+        ? options
+        : ["ordered", "balanced", "usage_refresh_time"];
+    })(),
     freeAccountMaxModel: asString(source.freeAccountMaxModel) || "auto",
     freeAccountMaxModelOptions: asArray(source.freeAccountMaxModelOptions).map((item) =>
       asString(item)

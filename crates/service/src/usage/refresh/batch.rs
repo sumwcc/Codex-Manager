@@ -1,4 +1,4 @@
-use crate::account_status::is_banned_status_reason;
+use crate::account_status::{is_bad_refresh_token_status_reason, is_banned_status_reason};
 use codexmanager_core::storage::{Account, Storage, Token};
 use crossbeam_channel::unbounded;
 use std::collections::HashSet;
@@ -59,7 +59,7 @@ pub(crate) fn refresh_usage_for_polling_batch() -> Result<(), String> {
     let all_tasks = build_usage_refresh_tasks(
         storage.list_tokens().map_err(|e| e.to_string())?,
         &accounts,
-        &load_banned_account_ids(&storage, &accounts)?,
+        &load_polling_blocked_account_ids(&storage, &accounts)?,
     );
     if all_tasks.is_empty() {
         return Ok(());
@@ -266,6 +266,31 @@ fn load_banned_account_ids(
         .into_iter()
         .filter(|(_, reason)| is_banned_status_reason(reason))
         .map(|(account_id, _)| account_id)
+        .collect())
+}
+
+fn load_polling_blocked_account_ids(
+    storage: &Storage,
+    accounts: &[Account],
+) -> Result<HashSet<String>, String> {
+    let account_ids = accounts
+        .iter()
+        .map(|account| account.id.clone())
+        .collect::<Vec<_>>();
+    let reasons = storage
+        .latest_account_status_reasons(&account_ids)
+        .map_err(|err| err.to_string())?;
+    Ok(accounts
+        .iter()
+        .filter(|account| {
+            let Some(reason) = reasons.get(&account.id) else {
+                return false;
+            };
+            is_banned_status_reason(reason)
+                || (account.status.trim().eq_ignore_ascii_case("unavailable")
+                    && is_bad_refresh_token_status_reason(reason))
+        })
+        .map(|account| account.id.clone())
         .collect())
 }
 

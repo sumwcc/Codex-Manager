@@ -126,6 +126,12 @@ pub struct Event {
 }
 
 #[derive(Debug, Clone)]
+pub struct AccountStatusReason {
+    pub reason: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct ConversationBinding {
     pub platform_key_hash: String,
     pub conversation_id: String,

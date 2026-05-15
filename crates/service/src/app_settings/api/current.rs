@@ -215,7 +215,7 @@ pub(super) fn current_app_settings_value(
             SERVICE_BIND_MODE_ALL_INTERFACES
         ],
         "routeStrategy": route_strategy,
-        "routeStrategyOptions": ["ordered", "balanced"],
+        "routeStrategyOptions": ["ordered", "balanced", "usage_refresh_time"],
         "freeAccountMaxModel": free_account_max_model,
         "modelForwardRules": model_forward_rules,
         "accountMaxInflight": account_max_inflight,

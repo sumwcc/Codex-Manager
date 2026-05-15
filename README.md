@@ -155,6 +155,46 @@
 3. 如回调失败，粘贴回调链接手动完成解析。
 4. 刷新用量并确认账号状态。
 
+## 本地 macOS 打包 `.app`
+
+前端构建和桌面端打包不是同一个命令：
+
+- `npm -C apps run build:desktop`：只验证/构建 Next.js 前端，不会生成 `.app`。
+- `cargo check --workspace`：只检查 Rust workspace 能否编译，不会生成 `.app`。
+- `cargo check --manifest-path apps/src-tauri/Cargo.toml`：只检查 Tauri 桌面壳能否编译，不会生成 `.app`。
+- `cargo tauri build --bundles app`：真正执行 Tauri 打包，生成 macOS `.app`。
+
+首次打包前先确认 Tauri CLI 是否已安装：
+
+```bash
+cd apps/src-tauri
+cargo tauri --version
+```
+
+如果提示 `error: no such command: tauri`，需要先安装 Tauri CLI：
+
+```bash
+cargo install tauri-cli --version 2.11.1 --locked
+```
+
+在项目根目录本地构建 macOS `.app`：
+
+```bash
+rm -rf apps/out && cargo tauri build --bundles app
+```
+
+构建完成后的产物路径：
+
+```text
+apps/src-tauri/target/release/bundle/macos/CodexManager.app
+```
+
+在项目根目录打开构建好的 `.app`：
+
+```bash
+open apps/src-tauri/target/release/bundle/macos/CodexManager.app
+```
+
 ## 默认数据目录
 - 桌面端默认会把 SQLite 数据库写到应用数据目录下，文件名固定为 `codexmanager.db`。
 - Windows：`%APPDATA%\\com.codexmanager.desktop\\codexmanager.db`

@@ -4,22 +4,49 @@ use codexmanager_core::auth::{
 };
 use codexmanager_core::rpc::types::LoginStartResult;
 use codexmanager_core::storage::{now_ts, Account, Storage, Token};
+use crossbeam_channel::unbounded;
 use serde::Serialize;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::thread;
+use std::time::Duration;
 
 use crate::account_identity::{
     build_account_storage_id, build_fallback_subject_key, clean_value,
     pick_existing_account_id_by_identity,
 };
-use crate::account_status::mark_account_unavailable_for_auth_error;
+use crate::account_status::{
+    mark_account_unavailable_for_auth_error, restore_account_after_successful_manual_token_refresh,
+};
 use crate::app_settings::{get_persisted_app_setting, save_persisted_app_setting};
 use crate::storage_helpers::open_storage;
-use crate::usage_http::fetch_account_subscription;
-use crate::usage_token_refresh::{refresh_and_persist_access_token, token_refresh_ahead_secs};
+use crate::usage_http::{fetch_account_subscription, refresh_token_auth_error_reason_from_message};
+use crate::usage_token_refresh::{
+    record_token_refresh_failure, record_token_refresh_success, refresh_and_persist_access_token,
+    token_refresh_ahead_secs, TokenRefreshOutcome, TOKEN_REFRESH_SOURCE_ACCOUNT_READ_REFRESH,
+    TOKEN_REFRESH_SOURCE_MANUAL_ALL_BATCH, TOKEN_REFRESH_SOURCE_MANUAL_ALL_SYNC,
+    TOKEN_REFRESH_SOURCE_MANUAL_SINGLE,
+};
 
 const CURRENT_AUTH_ACCOUNT_ID_KEY: &str = "auth.current_account_id";
 const CURRENT_AUTH_MODE_KEY: &str = "auth.current_auth_mode";
 const AUTH_MODE_CHATGPT: &str = "chatgpt";
 const AUTH_MODE_CHATGPT_AUTH_TOKENS: &str = "chatgptAuthTokens";
+const REFRESH_ALL_BATCH_STATUS_RUNNING: &str = "running";
+const REFRESH_ALL_BATCH_STATUS_COMPLETED: &str = "completed";
+const REFRESH_ALL_BATCH_STATUS_FAILED: &str = "failed";
+const REFRESH_ALL_ITEM_STATUS_PENDING: &str = "pending";
+const REFRESH_ALL_ITEM_STATUS_RUNNING: &str = "running";
+const REFRESH_ALL_ITEM_STATUS_SUCCESS: &str = "success";
+const REFRESH_ALL_ITEM_STATUS_FAILED: &str = "failed";
+const REFRESH_ALL_ITEM_STATUS_SKIPPED: &str = "skipped";
+const REFRESH_ALL_MAX_ATTEMPTS: usize = 3;
+const REFRESH_ALL_RETRY_DELAY_MS: u64 = 500;
+const DEFAULT_REFRESH_ALL_WORKERS: usize = 4;
+const ENV_REFRESH_ALL_WORKERS: &str = "CODEXMANAGER_USAGE_REFRESH_WORKERS";
+
+static REFRESH_ALL_BATCH: OnceLock<Mutex<Option<RefreshAllBatchState>>> = OnceLock::new();
+static REFRESH_ALL_BATCH_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +83,13 @@ pub(crate) struct ChatgptAuthTokensRefreshResponse {
     pub(crate) subscription_plan: Option<String>,
     pub(crate) subscription_expires_at: Option<i64>,
     pub(crate) subscription_renews_at: Option<i64>,
+    pub(crate) access_token_changed: bool,
+    pub(crate) refresh_token_returned: bool,
+    pub(crate) refresh_token_changed: bool,
+    pub(crate) id_token_changed: bool,
+    pub(crate) access_token_expires_at: Option<i64>,
+    pub(crate) refresh_token_expires_at: Option<i64>,
+    pub(crate) next_refresh_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -63,18 +97,180 @@ pub(crate) struct ChatgptAuthTokensRefreshResponse {
 pub(crate) struct ChatgptAuthTokensRefreshAllItem {
     pub(crate) account_id: String,
     pub(crate) account_name: String,
+    pub(crate) status: String,
     pub(crate) ok: bool,
     pub(crate) message: Option<String>,
+    pub(crate) started_at: Option<i64>,
+    pub(crate) finished_at: Option<i64>,
+    pub(crate) access_token_changed: bool,
+    pub(crate) refresh_token_returned: bool,
+    pub(crate) refresh_token_changed: bool,
+    pub(crate) id_token_changed: bool,
+    pub(crate) access_token_expires_at: Option<i64>,
+    pub(crate) refresh_token_expires_at: Option<i64>,
+    pub(crate) next_refresh_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChatgptAuthTokensRefreshAllResponse {
+    pub(crate) batch_id: Option<String>,
+    pub(crate) status: String,
+    pub(crate) total: usize,
     pub(crate) requested: usize,
+    pub(crate) processed: usize,
     pub(crate) succeeded: usize,
     pub(crate) failed: usize,
     pub(crate) skipped: usize,
+    pub(crate) refresh_token_returned: usize,
+    pub(crate) refresh_token_changed: usize,
+    pub(crate) refresh_token_missing: usize,
+    pub(crate) started_at: Option<i64>,
+    pub(crate) finished_at: Option<i64>,
     pub(crate) results: Vec<ChatgptAuthTokensRefreshAllItem>,
+}
+
+#[derive(Debug, Clone)]
+struct RefreshAllBatchState {
+    batch_id: String,
+    status: String,
+    total: usize,
+    requested: usize,
+    started_at: i64,
+    finished_at: Option<i64>,
+    results: Vec<ChatgptAuthTokensRefreshAllItem>,
+}
+
+#[derive(Debug, Clone)]
+struct RefreshAllTokenTask {
+    account_id: String,
+    issuer: String,
+    client_id: String,
+    token: Token,
+}
+
+impl RefreshAllBatchState {
+    fn to_response(&self) -> ChatgptAuthTokensRefreshAllResponse {
+        let succeeded = self
+            .results
+            .iter()
+            .filter(|item| item.status == REFRESH_ALL_ITEM_STATUS_SUCCESS)
+            .count();
+        let failed = self
+            .results
+            .iter()
+            .filter(|item| item.status == REFRESH_ALL_ITEM_STATUS_FAILED)
+            .count();
+        let skipped = self
+            .results
+            .iter()
+            .filter(|item| item.status == REFRESH_ALL_ITEM_STATUS_SKIPPED)
+            .count();
+        let refresh_token_returned = self
+            .results
+            .iter()
+            .filter(|item| {
+                item.status == REFRESH_ALL_ITEM_STATUS_SUCCESS && item.refresh_token_returned
+            })
+            .count();
+        let refresh_token_changed = self
+            .results
+            .iter()
+            .filter(|item| {
+                item.status == REFRESH_ALL_ITEM_STATUS_SUCCESS && item.refresh_token_changed
+            })
+            .count();
+        let refresh_token_missing = self
+            .results
+            .iter()
+            .filter(|item| {
+                item.status == REFRESH_ALL_ITEM_STATUS_SUCCESS && !item.refresh_token_returned
+            })
+            .count();
+        let processed = succeeded.saturating_add(failed).saturating_add(skipped);
+        ChatgptAuthTokensRefreshAllResponse {
+            batch_id: Some(self.batch_id.clone()),
+            status: self.status.clone(),
+            total: self.total,
+            requested: self.requested,
+            processed,
+            succeeded,
+            failed,
+            skipped,
+            refresh_token_returned,
+            refresh_token_changed,
+            refresh_token_missing,
+            started_at: Some(self.started_at),
+            finished_at: self.finished_at,
+            results: self.results.clone(),
+        }
+    }
+
+    fn has_unfinished_items(&self) -> bool {
+        self.results.iter().any(|item| {
+            item.status == REFRESH_ALL_ITEM_STATUS_PENDING
+                || item.status == REFRESH_ALL_ITEM_STATUS_RUNNING
+        })
+    }
+}
+
+fn refresh_all_batch_slot() -> &'static Mutex<Option<RefreshAllBatchState>> {
+    REFRESH_ALL_BATCH.get_or_init(|| Mutex::new(None))
+}
+
+fn lock_refresh_all_batch() -> std::sync::MutexGuard<'static, Option<RefreshAllBatchState>> {
+    refresh_all_batch_slot()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn refresh_all_batch_id() -> String {
+    let counter = REFRESH_ALL_BATCH_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("chatgpt-auth-refresh-{}-{counter}", now_ts())
+}
+
+fn refresh_all_item(
+    account_id: String,
+    account_name: String,
+    status: &str,
+    message: Option<String>,
+) -> ChatgptAuthTokensRefreshAllItem {
+    let finished_at = matches!(
+        status,
+        REFRESH_ALL_ITEM_STATUS_SUCCESS
+            | REFRESH_ALL_ITEM_STATUS_FAILED
+            | REFRESH_ALL_ITEM_STATUS_SKIPPED
+    )
+    .then(now_ts);
+    ChatgptAuthTokensRefreshAllItem {
+        account_id,
+        account_name,
+        status: status.to_string(),
+        ok: status == REFRESH_ALL_ITEM_STATUS_SUCCESS,
+        message,
+        started_at: None,
+        finished_at,
+        access_token_changed: false,
+        refresh_token_returned: false,
+        refresh_token_changed: false,
+        id_token_changed: false,
+        access_token_expires_at: None,
+        refresh_token_expires_at: None,
+        next_refresh_at: None,
+    }
+}
+
+fn apply_refresh_outcome_to_item(
+    item: &mut ChatgptAuthTokensRefreshAllItem,
+    outcome: TokenRefreshOutcome,
+) {
+    item.access_token_changed = outcome.access_token_changed;
+    item.refresh_token_returned = outcome.refresh_token_returned;
+    item.refresh_token_changed = outcome.refresh_token_changed;
+    item.id_token_changed = outcome.id_token_changed;
+    item.access_token_expires_at = outcome.access_token_expires_at;
+    item.refresh_token_expires_at = outcome.refresh_token_expires_at;
+    item.next_refresh_at = outcome.next_refresh_at;
 }
 
 #[derive(Debug, Clone)]
@@ -247,15 +443,29 @@ pub(crate) fn read_current_account(refresh_token: bool) -> Result<AccountReadRes
             std::env::var("CODEXMANAGER_ISSUER").unwrap_or_else(|_| DEFAULT_ISSUER.to_string());
         let client_id = std::env::var("CODEXMANAGER_CLIENT_ID")
             .unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
-        if let Err(err) = refresh_and_persist_access_token(
+        match refresh_and_persist_access_token(
             &storage,
             &mut token,
             &issuer,
             &client_id,
             token_refresh_ahead_secs(),
         ) {
-            let _ = mark_account_unavailable_for_auth_error(&storage, &account.id, &err);
-            return Err(err);
+            Ok(outcome) => record_token_refresh_success(
+                &storage,
+                &account.id,
+                TOKEN_REFRESH_SOURCE_ACCOUNT_READ_REFRESH,
+                outcome,
+            ),
+            Err(err) => {
+                record_token_refresh_failure(
+                    &storage,
+                    &account.id,
+                    TOKEN_REFRESH_SOURCE_ACCOUNT_READ_REFRESH,
+                    &err,
+                );
+                let _ = mark_account_unavailable_for_auth_error(&storage, &account.id, &err);
+                return Err(err);
+            }
         }
     }
 
@@ -296,16 +506,34 @@ pub(crate) fn refresh_current_chatgpt_auth_tokens(
         std::env::var("CODEXMANAGER_ISSUER").unwrap_or_else(|_| DEFAULT_ISSUER.to_string());
     let client_id =
         std::env::var("CODEXMANAGER_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
-    if let Err(err) = refresh_and_persist_access_token(
+    let refresh_outcome = match refresh_and_persist_access_token(
         &storage,
         &mut token,
         &issuer,
         &client_id,
         token_refresh_ahead_secs(),
     ) {
-        let _ = mark_account_unavailable_for_auth_error(&storage, &account.id, &err);
-        return Err(err);
-    }
+        Ok(outcome) => {
+            record_token_refresh_success(
+                &storage,
+                &account.id,
+                TOKEN_REFRESH_SOURCE_MANUAL_SINGLE,
+                outcome,
+            );
+            let _ = restore_account_after_successful_manual_token_refresh(&storage, &account.id);
+            outcome
+        }
+        Err(err) => {
+            record_token_refresh_failure(
+                &storage,
+                &account.id,
+                TOKEN_REFRESH_SOURCE_MANUAL_SINGLE,
+                &err,
+            );
+            let _ = mark_account_unavailable_for_auth_error(&storage, &account.id, &err);
+            return Err(err);
+        }
+    };
 
     let refreshed_account = storage
         .find_account_by_id(&account.id)
@@ -358,6 +586,13 @@ pub(crate) fn refresh_current_chatgpt_auth_tokens(
         subscription_plan: subscription.plan_type,
         subscription_expires_at: subscription.expires_at,
         subscription_renews_at: subscription.renews_at,
+        access_token_changed: refresh_outcome.access_token_changed,
+        refresh_token_returned: refresh_outcome.refresh_token_returned,
+        refresh_token_changed: refresh_outcome.refresh_token_changed,
+        id_token_changed: refresh_outcome.id_token_changed,
+        access_token_expires_at: refresh_outcome.access_token_expires_at,
+        refresh_token_expires_at: refresh_outcome.refresh_token_expires_at,
+        next_refresh_at: refresh_outcome.next_refresh_at,
     })
 }
 
@@ -376,6 +611,8 @@ pub(crate) fn refresh_all_chatgpt_auth_tokens(
 ) -> Result<ChatgptAuthTokensRefreshAllResponse, String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let accounts = storage.list_accounts().map_err(|err| err.to_string())?;
+    let total = accounts.len();
+    let started_at = now_ts();
     let client_id =
         std::env::var("CODEXMANAGER_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
     let default_issuer =
@@ -386,6 +623,9 @@ pub(crate) fn refresh_all_chatgpt_auth_tokens(
     let mut succeeded = 0usize;
     let mut failed = 0usize;
     let mut skipped = 0usize;
+    let mut refresh_token_returned = 0usize;
+    let mut refresh_token_changed = 0usize;
+    let mut refresh_token_missing = 0usize;
 
     for account in accounts {
         let account_name = account.label.clone();
@@ -394,26 +634,27 @@ pub(crate) fn refresh_all_chatgpt_auth_tokens(
             .map_err(|err| err.to_string())?
         else {
             skipped = skipped.saturating_add(1);
-            results.push(ChatgptAuthTokensRefreshAllItem {
-                account_id: account.id,
+            results.push(refresh_all_item(
+                account.id,
                 account_name,
-                ok: false,
-                message: Some("missing token".to_string()),
-            });
+                REFRESH_ALL_ITEM_STATUS_SKIPPED,
+                Some("missing token".to_string()),
+            ));
             continue;
         };
         if token.refresh_token.trim().is_empty() {
             skipped = skipped.saturating_add(1);
-            results.push(ChatgptAuthTokensRefreshAllItem {
-                account_id: account.id,
+            results.push(refresh_all_item(
+                account.id,
                 account_name,
-                ok: false,
-                message: Some("missing refresh_token".to_string()),
-            });
+                REFRESH_ALL_ITEM_STATUS_SKIPPED,
+                Some("missing refresh_token".to_string()),
+            ));
             continue;
         }
 
         requested = requested.saturating_add(1);
+        let item_started_at = now_ts();
         let issuer = if account.issuer.trim().is_empty() {
             default_issuer.as_str()
         } else {
@@ -426,35 +667,464 @@ pub(crate) fn refresh_all_chatgpt_auth_tokens(
             &client_id,
             token_refresh_ahead_secs(),
         ) {
-            Ok(()) => {
+            Ok(outcome) => {
                 succeeded = succeeded.saturating_add(1);
-                results.push(ChatgptAuthTokensRefreshAllItem {
+                if outcome.refresh_token_returned {
+                    refresh_token_returned = refresh_token_returned.saturating_add(1);
+                } else {
+                    refresh_token_missing = refresh_token_missing.saturating_add(1);
+                }
+                if outcome.refresh_token_changed {
+                    refresh_token_changed = refresh_token_changed.saturating_add(1);
+                }
+                record_token_refresh_success(
+                    &storage,
+                    &account.id,
+                    TOKEN_REFRESH_SOURCE_MANUAL_ALL_SYNC,
+                    outcome,
+                );
+                let _ =
+                    restore_account_after_successful_manual_token_refresh(&storage, &account.id);
+                let mut item = ChatgptAuthTokensRefreshAllItem {
                     account_id: account.id,
                     account_name,
+                    status: REFRESH_ALL_ITEM_STATUS_SUCCESS.to_string(),
                     ok: true,
                     message: None,
-                });
+                    started_at: Some(item_started_at),
+                    finished_at: Some(now_ts()),
+                    access_token_changed: false,
+                    refresh_token_returned: false,
+                    refresh_token_changed: false,
+                    id_token_changed: false,
+                    access_token_expires_at: None,
+                    refresh_token_expires_at: None,
+                    next_refresh_at: None,
+                };
+                apply_refresh_outcome_to_item(&mut item, outcome);
+                results.push(item);
             }
             Err(err) => {
                 failed = failed.saturating_add(1);
+                record_token_refresh_failure(
+                    &storage,
+                    &account.id,
+                    TOKEN_REFRESH_SOURCE_MANUAL_ALL_SYNC,
+                    &err,
+                );
                 let _ = mark_account_unavailable_for_auth_error(&storage, &account.id, &err);
                 results.push(ChatgptAuthTokensRefreshAllItem {
                     account_id: account.id,
                     account_name,
+                    status: REFRESH_ALL_ITEM_STATUS_FAILED.to_string(),
                     ok: false,
                     message: Some(err),
+                    started_at: Some(item_started_at),
+                    finished_at: Some(now_ts()),
+                    access_token_changed: false,
+                    refresh_token_returned: false,
+                    refresh_token_changed: false,
+                    id_token_changed: false,
+                    access_token_expires_at: None,
+                    refresh_token_expires_at: None,
+                    next_refresh_at: None,
                 });
             }
         }
     }
 
     Ok(ChatgptAuthTokensRefreshAllResponse {
+        batch_id: None,
+        status: REFRESH_ALL_BATCH_STATUS_COMPLETED.to_string(),
+        total,
         requested,
+        processed: succeeded.saturating_add(failed).saturating_add(skipped),
         succeeded,
         failed,
         skipped,
+        refresh_token_returned,
+        refresh_token_changed,
+        refresh_token_missing,
+        started_at: Some(started_at),
+        finished_at: Some(now_ts()),
         results,
     })
+}
+
+pub(crate) fn start_refresh_all_chatgpt_auth_tokens_batch(
+) -> Result<ChatgptAuthTokensRefreshAllResponse, String> {
+    {
+        let guard = lock_refresh_all_batch();
+        if let Some(state) = guard.as_ref() {
+            if state.status == REFRESH_ALL_BATCH_STATUS_RUNNING {
+                return Ok(state.to_response());
+            }
+        }
+    }
+
+    let (mut state, tasks) = build_refresh_all_batch_state()?;
+    if tasks.is_empty() {
+        state.status = REFRESH_ALL_BATCH_STATUS_COMPLETED.to_string();
+        state.finished_at = Some(now_ts());
+    }
+
+    let batch_id = state.batch_id.clone();
+    {
+        let mut guard = lock_refresh_all_batch();
+        if let Some(current) = guard.as_ref() {
+            if current.status == REFRESH_ALL_BATCH_STATUS_RUNNING {
+                return Ok(current.to_response());
+            }
+        }
+        *guard = Some(state);
+    }
+
+    if !tasks.is_empty() {
+        let thread_batch_id = batch_id.clone();
+        if let Err(err) = thread::Builder::new()
+            .name("chatgpt-auth-refresh-all".to_string())
+            .spawn(move || run_refresh_all_batch(thread_batch_id, tasks))
+        {
+            finish_refresh_all_batch(
+                &batch_id,
+                REFRESH_ALL_BATCH_STATUS_FAILED,
+                Some(format!("spawn refresh batch failed: {err}")),
+            );
+        }
+    }
+
+    refresh_all_chatgpt_auth_tokens_batch_status(&batch_id)
+}
+
+pub(crate) fn refresh_all_chatgpt_auth_tokens_batch_status(
+    batch_id: &str,
+) -> Result<ChatgptAuthTokensRefreshAllResponse, String> {
+    let normalized_batch_id = batch_id.trim();
+    if normalized_batch_id.is_empty() {
+        return Err("batchId is required".to_string());
+    }
+    let guard = lock_refresh_all_batch();
+    let Some(state) = guard.as_ref() else {
+        return Err("refresh batch not found".to_string());
+    };
+    if state.batch_id != normalized_batch_id {
+        return Err("refresh batch not found".to_string());
+    }
+    Ok(state.to_response())
+}
+
+fn build_refresh_all_batch_state(
+) -> Result<(RefreshAllBatchState, Vec<RefreshAllTokenTask>), String> {
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let accounts = storage.list_accounts().map_err(|err| err.to_string())?;
+    let total = accounts.len();
+    let batch_id = refresh_all_batch_id();
+    let started_at = now_ts();
+    let client_id =
+        std::env::var("CODEXMANAGER_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+    let default_issuer =
+        std::env::var("CODEXMANAGER_ISSUER").unwrap_or_else(|_| DEFAULT_ISSUER.to_string());
+
+    let mut results = Vec::with_capacity(total);
+    let mut tasks = Vec::new();
+    for account in accounts {
+        let account_id = account.id.clone();
+        let account_name = account.label.clone();
+        let Some(token) = storage
+            .find_token_by_account_id(&account_id)
+            .map_err(|err| err.to_string())?
+        else {
+            results.push(refresh_all_item(
+                account_id,
+                account_name,
+                REFRESH_ALL_ITEM_STATUS_SKIPPED,
+                Some("missing token".to_string()),
+            ));
+            continue;
+        };
+        if token.refresh_token.trim().is_empty() {
+            results.push(refresh_all_item(
+                account_id,
+                account_name,
+                REFRESH_ALL_ITEM_STATUS_SKIPPED,
+                Some("missing refresh_token".to_string()),
+            ));
+            continue;
+        }
+
+        let issuer = if account.issuer.trim().is_empty() {
+            default_issuer.clone()
+        } else {
+            account.issuer.clone()
+        };
+        results.push(refresh_all_item(
+            account_id.clone(),
+            account_name.clone(),
+            REFRESH_ALL_ITEM_STATUS_PENDING,
+            None,
+        ));
+        tasks.push(RefreshAllTokenTask {
+            account_id,
+            issuer,
+            client_id: client_id.clone(),
+            token,
+        });
+    }
+
+    Ok((
+        RefreshAllBatchState {
+            batch_id,
+            status: REFRESH_ALL_BATCH_STATUS_RUNNING.to_string(),
+            total,
+            requested: tasks.len(),
+            started_at,
+            finished_at: None,
+            results,
+        },
+        tasks,
+    ))
+}
+
+fn refresh_all_worker_count(total: usize) -> usize {
+    if total == 0 {
+        return 0;
+    }
+    std::env::var(ENV_REFRESH_ALL_WORKERS)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .unwrap_or(DEFAULT_REFRESH_ALL_WORKERS)
+        .max(1)
+        .min(total)
+}
+
+fn run_refresh_all_batch(batch_id: String, tasks: Vec<RefreshAllTokenTask>) {
+    let result = run_refresh_all_batch_inner(&batch_id, tasks);
+    match result {
+        Ok(()) => finish_refresh_all_batch(&batch_id, REFRESH_ALL_BATCH_STATUS_COMPLETED, None),
+        Err(err) => finish_refresh_all_batch(&batch_id, REFRESH_ALL_BATCH_STATUS_FAILED, Some(err)),
+    }
+}
+
+fn run_refresh_all_batch_inner(
+    batch_id: &str,
+    tasks: Vec<RefreshAllTokenTask>,
+) -> Result<(), String> {
+    let worker_count = refresh_all_worker_count(tasks.len());
+    if worker_count <= 1 {
+        let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+        for task in tasks {
+            run_refresh_all_batch_task(batch_id, &storage, task);
+        }
+        return Ok(());
+    }
+
+    let (sender, receiver) = unbounded::<RefreshAllTokenTask>();
+    for task in tasks {
+        sender
+            .send(task)
+            .map_err(|_| "enqueue refresh task failed".to_string())?;
+    }
+    drop(sender);
+
+    thread::scope(|scope| -> Result<(), String> {
+        let mut handles = Vec::with_capacity(worker_count);
+        for worker_index in 0..worker_count {
+            let receiver = receiver.clone();
+            handles.push(scope.spawn(move || {
+                let storage = open_storage().ok_or_else(|| {
+                    format!("refresh all AT/RT worker {worker_index} storage unavailable")
+                })?;
+                while let Ok(task) = receiver.recv() {
+                    run_refresh_all_batch_task(batch_id, &storage, task);
+                }
+                Ok::<(), String>(())
+            }));
+        }
+
+        for handle in handles {
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => return Err(err),
+                Err(_) => return Err("refresh all AT/RT worker panicked".to_string()),
+            }
+        }
+        Ok(())
+    })
+}
+
+fn run_refresh_all_batch_task(batch_id: &str, storage: &Storage, task: RefreshAllTokenTask) {
+    mark_refresh_all_item_running(batch_id, &task.account_id);
+    let result = refresh_batch_token_with_retries(storage, &task);
+    match result {
+        Ok(outcome) => {
+            record_token_refresh_success(
+                storage,
+                &task.account_id,
+                TOKEN_REFRESH_SOURCE_MANUAL_ALL_BATCH,
+                outcome,
+            );
+            let _ =
+                restore_account_after_successful_manual_token_refresh(storage, &task.account_id);
+            mark_refresh_all_item_finished(
+                batch_id,
+                &task.account_id,
+                REFRESH_ALL_ITEM_STATUS_SUCCESS,
+                None,
+                Some(outcome),
+            );
+        }
+        Err(err) => {
+            record_token_refresh_failure(
+                storage,
+                &task.account_id,
+                TOKEN_REFRESH_SOURCE_MANUAL_ALL_BATCH,
+                &err,
+            );
+            let _ = mark_account_unavailable_for_auth_error(storage, &task.account_id, &err);
+            mark_refresh_all_item_finished(
+                batch_id,
+                &task.account_id,
+                REFRESH_ALL_ITEM_STATUS_FAILED,
+                Some(err),
+                None,
+            );
+        }
+    }
+}
+
+fn refresh_batch_token_with_retries(
+    storage: &Storage,
+    task: &RefreshAllTokenTask,
+) -> Result<TokenRefreshOutcome, String> {
+    let mut last_err = None;
+    for attempt in 0..REFRESH_ALL_MAX_ATTEMPTS {
+        let mut token = storage
+            .find_token_by_account_id(&task.account_id)
+            .map_err(|err| err.to_string())?
+            .unwrap_or_else(|| task.token.clone());
+        if token.refresh_token.trim().is_empty() {
+            return Err("missing refresh_token".to_string());
+        }
+        match refresh_and_persist_access_token(
+            storage,
+            &mut token,
+            &task.issuer,
+            &task.client_id,
+            token_refresh_ahead_secs(),
+        ) {
+            Ok(outcome) => return Ok(outcome),
+            Err(err) => {
+                let retryable =
+                    attempt + 1 < REFRESH_ALL_MAX_ATTEMPTS && should_retry_refresh_all_error(&err);
+                last_err = Some(err);
+                if retryable {
+                    thread::sleep(Duration::from_millis(REFRESH_ALL_RETRY_DELAY_MS));
+                    continue;
+                }
+                break;
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| "refresh failed".to_string()))
+}
+
+fn should_retry_refresh_all_error(err: &str) -> bool {
+    if refresh_token_auth_error_reason_from_message(err).is_some() {
+        return false;
+    }
+    let normalized = err.to_ascii_lowercase();
+    normalized.contains("temporarily unavailable")
+        || normalized.contains("timed out")
+        || normalized.contains("timeout")
+        || normalized.contains("connection")
+        || normalized.contains("dns")
+        || normalized.contains("error sending request")
+        || normalized.contains("retry_after_client_rebuild")
+        || normalized.contains("os error")
+        || normalized.contains("status 5")
+}
+
+fn mark_refresh_all_item_running(batch_id: &str, account_id: &str) {
+    let mut guard = lock_refresh_all_batch();
+    let Some(state) = guard.as_mut() else {
+        return;
+    };
+    if state.batch_id != batch_id || state.status != REFRESH_ALL_BATCH_STATUS_RUNNING {
+        return;
+    }
+    if let Some(item) = state
+        .results
+        .iter_mut()
+        .find(|item| item.account_id == account_id)
+    {
+        item.status = REFRESH_ALL_ITEM_STATUS_RUNNING.to_string();
+        item.ok = false;
+        item.message = None;
+        item.started_at = Some(now_ts());
+        item.finished_at = None;
+    }
+}
+
+fn mark_refresh_all_item_finished(
+    batch_id: &str,
+    account_id: &str,
+    status: &str,
+    message: Option<String>,
+    outcome: Option<TokenRefreshOutcome>,
+) {
+    let mut guard = lock_refresh_all_batch();
+    let Some(state) = guard.as_mut() else {
+        return;
+    };
+    if state.batch_id != batch_id {
+        return;
+    }
+    if let Some(item) = state
+        .results
+        .iter_mut()
+        .find(|item| item.account_id == account_id)
+    {
+        item.status = status.to_string();
+        item.ok = status == REFRESH_ALL_ITEM_STATUS_SUCCESS;
+        item.message = message;
+        if let Some(outcome) = outcome {
+            apply_refresh_outcome_to_item(item, outcome);
+        }
+        if item.started_at.is_none() {
+            item.started_at = Some(now_ts());
+        }
+        item.finished_at = Some(now_ts());
+    }
+}
+
+fn finish_refresh_all_batch(batch_id: &str, status: &str, unfinished_message: Option<String>) {
+    let mut guard = lock_refresh_all_batch();
+    let Some(state) = guard.as_mut() else {
+        return;
+    };
+    if state.batch_id != batch_id || state.status != REFRESH_ALL_BATCH_STATUS_RUNNING {
+        return;
+    }
+    if let Some(message) = unfinished_message {
+        for item in state.results.iter_mut().filter(|item| {
+            item.status == REFRESH_ALL_ITEM_STATUS_PENDING
+                || item.status == REFRESH_ALL_ITEM_STATUS_RUNNING
+        }) {
+            item.status = REFRESH_ALL_ITEM_STATUS_FAILED.to_string();
+            item.ok = false;
+            item.message = Some(message.clone());
+            if item.started_at.is_none() {
+                item.started_at = Some(now_ts());
+            }
+            item.finished_at = Some(now_ts());
+        }
+    }
+    state.status = if status == REFRESH_ALL_BATCH_STATUS_COMPLETED && state.has_unfinished_items() {
+        REFRESH_ALL_BATCH_STATUS_FAILED.to_string()
+    } else {
+        status.to_string()
+    };
+    state.finished_at = Some(now_ts());
 }
 
 /// 函数 `logout_current_account`

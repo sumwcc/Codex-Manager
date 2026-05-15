@@ -86,6 +86,7 @@ export const THEMES = [
 export const ROUTE_STRATEGY_LABELS: Record<string, string> = {
   ordered: "顺序优先 (Ordered)",
   balanced: "均衡轮询 (Balanced)",
+  usage_refresh_time: "轮训-用量刷新时间",
 };
 
 export const SERVICE_LISTEN_MODE_LABELS: Record<string, string> = {

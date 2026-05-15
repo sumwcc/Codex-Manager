@@ -58,6 +58,9 @@ export default function AccountsPage() {
     importByDirectory,
     exportAccounts,
     warmupAccounts,
+    warmupBatchResult,
+    warmupBatchDialogOpen,
+    setWarmupBatchDialogOpen,
     isRefreshingAccountId,
     isRefreshingAllAccounts,
     isExporting,
@@ -625,6 +628,8 @@ const toggleCleanupStatus = (rawStatus: string) => {
       exportModeDraft={exportModeDraft}
       exportTargetCount={exportTargetCount}
       exportScopeText={exportScopeText}
+      warmupBatchDialogOpen={warmupBatchDialogOpen}
+      warmupBatchResult={warmupBatchResult}
       selectedAccount={selectedAccount}
       accountEditorState={accountEditorState}
       deleteDialogState={deleteDialogState}
@@ -661,6 +666,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
       setExportModeDraft={setExportModeDraft}
       setDeleteDialogState={setDeleteDialogState}
       setCleanupDialogOpen={setCleanupDialogOpen}
+      setWarmupBatchDialogOpen={setWarmupBatchDialogOpen}
       setAccountEditorState={setAccountEditorState}
       setLabelDraft={setLabelDraft}
       setTagsDraft={setTagsDraft}

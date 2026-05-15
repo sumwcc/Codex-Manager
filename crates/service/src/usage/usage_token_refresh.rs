@@ -1,5 +1,6 @@
 use codexmanager_core::auth::{extract_client_id_claim, extract_token_exp, DEFAULT_CLIENT_ID};
-use codexmanager_core::storage::{now_ts, Storage, Token};
+use codexmanager_core::storage::{now_ts, Event, Storage, Token};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -10,8 +11,48 @@ use crate::usage_http::{
 
 pub(crate) const DEFAULT_TOKEN_REFRESH_AHEAD_SECS: i64 = 3600;
 pub(crate) const ENV_TOKEN_REFRESH_AHEAD_SECS: &str = "CODEXMANAGER_TOKEN_REFRESH_AHEAD_SECS";
+pub(crate) const TOKEN_REFRESH_EVENT_TYPE: &str = "token_refresh_result";
+pub(crate) const TOKEN_REFRESH_SOURCE_MANUAL_SINGLE: &str = "manual_single";
+pub(crate) const TOKEN_REFRESH_SOURCE_MANUAL_ALL_SYNC: &str = "manual_all_sync";
+pub(crate) const TOKEN_REFRESH_SOURCE_MANUAL_ALL_BATCH: &str = "manual_all_batch";
+pub(crate) const TOKEN_REFRESH_SOURCE_USAGE_REFRESH_RETRY: &str = "usage_refresh_retry";
+pub(crate) const TOKEN_REFRESH_SOURCE_TOKEN_REFRESH_POLLING: &str = "token_refresh_polling";
+pub(crate) const TOKEN_REFRESH_SOURCE_ACCOUNT_READ_REFRESH: &str = "account_read_refresh";
 
 static TOKEN_REFRESH_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TokenRefreshOutcome {
+    pub(crate) access_token_changed: bool,
+    pub(crate) refresh_token_returned: bool,
+    pub(crate) refresh_token_changed: bool,
+    pub(crate) id_token_changed: bool,
+    pub(crate) access_token_expires_at: Option<i64>,
+    pub(crate) refresh_token_expires_at: Option<i64>,
+    pub(crate) next_refresh_at: Option<i64>,
+}
+
+impl TokenRefreshOutcome {
+    fn from_token_change(
+        original_access_token: &str,
+        original_refresh_token: &str,
+        original_id_token: &str,
+        token: &Token,
+        refresh_token_returned: bool,
+        refresh_ahead_secs: i64,
+    ) -> Self {
+        Self {
+            access_token_changed: token.access_token != original_access_token,
+            refresh_token_returned,
+            refresh_token_changed: token.refresh_token != original_refresh_token,
+            id_token_changed: token.id_token != original_id_token,
+            access_token_expires_at: extract_token_exp(&token.access_token),
+            refresh_token_expires_at: extract_token_exp(&token.refresh_token),
+            next_refresh_at: next_refresh_at_from_token(token, refresh_ahead_secs),
+        }
+    }
+}
 
 /// 函数 `refresh_and_persist_access_token`
 ///
@@ -30,9 +71,10 @@ pub(crate) fn refresh_and_persist_access_token(
     issuer: &str,
     client_id: &str,
     refresh_ahead_secs: i64,
-) -> Result<(), String> {
+) -> Result<TokenRefreshOutcome, String> {
     let original_access_token = token.access_token.clone();
     let original_refresh_token = token.refresh_token.clone();
+    let original_id_token = token.id_token.clone();
     let refresh_lock = token_refresh_lock_for_account(&token.account_id);
     let _refresh_guard = refresh_lock
         .lock()
@@ -44,9 +86,18 @@ pub(crate) fn refresh_and_persist_access_token(
     {
         if latest.access_token != original_access_token
             || latest.refresh_token != original_refresh_token
+            || latest.id_token != original_id_token
         {
+            let outcome = TokenRefreshOutcome::from_token_change(
+                &original_access_token,
+                &original_refresh_token,
+                &original_id_token,
+                &latest,
+                false,
+                refresh_ahead_secs,
+            );
             *token = latest;
-            return Ok(());
+            return Ok(outcome);
         }
         *token = latest;
     }
@@ -61,12 +112,20 @@ pub(crate) fn refresh_and_persist_access_token(
                 &original_refresh_token,
                 err.as_str(),
             )? {
-                return Ok(());
+                return Ok(TokenRefreshOutcome::from_token_change(
+                    &original_access_token,
+                    &original_refresh_token,
+                    &original_id_token,
+                    token,
+                    false,
+                    refresh_ahead_secs,
+                ));
             }
             return Err(err);
         }
     };
     token.access_token = refreshed.access_token;
+    let refresh_token_returned = refreshed.refresh_token.is_some();
 
     if let Some(refresh_token) = refreshed.refresh_token {
         token.refresh_token = refresh_token;
@@ -85,7 +144,80 @@ pub(crate) fn refresh_and_persist_access_token(
     let access_exp = extract_token_exp(&token.access_token);
     let next_refresh_at = next_refresh_at_from_token(token, refresh_ahead_secs);
     let _ = storage.update_token_refresh_schedule(&token.account_id, access_exp, next_refresh_at);
-    Ok(())
+    Ok(TokenRefreshOutcome::from_token_change(
+        &original_access_token,
+        &original_refresh_token,
+        &original_id_token,
+        token,
+        refresh_token_returned,
+        refresh_ahead_secs,
+    ))
+}
+
+pub(crate) fn record_token_refresh_success(
+    storage: &Storage,
+    account_id: &str,
+    source: &str,
+    outcome: TokenRefreshOutcome,
+) {
+    let _ = storage.insert_event(&Event {
+        account_id: Some(account_id.to_string()),
+        event_type: TOKEN_REFRESH_EVENT_TYPE.to_string(),
+        message: format!(
+            "source={} status=success accessTokenChanged={} refreshTokenReturned={} refreshTokenChanged={} idTokenChanged={} accessTokenExpiresAt={} refreshTokenExpiresAt={} nextRefreshAt={}",
+            sanitize_event_value(source),
+            outcome.access_token_changed,
+            outcome.refresh_token_returned,
+            outcome.refresh_token_changed,
+            outcome.id_token_changed,
+            optional_i64_event_value(outcome.access_token_expires_at),
+            optional_i64_event_value(outcome.refresh_token_expires_at),
+            optional_i64_event_value(outcome.next_refresh_at),
+        ),
+        created_at: now_ts(),
+    });
+}
+
+pub(crate) fn record_token_refresh_failure(
+    storage: &Storage,
+    account_id: &str,
+    source: &str,
+    err: &str,
+) {
+    let _ = storage.insert_event(&Event {
+        account_id: Some(account_id.to_string()),
+        event_type: TOKEN_REFRESH_EVENT_TYPE.to_string(),
+        message: format!(
+            "source={} status=failed reason={}",
+            sanitize_event_value(source),
+            token_refresh_failure_reason(err),
+        ),
+        created_at: now_ts(),
+    });
+}
+
+pub(crate) fn token_refresh_failure_reason(err: &str) -> String {
+    if let Some(reason) = refresh_token_auth_error_reason_from_message(err) {
+        return format!("refresh_token_invalid:{}", reason.as_code());
+    }
+
+    let normalized = err.trim().to_ascii_lowercase();
+    if let Some(status_code) = extract_refresh_error_status_code(&normalized) {
+        return format!("http_{status_code}");
+    }
+    if normalized.contains("timeout") || normalized.contains("timed out") {
+        return "timeout".to_string();
+    }
+    if normalized.contains("connection") || normalized.contains("connect") {
+        return "connection".to_string();
+    }
+    if normalized.contains("dns") {
+        return "dns".to_string();
+    }
+    if normalized.contains("storage unavailable") {
+        return "storage_unavailable".to_string();
+    }
+    "other".to_string()
 }
 
 pub(crate) fn token_refresh_ahead_secs() -> i64 {
@@ -161,6 +293,45 @@ fn is_refresh_race_recoverable_error(err: &str) -> bool {
         refresh_token_auth_error_reason_from_message(err),
         Some(RefreshTokenAuthErrorReason::InvalidGrant | RefreshTokenAuthErrorReason::Reused)
     )
+}
+
+fn optional_i64_event_value(value: Option<i64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn sanitize_event_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn extract_refresh_error_status_code(message: &str) -> Option<u16> {
+    for marker in ["status ", "status=", "http "] {
+        let Some(index) = message.find(marker) else {
+            continue;
+        };
+        let rest = message.get(index + marker.len()..)?;
+        let digits = rest
+            .chars()
+            .take_while(|ch| ch.is_ascii_digit())
+            .collect::<String>();
+        if digits.is_empty() {
+            continue;
+        }
+        if let Ok(status_code) = digits.parse::<u16>() {
+            return Some(status_code);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

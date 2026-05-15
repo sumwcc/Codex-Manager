@@ -23,6 +23,7 @@ import {
 import { AddAccountModal } from "@/components/modals/add-account-modal";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
 import UsageModal from "@/components/modals/usage-modal";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -70,8 +71,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useI18n } from "@/lib/i18n/provider";
+import type { AccountWarmupResult } from "@/lib/api/account-maintenance";
 import { cn } from "@/lib/utils";
-import { formatCompactNumber } from "@/lib/utils/usage";
+import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
 import type { Account } from "@/types";
 import {
   type AccountEditorState,
@@ -107,6 +109,75 @@ interface CleanupStatusOption {
   count: number;
 }
 
+type WarmupItemStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed"
+  | "skipped"
+  | "unknown";
+type Translate = (
+  message: string,
+  values?: Record<string, string | number>,
+) => string;
+
+function normalizeWarmupItemStatus(
+  status: string | null | undefined,
+  ok?: boolean,
+): WarmupItemStatus {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (
+    normalized === "pending" ||
+    normalized === "running" ||
+    normalized === "success" ||
+    normalized === "failed" ||
+    normalized === "skipped"
+  ) {
+    return normalized;
+  }
+  if (ok === true) {
+    return "success";
+  }
+  if (ok === false) {
+    return "failed";
+  }
+  return "unknown";
+}
+
+function formatWarmupStatusLabel(status: WarmupItemStatus, t: Translate): string {
+  switch (status) {
+    case "pending":
+      return t("等待中");
+    case "running":
+      return t("进行中");
+    case "success":
+      return t("成功");
+    case "failed":
+      return t("失败");
+    case "skipped":
+      return t("跳过");
+    default:
+      return t("未知");
+  }
+}
+
+function getWarmupStatusBadgeClassName(status: WarmupItemStatus): string {
+  switch (status) {
+    case "success":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300";
+    case "failed":
+      return "border-destructive/30 bg-destructive/10 text-destructive";
+    case "skipped":
+      return "border-muted-foreground/25 bg-muted/40 text-muted-foreground";
+    case "running":
+      return "border-primary/35 bg-primary/10 text-primary";
+    case "pending":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    default:
+      return "border-border bg-muted/30 text-muted-foreground";
+  }
+}
+
 export interface AccountsPageViewProps {
   accounts: Account[];
   planTypes: PlanTypeOption[];
@@ -129,6 +200,8 @@ export interface AccountsPageViewProps {
   exportModeDraft: AccountExportMode;
   exportTargetCount: number;
   exportScopeText: string;
+  warmupBatchDialogOpen: boolean;
+  warmupBatchResult: AccountWarmupResult | null;
   cleanupDialogOpen: boolean;
   cleanupStatusDraft: string[];
   cleanupStatusOptions: CleanupStatusOption[];
@@ -165,6 +238,7 @@ export interface AccountsPageViewProps {
   setExportModeDraft: Dispatch<SetStateAction<AccountExportMode>>;
   setDeleteDialogState: Dispatch<SetStateAction<DeleteDialogState>>;
   setCleanupDialogOpen: Dispatch<SetStateAction<boolean>>;
+  setWarmupBatchDialogOpen: Dispatch<SetStateAction<boolean>>;
   setAccountEditorState: Dispatch<SetStateAction<AccountEditorState | null>>;
   setLabelDraft: Dispatch<SetStateAction<string>>;
   setTagsDraft: Dispatch<SetStateAction<string>>;
@@ -238,6 +312,8 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     exportModeDraft,
     exportTargetCount,
     exportScopeText,
+    warmupBatchDialogOpen,
+    warmupBatchResult,
     cleanupDialogOpen,
     cleanupStatusDraft,
     cleanupStatusOptions,
@@ -274,6 +350,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     setExportModeDraft,
     setDeleteDialogState,
     setCleanupDialogOpen,
+    setWarmupBatchDialogOpen,
     setAccountEditorState,
     setLabelDraft,
     setTagsDraft,
@@ -320,6 +397,35 @@ export function AccountsPageView(props: AccountsPageViewProps) {
       cleanupStatusDraft.includes(option.id) ? total + option.count : total,
     0,
   );
+  const warmupItems = warmupBatchResult?.results || [];
+  const warmupTotal = Number(warmupBatchResult?.total || warmupItems.length || 0);
+  const warmupSucceeded = Number(
+    warmupBatchResult?.succeeded ||
+      warmupItems.filter(
+        (item) => normalizeWarmupItemStatus(item.status, item.ok) === "success",
+      ).length,
+  );
+  const warmupFailed = Number(
+    warmupBatchResult?.failed ||
+      warmupItems.filter(
+        (item) => normalizeWarmupItemStatus(item.status, item.ok) === "failed",
+      ).length,
+  );
+  const warmupSkipped = Number(
+    warmupBatchResult?.skipped ||
+      warmupItems.filter(
+        (item) => normalizeWarmupItemStatus(item.status, item.ok) === "skipped",
+      ).length,
+  );
+  const warmupRunning = warmupItems.filter((item) => {
+    const status = normalizeWarmupItemStatus(item.status, item.ok);
+    return status === "pending" || status === "running";
+  }).length;
+  const warmupBatchStatus = String(warmupBatchResult?.status || "")
+    .trim()
+    .toLowerCase();
+  const isWarmupBatchRunning =
+    warmupBatchStatus === "running" || Boolean(isWarmingUpAccounts);
 
   return (
     <div className="space-y-6">
@@ -392,9 +498,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 <Button
                   variant="outline"
                   className="glass-card h-10 min-w-[88px] gap-2 rounded-xl px-3"
-                  disabled={
-                    !isServiceReady || isWarmingUpAccounts || accounts.length === 0
-                  }
+                  disabled={!isServiceReady || accounts.length === 0}
                   onClick={() => void handleWarmupAccounts()}
                 >
                   {isWarmingUpAccounts ? (
@@ -749,6 +853,136 @@ export function AccountsPageView(props: AccountsPageViewProps) {
               )}
               {t("确认清理")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isPageActive && warmupBatchDialogOpen}
+        onOpenChange={setWarmupBatchDialogOpen}
+      >
+        <DialogContent className="glass-card max-h-[82vh] border-border/70 sm:max-w-[820px]">
+          <DialogHeader>
+            <DialogTitle>{t("预热结果")}</DialogTitle>
+            <DialogDescription>
+              {isWarmupBatchRunning
+                ? t("预热任务正在执行，关闭弹窗不会取消后端任务。")
+                : t("预热任务已完成。")}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 overflow-hidden">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {[
+                { label: t("总数"), value: warmupTotal },
+                { label: t("成功"), value: warmupSucceeded },
+                { label: t("失败"), value: warmupFailed },
+                { label: t("跳过"), value: warmupSkipped },
+                { label: t("进行中"), value: warmupRunning },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-xl border border-border/60 bg-background/45 px-3 py-2"
+                >
+                  <div className="text-[11px] text-muted-foreground">
+                    {item.label}
+                  </div>
+                  <div className="mt-1 text-lg font-semibold tabular-nums">
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-border/60">
+              <div className="border-b border-border/60 bg-muted/25 px-3 py-2 text-xs font-medium text-muted-foreground">
+                {t("预热进度")}
+              </div>
+              <div className="max-h-[420px] overflow-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur">
+                    <TableRow>
+                      <TableHead className="min-w-[180px]">
+                        {t("账号")}
+                      </TableHead>
+                      <TableHead className="w-[96px]">{t("状态")}</TableHead>
+                      <TableHead className="min-w-[220px]">
+                        {t("结果消息")}
+                      </TableHead>
+                      <TableHead className="w-[156px]">
+                        {t("开始时间")}
+                      </TableHead>
+                      <TableHead className="w-[156px]">
+                        {t("完成时间")}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {warmupItems.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={5}
+                          className="h-28 text-center text-sm text-muted-foreground"
+                        >
+                          {isWarmupBatchRunning
+                            ? t("等待中")
+                            : t("暂无数据")}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      warmupItems.map((item, index) => {
+                        const status = normalizeWarmupItemStatus(
+                          item.status,
+                          item.ok,
+                        );
+                        const accountLabel =
+                          item.accountName || item.accountId || t("未知");
+                        return (
+                          <TableRow key={item.accountId || index}>
+                            <TableCell className="align-top">
+                              <div className="max-w-[220px] truncate text-sm font-medium">
+                                {accountLabel}
+                              </div>
+                              <div className="mt-1 max-w-[220px] truncate font-mono text-[10px] text-muted-foreground">
+                                {item.accountId || "-"}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <Badge
+                                variant="outline"
+                                className={getWarmupStatusBadgeClassName(status)}
+                              >
+                                {formatWarmupStatusLabel(status, t)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <div className="max-w-[300px] whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                                {item.message ? t(item.message) : "-"}
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top font-mono text-[11px] text-muted-foreground">
+                              {formatTsFromSeconds(item.startedAt, "-")}
+                            </TableCell>
+                            <TableCell className="align-top font-mono text-[11px] text-muted-foreground">
+                              {formatTsFromSeconds(item.finishedAt, "-")}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <DialogClose
+              className={cn(buttonVariants({ variant: "outline" }), "rounded-xl")}
+              type="button"
+            >
+              {t("关闭")}
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>

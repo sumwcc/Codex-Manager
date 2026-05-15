@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::account_status::mark_account_unavailable_for_auth_error;
+use crate::account_status::{
+    mark_account_unavailable_for_auth_error, should_skip_for_bad_refresh_token,
+};
 use crate::storage_helpers::open_storage;
 use crate::usage_account_meta::{
     build_workspace_map_from_accounts, clean_header_value, derive_account_meta, patch_account_meta,
@@ -24,7 +26,11 @@ use crate::usage_scheduler::{
     MIN_USAGE_POLL_INTERVAL_SECS,
 };
 use crate::usage_snapshot_store::store_usage_snapshot;
-use crate::usage_token_refresh::{refresh_and_persist_access_token, token_refresh_ahead_secs};
+use crate::usage_token_refresh::{
+    record_token_refresh_failure, record_token_refresh_success, refresh_and_persist_access_token,
+    token_refresh_ahead_secs, TOKEN_REFRESH_SOURCE_TOKEN_REFRESH_POLLING,
+    TOKEN_REFRESH_SOURCE_USAGE_REFRESH_RETRY,
+};
 
 mod batch;
 mod errors;
@@ -399,6 +405,14 @@ pub(crate) fn refresh_tokens_before_expiry_for_all_accounts() -> Result<(), Stri
 
     let mut due_tokens = Vec::with_capacity(tokens.len());
     for token in tokens.iter_mut() {
+        if should_skip_for_bad_refresh_token(&storage, &token.account_id) {
+            log::debug!(
+                "skip token refresh polling for account with known bad refresh token: account_id={}",
+                token.account_id
+            );
+            skipped = skipped.saturating_add(1);
+            continue;
+        }
         let _ = storage.touch_token_refresh_attempt(&token.account_id, now);
         let (exp_opt, scheduled_at) = token_refresh_schedule(
             token,
@@ -579,15 +593,29 @@ fn refresh_usage_for_token(
             }
             // 中文注释：token 刷新与持久化独立封装，避免轮询流程继续膨胀；
             // 不下沉会让后续 async 迁移时刷新链路与业务编排强耦合，回归范围扩大。
-            if let Err(refresh_err) = refresh_and_persist_access_token(
+            match refresh_and_persist_access_token(
                 storage,
                 &mut current,
                 &issuer,
                 &client_id,
                 token_refresh_ahead_secs(),
             ) {
-                mark_usage_unreachable_if_needed(storage, &current.account_id, &refresh_err);
-                return Err(refresh_err);
+                Ok(outcome) => record_token_refresh_success(
+                    storage,
+                    &current.account_id,
+                    TOKEN_REFRESH_SOURCE_USAGE_REFRESH_RETRY,
+                    outcome,
+                ),
+                Err(refresh_err) => {
+                    record_token_refresh_failure(
+                        storage,
+                        &current.account_id,
+                        TOKEN_REFRESH_SOURCE_USAGE_REFRESH_RETRY,
+                        &refresh_err,
+                    );
+                    mark_usage_unreachable_if_needed(storage, &current.account_id, &refresh_err);
+                    return Err(refresh_err);
+                }
             }
             let (refreshed_chatgpt_id, refreshed_workspace_id) = derive_account_meta(&current);
             patch_account_meta(
@@ -881,6 +909,13 @@ fn run_token_refresh_task(
         );
         return false;
     }
+    if should_skip_for_bad_refresh_token(storage, &token.account_id) {
+        log::debug!(
+            "skip token refresh polling for account with known bad refresh token: account_id={}",
+            token.account_id
+        );
+        return false;
+    }
     match refresh_and_persist_access_token(
         storage,
         token,
@@ -888,8 +923,22 @@ fn run_token_refresh_task(
         client_id,
         token_refresh_ahead_secs(),
     ) {
-        Ok(_) => true,
+        Ok(outcome) => {
+            record_token_refresh_success(
+                storage,
+                &token.account_id,
+                TOKEN_REFRESH_SOURCE_TOKEN_REFRESH_POLLING,
+                outcome,
+            );
+            true
+        }
         Err(err) => {
+            record_token_refresh_failure(
+                storage,
+                &token.account_id,
+                TOKEN_REFRESH_SOURCE_TOKEN_REFRESH_POLLING,
+                &err,
+            );
             let _ = mark_account_unavailable_for_auth_error(storage, &token.account_id, &err);
             log::warn!(
                 "token refresh polling failed: account_id={} err={}",

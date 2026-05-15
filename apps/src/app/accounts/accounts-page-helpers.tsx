@@ -93,6 +93,37 @@ export function formatStatusFilterLabel(value: string, t: TranslateFn) {
   }
 }
 
+export function formatAccountStatusReason(reason: string, t: TranslateFn) {
+  const normalized = String(reason || "").trim().toLowerCase();
+  switch (normalized) {
+    case "refresh_token_invalid:refresh_token_reused":
+      return t("RT 已被使用");
+    case "refresh_token_invalid:refresh_token_invalidated":
+      return t("RT 已撤销");
+    case "refresh_token_invalid:refresh_token_expired":
+      return t("RT 已过期");
+    case "refresh_token_invalid:invalid_grant":
+      return t("RT 无效");
+    case "refresh_token_invalid:refresh_token_unknown_401":
+      return t("RT 刷新被拒绝");
+    case "usage_http_401":
+      return t("用量接口未授权");
+    case "usage_http_403":
+      return t("用量接口无权限");
+    case "usage_limit_exhausted":
+      return t("用量已耗尽");
+    case "account_deactivated":
+      return t("账号已停用");
+    case "workspace_deactivated":
+    case "deactivated_workspace":
+      return t("工作区已停用");
+    case "token_refresh_ok":
+      return t("Token 刷新成功");
+    default:
+      return normalized ? reason : t("无");
+  }
+}
+
 export interface QuotaProgressProps {
   label: string;
   remainPercent: number | null;
@@ -504,6 +535,19 @@ export function AccountInfoCell({
       : account.hasSubscription === false
         ? t("未订阅")
         : t("未知");
+  const accessTokenExpiryText = formatTsFromSeconds(
+    account.accessTokenExpiresAt,
+    t("未知"),
+  );
+  const refreshTokenChangedText = formatTsFromSeconds(
+    account.refreshTokenChangedAt,
+    t("从未替换"),
+  );
+  const statusReasonText = formatAccountStatusReason(account.statusReason, t);
+  const statusReasonAtText = formatTsFromSeconds(
+    account.statusReasonAt,
+    t("未知"),
+  );
   const tagsText = formatAccountTags(account.tags);
   const noteText = String(account.note || "").trim();
 
@@ -539,11 +583,17 @@ export function AccountInfoCell({
             {account.id.slice(0, 16)}...
           </span>
           <span className="mt-1 text-[10px] text-muted-foreground">
-            {t("最近刷新")}:{" "}
+            {t("用量刷新")}:{" "}
             {formatTsFromSeconds(account.lastRefreshAt, t("从未刷新"))}
           </span>
           <span className="text-[10px] text-muted-foreground">
             {t("订阅到期")}: {subscriptionExpiryText}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {t("AT 到期")}: {accessTokenExpiryText}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {t("RT 最近替换")}: {refreshTokenChangedText}
           </span>
         </div>
       </TooltipTrigger>
@@ -563,6 +613,18 @@ export function AccountInfoCell({
               <div className="font-medium">
                 {t(account.availabilityText || "未知")}
               </div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-[10px] text-background/70">
+                {t("不可用原因")}
+              </div>
+              <div className="font-medium">{statusReasonText}</div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-[10px] text-background/70">
+                {t("状态时间")}
+              </div>
+              <div className="font-medium">{statusReasonAtText}</div>
             </div>
             <div className="space-y-0.5">
               <div className="text-[10px] text-background/70">
@@ -593,6 +655,18 @@ export function AccountInfoCell({
               <div className="font-medium">
                 {formatTsFromSeconds(account.subscriptionRenewsAt, t("未知"))}
               </div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-[10px] text-background/70">
+                {t("AT 到期")}
+              </div>
+              <div className="font-medium">{accessTokenExpiryText}</div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="text-[10px] text-background/70">
+                {t("RT 最近替换")}
+              </div>
+              <div className="font-medium">{refreshTokenChangedText}</div>
             </div>
           </div>
           <div className="space-y-0.5">

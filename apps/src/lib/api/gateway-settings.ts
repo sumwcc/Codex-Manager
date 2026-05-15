@@ -142,7 +142,7 @@ export function readGatewayRouteStrategySettings(
     options:
       readStringArrayField(payload, "options").length > 0
         ? readStringArrayField(payload, "options")
-        : ["ordered", "balanced"],
+        : ["ordered", "balanced", "usage_refresh_time"],
     manualPreferredAccountId: readStringField(payload, "manualPreferredAccountId"),
   };
 }

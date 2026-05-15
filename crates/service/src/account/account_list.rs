@@ -1,8 +1,9 @@
 use codexmanager_core::{
+    auth::extract_token_exp,
     rpc::types::{AccountListParams, AccountListResult, AccountSummary},
     storage::{
-        Account, AccountMetadata, AccountQuotaCapacityOverride, AccountSubscription, Token,
-        UsageSnapshotRecord,
+        Account, AccountMetadata, AccountQuotaCapacityOverride, AccountStatusReason,
+        AccountSubscription, Token, UsageSnapshotRecord,
     },
 };
 use std::collections::HashMap;
@@ -303,12 +304,16 @@ fn to_account_summary_with_reason(
     acc: Account,
     preferred: bool,
     status_reason: Option<String>,
+    status_reason_at: Option<i64>,
     plan_type: Option<String>,
     plan_type_raw: Option<String>,
     has_subscription: Option<bool>,
     subscription_plan: Option<String>,
     subscription_expires_at: Option<i64>,
     subscription_renews_at: Option<i64>,
+    access_token_expires_at: Option<i64>,
+    refresh_token_expires_at: Option<i64>,
+    refresh_token_changed_at: Option<i64>,
     note: Option<String>,
     tags: Option<String>,
     model_slugs: Vec<String>,
@@ -323,12 +328,16 @@ fn to_account_summary_with_reason(
         sort: acc.sort,
         status: acc.status,
         status_reason,
+        status_reason_at,
         plan_type,
         plan_type_raw,
         has_subscription,
         subscription_plan,
         subscription_expires_at,
         subscription_renews_at,
+        access_token_expires_at,
+        refresh_token_expires_at,
+        refresh_token_changed_at,
         note,
         tags,
         model_slugs,
@@ -360,9 +369,12 @@ fn to_account_summaries(
     let preferred_account_id = storage
         .preferred_account_id()
         .map_err(|err| format!("load preferred account failed: {err}"))?;
-    let status_reasons = storage
-        .latest_account_status_reasons(&account_ids)
+    let status_details = storage
+        .latest_account_status_details(&account_ids)
         .map_err(|err| format!("load account status reasons failed: {err}"))?;
+    let refresh_token_changed_at = storage
+        .latest_refresh_token_changed_at(&account_ids)
+        .map_err(|err| format!("load refresh token changed times failed: {err}"))?;
     let tokens = storage
         .list_tokens()
         .map_err(|err| format!("load account tokens failed: {err}"))?
@@ -411,7 +423,8 @@ fn to_account_summaries(
             map_account_summary(
                 account,
                 preferred_account_id.as_deref(),
-                &status_reasons,
+                &status_details,
+                &refresh_token_changed_at,
                 &tokens,
                 &usages,
                 &metadata,
@@ -441,7 +454,8 @@ fn to_account_summaries(
 fn map_account_summary(
     account: Account,
     preferred_account_id: Option<&str>,
-    status_reasons: &HashMap<String, String>,
+    status_details: &HashMap<String, AccountStatusReason>,
+    refresh_token_changed_at: &HashMap<String, i64>,
     tokens: &HashMap<String, Token>,
     usages: &HashMap<String, UsageSnapshotRecord>,
     metadata: &HashMap<String, AccountMetadata>,
@@ -450,7 +464,10 @@ fn map_account_summary(
     quota_overrides: &HashMap<String, AccountQuotaCapacityOverride>,
 ) -> AccountSummary {
     let account_id = account.id.clone();
-    let status_reason = status_reasons.get(&account_id).cloned();
+    let status_detail = status_details.get(&account_id);
+    let status_reason = status_detail.map(|detail| detail.reason.clone());
+    let status_reason_at = status_detail.map(|detail| detail.created_at);
+    let rt_changed_at = refresh_token_changed_at.get(&account_id).copied();
     let preferred = preferred_account_id.is_some_and(|id| id == account_id);
     let plan = resolve_account_plan(tokens.get(&account_id), usages.get(&account_id));
     let account_metadata = metadata.get(&account_id);
@@ -467,16 +484,21 @@ fn map_account_summary(
     let subscription_plan = subscription.and_then(|value| value.plan_type.clone());
     let subscription_plan_type = subscription.and_then(resolve_subscription_plan_type);
     let plan_type = subscription_plan_type.or(fallback_plan_type);
+    let token = tokens.get(&account_id);
     to_account_summary_with_reason(
         account,
         preferred,
         status_reason,
+        status_reason_at,
         plan_type,
         plan_type_raw,
         subscription.map(|value| value.has_subscription),
         subscription_plan,
         subscription.and_then(|value| value.expires_at),
         subscription.and_then(|value| value.renews_at),
+        token.and_then(|value| extract_token_exp(&value.access_token)),
+        token.and_then(|value| extract_token_exp(&value.refresh_token)),
+        rt_changed_at,
         account_metadata.and_then(|value| value.note.clone()),
         account_metadata.and_then(|value| value.tags.clone()),
         model_slugs,

@@ -16,6 +16,8 @@ macro_rules! invoke_handler {
             crate::commands::account::remote::service_account_delete_unavailable_free,
             crate::commands::account::remote::service_account_update,
             crate::commands::account::remote::service_account_warmup,
+            crate::commands::account::remote::service_account_warmup_start,
+            crate::commands::account::remote::service_account_warmup_status,
             crate::commands::account::transfer::service_account_import,
             crate::commands::account::transfer::service_account_import_by_file,
             crate::commands::account::transfer::service_account_import_by_directory,
@@ -87,6 +89,8 @@ macro_rules! invoke_handler {
             crate::commands::login::service_account_logout,
             crate::commands::login::service_chatgpt_auth_tokens_refresh,
             crate::commands::login::service_chatgpt_auth_tokens_refresh_all,
+            crate::commands::login::service_chatgpt_auth_tokens_refresh_all_start,
+            crate::commands::login::service_chatgpt_auth_tokens_refresh_all_status,
             // api key
             crate::commands::aggregate_api::service_aggregate_api_list,
             crate::commands::aggregate_api::service_aggregate_api_read_secret,

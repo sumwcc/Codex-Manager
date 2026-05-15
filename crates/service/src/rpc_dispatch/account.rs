@@ -122,6 +122,34 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let message = first_string_param(req, &["message"]).unwrap_or_default();
             super::value_or_error(account_warmup::warmup_accounts(account_ids, &message))
         }
+        "account/warmup/start" => {
+            let account_ids = req
+                .params
+                .as_ref()
+                .and_then(|params| {
+                    params
+                        .get("accountIds")
+                        .or_else(|| params.get("account_ids"))
+                })
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(|item| item.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let message = first_string_param(req, &["message"]).unwrap_or_default();
+            super::value_or_error(account_warmup::warmup_accounts_batch_start(
+                account_ids,
+                &message,
+            ))
+        }
+        "account/warmup/status" => {
+            let batch_id = first_str_param(req, &["batchId", "batch_id"]).unwrap_or("");
+            super::value_or_error(account_warmup::warmup_accounts_batch_status(batch_id))
+        }
         "account/import" => {
             let mut contents = req
                 .params
@@ -261,6 +289,15 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         }
         "account/chatgptAuthTokens/refreshAll" => {
             super::value_or_error(auth_account::refresh_all_chatgpt_auth_tokens())
+        }
+        "account/chatgptAuthTokens/refreshAll/start" => {
+            super::value_or_error(auth_account::start_refresh_all_chatgpt_auth_tokens_batch())
+        }
+        "account/chatgptAuthTokens/refreshAll/status" => {
+            let batch_id = first_str_param(req, &["batchId", "batch_id"]).unwrap_or("");
+            super::value_or_error(auth_account::refresh_all_chatgpt_auth_tokens_batch_status(
+                batch_id,
+            ))
         }
         "account/read" => {
             let refresh_token =

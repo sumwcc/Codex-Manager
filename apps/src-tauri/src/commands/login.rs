@@ -214,3 +214,21 @@ pub async fn service_chatgpt_auth_tokens_refresh_all(
 ) -> Result<serde_json::Value, String> {
     rpc_call_in_background("account/chatgptAuthTokens/refreshAll", addr, None).await
 }
+
+#[tauri::command]
+pub async fn service_chatgpt_auth_tokens_refresh_all_start(
+    addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("account/chatgptAuthTokens/refreshAll/start", addr, None).await
+}
+
+#[tauri::command]
+pub async fn service_chatgpt_auth_tokens_refresh_all_status(
+    addr: Option<String>,
+    batch_id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+      "batchId": batch_id
+    });
+    rpc_call_in_background("account/chatgptAuthTokens/refreshAll/status", addr, Some(params)).await
+}

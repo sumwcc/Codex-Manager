@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { accountClient } from "@/lib/api/account-client";
@@ -23,15 +23,20 @@ type ImportByDirectoryResult = Awaited<ReturnType<typeof accountClient.importByD
 type ImportByFileResult = Awaited<ReturnType<typeof accountClient.importByFile>>;
 type AccountExportPayload = Parameters<typeof accountClient.export>[0];
 type ExportResult = Awaited<ReturnType<typeof accountClient.export>>;
-type WarmupPayload = Parameters<typeof accountClient.warmup>[0];
-type WarmupResult = Awaited<ReturnType<typeof accountClient.warmup>>;
+type WarmupPayload = Parameters<typeof accountClient.startWarmupAccounts>[0];
+type WarmupResult = Awaited<ReturnType<typeof accountClient.startWarmupAccounts>>;
 type RefreshAllRtResult = Awaited<
-  ReturnType<typeof accountClient.refreshAllChatgptAuthTokens>
+  ReturnType<typeof accountClient.startRefreshAllChatgptAuthTokens>
 >;
 type DeleteAccountsByStatusesResult = Awaited<
   ReturnType<typeof accountClient.deleteByStatuses>
 >;
 type AccountSortUpdate = { accountId: string; sort: number };
+
+const REFRESH_ALL_RT_POLL_INTERVAL_MS = 1_000;
+const REFRESH_ALL_RT_POLL_TIMEOUT_MS = 30 * 60 * 1_000;
+const WARMUP_BATCH_POLL_INTERVAL_MS = 1_000;
+const WARMUP_BATCH_POLL_TIMEOUT_MS = 30 * 60 * 1_000;
 
 /**
  * 函数 `isAccountRefreshBlocked`
@@ -146,6 +151,117 @@ function buildUsageListFingerprint(usages: AccountUsage[]): string {
     .join("|");
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRefreshAllRtTerminal(result: RefreshAllRtResult): boolean {
+  const status = String(result?.status || "").trim().toLowerCase();
+  return status === "completed" || status === "failed";
+}
+
+function isWarmupBatchTerminal(result: WarmupResult): boolean {
+  const status = String(result?.status || "").trim().toLowerCase();
+  return status === "completed" || status === "failed";
+}
+
+function formatSingleRtRefreshToast(
+  result: Awaited<ReturnType<typeof accountClient.refreshChatgptAuthTokens>>,
+  t: (message: string, values?: Record<string, string | number>) => string,
+): string {
+  return t("账号 AT/RT 已刷新：RT {returned}，轮换 {changed}", {
+    returned: result.refreshTokenReturned ? t("已返回") : t("未返回"),
+    changed: result.refreshTokenChanged ? t("已轮换") : t("未轮换"),
+  });
+}
+
+function buildRefreshAllRtToastMessage(
+  result: RefreshAllRtResult,
+  t: (message: string, values?: Record<string, string | number>) => string,
+): string {
+  const succeeded = Number(result?.succeeded || 0);
+  const failed = Number(result?.failed || 0);
+  const skipped = Number(result?.skipped || 0);
+  const rtReturned = Number(result?.refreshTokenReturned || 0);
+  const rtChanged = Number(result?.refreshTokenChanged || 0);
+  const rtMissing = Number(result?.refreshTokenMissing || 0);
+  const firstFailure = (result?.results || []).find(
+    (item) => String(item.status || "").toLowerCase() === "failed",
+  );
+  const base =
+    failed > 0
+      ? firstFailure?.message
+        ? t("AT/RT 刷新完成：成功{success}个，失败{failed}个，跳过{skipped}个；首个失败：{message}", {
+            success: succeeded,
+            failed,
+            skipped,
+            message: firstFailure.message,
+          })
+        : t("AT/RT 刷新完成：成功{success}个，失败{failed}个，跳过{skipped}个", {
+            success: succeeded,
+            failed,
+            skipped,
+          })
+      : t("AT/RT 刷新完成：成功{success}个，跳过{skipped}个", {
+          success: succeeded,
+          skipped,
+        });
+  const diagnostics = t(
+    "RT 已返回{returned}个，RT 已轮换{changed}个，RT 未返回{missing}个",
+    {
+      returned: rtReturned,
+      changed: rtChanged,
+      missing: rtMissing,
+    },
+  );
+  if (succeeded > 0 && rtReturned === 0) {
+    return `${base}；${diagnostics}；${t("本次可能只刷新了 AT，服务端未返回新 RT")}`;
+  }
+  return `${base}；${diagnostics}`;
+}
+
+async function waitForRefreshAllRtBatch(
+  initial: RefreshAllRtResult,
+): Promise<RefreshAllRtResult> {
+  const batchId = String(initial?.batchId || "").trim();
+  if (!batchId || isRefreshAllRtTerminal(initial)) {
+    return initial;
+  }
+
+  const startedAt = Date.now();
+  let latest = initial;
+  while (!isRefreshAllRtTerminal(latest)) {
+    if (Date.now() - startedAt >= REFRESH_ALL_RT_POLL_TIMEOUT_MS) {
+      throw new Error("AT/RT 批量刷新任务仍在运行，请稍后刷新账号列表查看结果");
+    }
+    await delay(REFRESH_ALL_RT_POLL_INTERVAL_MS);
+    latest = await accountClient.getRefreshAllChatgptAuthTokensStatus(batchId);
+  }
+  return latest;
+}
+
+async function waitForWarmupBatch(
+  initial: WarmupResult,
+  onUpdate: (result: WarmupResult) => void,
+): Promise<WarmupResult> {
+  const batchId = String(initial?.batchId || "").trim();
+  if (!batchId || isWarmupBatchTerminal(initial)) {
+    return initial;
+  }
+
+  const startedAt = Date.now();
+  let latest = initial;
+  while (!isWarmupBatchTerminal(latest)) {
+    if (Date.now() - startedAt >= WARMUP_BATCH_POLL_TIMEOUT_MS) {
+      throw new Error("账号预热任务仍在运行，请稍后查看结果");
+    }
+    await delay(WARMUP_BATCH_POLL_INTERVAL_MS);
+    latest = await accountClient.getWarmupAccountsStatus(batchId);
+    onUpdate(latest);
+  }
+  return latest;
+}
+
 /**
  * 函数 `useAccounts`
  *
@@ -167,6 +283,9 @@ export function useAccounts() {
   const backgroundTasks = useAppStore((state) => state.appSettings.backgroundTasks);
   const { canAccessManagementRpc } = useRuntimeCapabilities();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
+  const [warmupBatchResult, setWarmupBatchResult] =
+    useState<WarmupResult | null>(null);
+  const [warmupBatchDialogOpen, setWarmupBatchDialogOpen] = useState(false);
   const isPageActive = useDesktopPageActive("/accounts/");
   const areAccountQueriesEnabled = useDeferredDesktopActivation(
     isServiceReady && isPageActive,
@@ -416,8 +535,8 @@ export function useAccounts() {
   const refreshAccountRtMutation = useMutation({
     mutationFn: (accountId: string) =>
       accountClient.refreshChatgptAuthTokens(accountId),
-    onSuccess: () => {
-      toast.success(t("账号 AT/RT 已刷新"));
+    onSuccess: (result) => {
+      toast.success(formatSingleRtRefreshToast(result, t));
     },
     onError: (error: unknown) => {
       toast.error(`${t("刷新 AT/RT 失败")}: ${getAppErrorMessage(error)}`);
@@ -428,35 +547,20 @@ export function useAccounts() {
   });
 
   const refreshAllAccountRtMutation = useMutation({
-    mutationFn: () => accountClient.refreshAllChatgptAuthTokens(),
+    mutationFn: async () => {
+      const initial = await accountClient.startRefreshAllChatgptAuthTokens();
+      return waitForRefreshAllRtBatch(initial);
+    },
     onSuccess: (result: RefreshAllRtResult) => {
       const succeeded = Number(result?.succeeded || 0);
       const failed = Number(result?.failed || 0);
-      const skipped = Number(result?.skipped || 0);
-      if (failed > 0) {
-        const firstFailure = (result?.results || []).find((item) => !item.ok);
-        toast.warning(
-          firstFailure?.message
-            ? t("AT/RT 刷新完成：成功{success}个，失败{failed}个，跳过{skipped}个；首个失败：{message}", {
-                success: succeeded,
-                failed,
-                skipped,
-                message: firstFailure.message,
-              })
-            : t("AT/RT 刷新完成：成功{success}个，失败{failed}个，跳过{skipped}个", {
-                success: succeeded,
-                failed,
-                skipped,
-              }),
-        );
+      const rtReturned = Number(result?.refreshTokenReturned || 0);
+      const message = buildRefreshAllRtToastMessage(result, t);
+      if (failed > 0 || (succeeded > 0 && rtReturned === 0)) {
+        toast.warning(message);
         return;
       }
-      toast.success(
-        t("AT/RT 刷新完成：成功{success}个，跳过{skipped}个", {
-          success: succeeded,
-          skipped,
-        }),
-      );
+      toast.success(message);
     },
     onError: (error: unknown) => {
       toast.error(`${t("批量刷新 AT/RT 失败")}: ${getAppErrorMessage(error)}`);
@@ -675,33 +779,15 @@ export function useAccounts() {
   });
 
   const warmupMutation = useMutation({
-    mutationFn: (params?: WarmupPayload) => accountClient.warmup(params),
+    mutationFn: async (params?: WarmupPayload) => {
+      const initial = await accountClient.startWarmupAccounts(params);
+      setWarmupBatchResult(initial);
+      setWarmupBatchDialogOpen(true);
+      return waitForWarmupBatch(initial, setWarmupBatchResult);
+    },
     onSuccess: async (result: WarmupResult) => {
       await invalidateAll();
-      const requested = Number(result?.requested || 0);
-      const succeeded = Number(result?.succeeded || 0);
-      const failed = Number(result?.failed || 0);
-      const firstFailedItem = (result?.results || []).find((item) => !item.ok);
-      if (requested <= 0) {
-        toast.info(t("当前没有可预热的账号"));
-        return;
-      }
-      if (failed <= 0) {
-        toast.success(t("预热完成：共{requested}个账号，成功{count}个", {
-          requested,
-          count: succeeded,
-        }));
-        return;
-      }
-      const summary = t("预热完成：成功{success}个，失败{failed}个", {
-        success: succeeded,
-        failed,
-      });
-      toast.warning(
-        firstFailedItem?.message
-          ? `${summary}；${t("首个失败")}: ${firstFailedItem.accountName || firstFailedItem.accountId} - ${firstFailedItem.message}`
-          : summary,
-      );
+      setWarmupBatchResult(result);
     },
     onError: (error: unknown) => {
       toast.error(`${t("账号预热失败")}: ${getAppErrorMessage(error)}`);
@@ -804,8 +890,15 @@ export function useAccounts() {
     },
     warmupAccounts: async (params?: WarmupPayload) => {
       if (!ensureServiceReady("账号预热")) return;
+      if (warmupMutation.isPending) {
+        setWarmupBatchDialogOpen(true);
+        return warmupBatchResult || undefined;
+      }
       return await warmupMutation.mutateAsync(params);
     },
+    warmupBatchResult,
+    warmupBatchDialogOpen,
+    setWarmupBatchDialogOpen,
     setPreferredAccount: (accountId: string) => {
       if (!ensureServiceReady("设置优先账号")) return;
       setPreferredMutation.mutate(accountId);

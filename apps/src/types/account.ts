@@ -24,12 +24,16 @@ export interface Account {
   sort: number;
   status: string;
   statusReason: string;
+  statusReasonAt: number | null;
   planType: string | null;
   planTypeRaw: string | null;
   hasSubscription: boolean | null;
   subscriptionPlan: string | null;
   subscriptionExpiresAt: number | null;
   subscriptionRenewsAt: number | null;
+  accessTokenExpiresAt: number | null;
+  refreshTokenExpiresAt: number | null;
+  refreshTokenChangedAt: number | null;
   note: string | null;
   tags: string[];
   modelSlugs: string[];

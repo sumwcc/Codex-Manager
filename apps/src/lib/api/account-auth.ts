@@ -5,6 +5,7 @@ import type {
   CurrentAccessTokenAccount,
   CurrentAccessTokenAccountReadResult,
   LoginStatusResult,
+  TokenRefreshOutcome,
 } from "../../types";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -53,6 +54,18 @@ function readNumberField(payload: unknown, key: string, fallback = 0): number {
 function readNullableStringField(payload: unknown, key: string): string | null {
   const value = readStringField(payload, key);
   return value ? value : null;
+}
+
+function readTokenRefreshOutcome(payload: unknown): TokenRefreshOutcome {
+  return {
+    accessTokenChanged: readBooleanField(payload, "accessTokenChanged"),
+    refreshTokenReturned: readBooleanField(payload, "refreshTokenReturned"),
+    refreshTokenChanged: readBooleanField(payload, "refreshTokenChanged"),
+    idTokenChanged: readBooleanField(payload, "idTokenChanged"),
+    accessTokenExpiresAt: readNullableNumberField(payload, "accessTokenExpiresAt"),
+    refreshTokenExpiresAt: readNullableNumberField(payload, "refreshTokenExpiresAt"),
+    nextRefreshAt: readNullableNumberField(payload, "nextRefreshAt"),
+  };
 }
 
 export function readLoginStatusResult(payload: unknown): LoginStatusResult {
@@ -107,6 +120,7 @@ export function readChatgptAuthTokensRefreshResult(
     subscriptionPlan: readNullableStringField(payload, "subscriptionPlan"),
     subscriptionExpiresAt: readNullableNumberField(payload, "subscriptionExpiresAt"),
     subscriptionRenewsAt: readNullableNumberField(payload, "subscriptionRenewsAt"),
+    ...readTokenRefreshOutcome(payload),
   };
 }
 
@@ -116,8 +130,12 @@ function readChatgptAuthTokensRefreshAllItem(
   return {
     accountId: readStringField(payload, "accountId"),
     accountName: readStringField(payload, "accountName"),
+    status: readStringField(payload, "status"),
     ok: readBooleanField(payload, "ok"),
     message: readNullableStringField(payload, "message"),
+    startedAt: readNullableNumberField(payload, "startedAt"),
+    finishedAt: readNullableNumberField(payload, "finishedAt"),
+    ...readTokenRefreshOutcome(payload),
   };
 }
 
@@ -127,10 +145,19 @@ export function readChatgptAuthTokensRefreshAllResult(
   const source = asRecord(payload);
   const rawResults = Array.isArray(source?.results) ? source.results : [];
   return {
+    batchId: readNullableStringField(payload, "batchId"),
+    status: readStringField(payload, "status"),
+    total: readNumberField(payload, "total"),
     requested: readNumberField(payload, "requested"),
+    processed: readNumberField(payload, "processed"),
     succeeded: readNumberField(payload, "succeeded"),
     failed: readNumberField(payload, "failed"),
     skipped: readNumberField(payload, "skipped"),
+    refreshTokenReturned: readNumberField(payload, "refreshTokenReturned"),
+    refreshTokenChanged: readNumberField(payload, "refreshTokenChanged"),
+    refreshTokenMissing: readNumberField(payload, "refreshTokenMissing"),
+    startedAt: readNullableNumberField(payload, "startedAt"),
+    finishedAt: readNullableNumberField(payload, "finishedAt"),
     results: rawResults.map(readChatgptAuthTokensRefreshAllItem),
   };
 }

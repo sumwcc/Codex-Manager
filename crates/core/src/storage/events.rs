@@ -1,7 +1,7 @@
 use rusqlite::{params_from_iter, types::Value, Result};
 use std::collections::HashMap;
 
-use super::{Event, Storage};
+use super::{AccountStatusReason, Event, Storage};
 
 impl Storage {
     /// 函数 `insert_event`
@@ -61,6 +61,17 @@ impl Storage {
         &self,
         account_ids: &[String],
     ) -> Result<HashMap<String, String>> {
+        Ok(self
+            .latest_account_status_details(account_ids)?
+            .into_iter()
+            .map(|(account_id, detail)| (account_id, detail.reason))
+            .collect())
+    }
+
+    pub fn latest_account_status_details(
+        &self,
+        account_ids: &[String],
+    ) -> Result<HashMap<String, AccountStatusReason>> {
         if account_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -71,6 +82,7 @@ impl Storage {
                 SELECT
                     account_id,
                     message,
+                    created_at,
                     ROW_NUMBER() OVER (
                         PARTITION BY account_id
                         ORDER BY created_at DESC, id DESC
@@ -79,7 +91,7 @@ impl Storage {
                 WHERE type = 'account_status_update'
                   AND account_id IN ({placeholders})
             )
-            SELECT account_id, message
+            SELECT account_id, message, created_at
             FROM ranked
             WHERE rn = 1"
         );
@@ -94,9 +106,60 @@ impl Storage {
         while let Some(row) = rows.next()? {
             let account_id: String = row.get(0)?;
             let message: String = row.get(1)?;
+            let created_at: i64 = row.get(2)?;
             if let Some(reason) = extract_status_reason_from_event_message(&message) {
-                out.insert(account_id, reason.to_string());
+                out.insert(
+                    account_id,
+                    AccountStatusReason {
+                        reason: reason.to_string(),
+                        created_at,
+                    },
+                );
             }
+        }
+        Ok(out)
+    }
+
+    pub fn latest_refresh_token_changed_at(
+        &self,
+        account_ids: &[String],
+    ) -> Result<HashMap<String, i64>> {
+        if account_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let placeholders = vec!["?"; account_ids.len()].join(", ");
+        let sql = format!(
+            "WITH ranked AS (
+                SELECT
+                    account_id,
+                    created_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY account_id
+                        ORDER BY created_at DESC, id DESC
+                    ) AS rn
+                FROM events
+                WHERE type = 'token_refresh_result'
+                  AND account_id IN ({placeholders})
+                  AND message LIKE '%status=success%'
+                  AND message LIKE '%refreshTokenChanged=true%'
+            )
+            SELECT account_id, created_at
+            FROM ranked
+            WHERE rn = 1"
+        );
+
+        let params = account_ids
+            .iter()
+            .map(|account_id| Value::Text(account_id.clone()))
+            .collect::<Vec<_>>();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params))?;
+        let mut out = HashMap::new();
+        while let Some(row) = rows.next()? {
+            let account_id: String = row.get(0)?;
+            let created_at: i64 = row.get(1)?;
+            out.insert(account_id, created_at);
         }
         Ok(out)
     }

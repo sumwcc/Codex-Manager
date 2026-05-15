@@ -1389,11 +1389,14 @@ export default function SettingsPage() {
                     <SelectItem value="balanced">
                       {t("均衡轮询 (Balanced)")}
                     </SelectItem>
+                    <SelectItem value="usage_refresh_time">
+                      {t("轮训-用量刷新时间")}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
                   {t(
-                    "顺序优先：按账号候选顺序优先尝试，默认只会在头部小窗口内按健康度做轻微换头；均衡轮询：按“平台密钥 + 模型”维度严格轮询可用账号，默认不做健康度换头。",
+                    "顺序优先：按账号候选顺序优先尝试；均衡轮询：按“平台密钥 + 模型”维度轮询可用账号；轮训-用量刷新时间：优先使用 7 天额度窗口重置时间更远的账号，同等情况下 7 天已用比例更低的账号靠前，最后再按用量刷新时间最旧优先。",
                   )}
                 </p>
               </div>

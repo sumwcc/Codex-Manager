@@ -1,5 +1,6 @@
 use super::route_quality::route_health_score;
-use codexmanager_core::storage::{Account, Token};
+use codexmanager_core::storage::{Account, Token, UsageSnapshotRecord};
+use std::cmp::Ordering as CmpOrdering;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -8,8 +9,10 @@ use std::time::{Duration, Instant};
 const ROUTE_STRATEGY_ENV: &str = "CODEXMANAGER_ROUTE_STRATEGY";
 const ROUTE_MODE_ORDERED: u8 = 0;
 const ROUTE_MODE_BALANCED_ROUND_ROBIN: u8 = 1;
+const ROUTE_MODE_USAGE_REFRESH_TIME: u8 = 2;
 const ROUTE_STRATEGY_ORDERED: &str = "ordered";
 const ROUTE_STRATEGY_BALANCED: &str = "balanced";
+const ROUTE_STRATEGY_USAGE_REFRESH_TIME: &str = "usage_refresh_time";
 const ROUTE_HEALTH_P2C_ENABLED_ENV: &str = "CODEXMANAGER_ROUTE_HEALTH_P2C_ENABLED";
 const ROUTE_HEALTH_P2C_ORDERED_WINDOW_ENV: &str = "CODEXMANAGER_ROUTE_HEALTH_P2C_ORDERED_WINDOW";
 const ROUTE_HEALTH_P2C_BALANCED_WINDOW_ENV: &str = "CODEXMANAGER_ROUTE_HEALTH_P2C_BALANCED_WINDOW";
@@ -24,6 +27,8 @@ const DEFAULT_ROUTE_HEALTH_P2C_BALANCED_WINDOW: usize = 1;
 const DEFAULT_ROUTE_STATE_TTL_SECS: u64 = 0;
 const DEFAULT_ROUTE_STATE_CAPACITY: usize = 0;
 const ROUTE_STATE_MAINTENANCE_EVERY: u64 = 64;
+const MINUTES_PER_DAY: i64 = 24 * 60;
+const WINDOW_ROUNDING_BIAS_MINUTES: i64 = 3;
 
 static ROUTE_MODE: AtomicU8 = AtomicU8::new(ROUTE_MODE_ORDERED);
 static ROUTE_HEALTH_P2C_ENABLED: AtomicBool = AtomicBool::new(DEFAULT_ROUTE_HEALTH_P2C_ENABLED);
@@ -94,8 +99,10 @@ pub(crate) fn apply_route_strategy(
     }
 
     let mode = route_mode();
-    if mode == ROUTE_MODE_BALANCED_ROUND_ROBIN {
-        apply_balanced_round_robin(candidates, key_id, model);
+    match mode {
+        ROUTE_MODE_BALANCED_ROUND_ROBIN => apply_balanced_round_robin(candidates, key_id, model),
+        ROUTE_MODE_USAGE_REFRESH_TIME => apply_usage_refresh_time_order(candidates),
+        _ => {}
     }
 
     apply_health_p2c(candidates, key_id, model, mode);
@@ -181,10 +188,10 @@ fn route_mode() -> u8 {
 /// # 返回
 /// 返回函数执行结果
 fn route_mode_label(mode: u8) -> &'static str {
-    if mode == ROUTE_MODE_BALANCED_ROUND_ROBIN {
-        ROUTE_STRATEGY_BALANCED
-    } else {
-        ROUTE_STRATEGY_ORDERED
+    match mode {
+        ROUTE_MODE_BALANCED_ROUND_ROBIN => ROUTE_STRATEGY_BALANCED,
+        ROUTE_MODE_USAGE_REFRESH_TIME => ROUTE_STRATEGY_USAGE_REFRESH_TIME,
+        _ => ROUTE_STRATEGY_ORDERED,
     }
 }
 
@@ -204,6 +211,9 @@ fn parse_route_mode(raw: &str) -> Option<u8> {
         ROUTE_STRATEGY_ORDERED | "order" | "priority" | "sequential" => Some(ROUTE_MODE_ORDERED),
         ROUTE_STRATEGY_BALANCED | "round_robin" | "round-robin" | "rr" => {
             Some(ROUTE_MODE_BALANCED_ROUND_ROBIN)
+        }
+        ROUTE_STRATEGY_USAGE_REFRESH_TIME | "usage-refresh-time" | "usage_time" => {
+            Some(ROUTE_MODE_USAGE_REFRESH_TIME)
         }
         _ => None,
     }
@@ -240,7 +250,7 @@ pub(crate) fn set_route_strategy(strategy: &str) -> Result<&'static str, String>
     ensure_route_config_loaded();
     let Some(mode) = parse_route_mode(strategy) else {
         return Err(
-            "invalid strategy; use ordered or balanced (aliases: round_robin/round-robin/rr)"
+            "invalid strategy; use ordered, balanced, or usage_refresh_time (aliases: round_robin/round-robin/rr/usage-refresh-time/usage_time)"
                 .to_string(),
         );
     };
@@ -252,6 +262,133 @@ pub(crate) fn set_route_strategy(strategy: &str) -> Result<&'static str, String>
         state.maintenance_tick = 0;
     }
     Ok(route_mode_label(mode))
+}
+
+fn apply_usage_refresh_time_order(candidates: &mut [(Account, Token)]) {
+    let Some(storage) = crate::storage_helpers::open_storage() else {
+        return;
+    };
+    let snapshots = storage.latest_usage_snapshots_by_account().unwrap_or_default();
+    let usage_by_account = snapshots
+        .into_iter()
+        .map(|snapshot| (snapshot.account_id.clone(), snapshot))
+        .collect::<HashMap<_, _>>();
+    sort_by_usage_refresh_time(candidates, &usage_by_account);
+}
+
+fn sort_by_usage_refresh_time(
+    candidates: &mut [(Account, Token)],
+    usage_by_account: &HashMap<String, UsageSnapshotRecord>,
+) {
+    if candidates.len() <= 1 {
+        return;
+    }
+    let original_order = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, (account, _))| (account.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    candidates.sort_by(|(left_account, _), (right_account, _)| {
+        let left = usage_route_sort_key(
+            usage_by_account.get(left_account.id.as_str()),
+            original_order
+                .get(left_account.id.as_str())
+                .copied()
+                .unwrap_or(usize::MAX),
+        );
+        let right = usage_route_sort_key(
+            usage_by_account.get(right_account.id.as_str()),
+            original_order
+                .get(right_account.id.as_str())
+                .copied()
+                .unwrap_or(usize::MAX),
+        );
+        compare_usage_route_sort_key(&left, &right)
+    });
+}
+
+#[derive(Clone, Copy)]
+struct UsageRouteSortKey {
+    data_rank: u8,
+    seven_day_resets_at: i64,
+    seven_day_used_percent: f64,
+    captured_at: i64,
+    original_order: usize,
+}
+
+fn usage_route_sort_key(
+    usage: Option<&UsageSnapshotRecord>,
+    original_order: usize,
+) -> UsageRouteSortKey {
+    match usage {
+        Some(snapshot) => {
+            let seven_day_window = seven_day_quota_window(snapshot);
+            UsageRouteSortKey {
+                data_rank: if seven_day_window.is_some() { 0 } else { 2 },
+                seven_day_resets_at: seven_day_window
+                    .and_then(|window| window.resets_at)
+                    .unwrap_or(0),
+                seven_day_used_percent: normalized_usage_percent(
+                    seven_day_window.and_then(|window| window.used_percent),
+                ),
+                captured_at: snapshot.captured_at,
+                original_order,
+            }
+        }
+        None => UsageRouteSortKey {
+            data_rank: 1,
+            seven_day_resets_at: 0,
+            seven_day_used_percent: f64::INFINITY,
+            captured_at: i64::MAX,
+            original_order,
+        },
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SevenDayQuotaWindow {
+    resets_at: Option<i64>,
+    used_percent: Option<f64>,
+}
+
+fn seven_day_quota_window(snapshot: &UsageSnapshotRecord) -> Option<SevenDayQuotaWindow> {
+    let window = if is_long_quota_window(snapshot.secondary_window_minutes) {
+        Some(SevenDayQuotaWindow {
+            resets_at: snapshot.secondary_resets_at,
+            used_percent: snapshot.secondary_used_percent,
+        })
+    } else if is_long_quota_window(snapshot.window_minutes) {
+        Some(SevenDayQuotaWindow {
+            resets_at: snapshot.resets_at,
+            used_percent: snapshot.used_percent,
+        })
+    } else {
+        None
+    };
+    window.filter(|item| item.resets_at.is_some())
+}
+
+fn is_long_quota_window(window_minutes: Option<i64>) -> bool {
+    window_minutes.is_some_and(|minutes| minutes > MINUTES_PER_DAY + WINDOW_ROUNDING_BIAS_MINUTES)
+}
+
+fn normalized_usage_percent(value: Option<f64>) -> f64 {
+    value
+        .filter(|percent| percent.is_finite())
+        .unwrap_or(f64::INFINITY)
+}
+
+fn compare_usage_route_sort_key(left: &UsageRouteSortKey, right: &UsageRouteSortKey) -> CmpOrdering {
+    left.data_rank
+        .cmp(&right.data_rank)
+        .then_with(|| right.seven_day_resets_at.cmp(&left.seven_day_resets_at))
+        .then_with(|| {
+            left.seven_day_used_percent
+                .partial_cmp(&right.seven_day_used_percent)
+                .unwrap_or(CmpOrdering::Equal)
+        })
+        .then_with(|| left.captured_at.cmp(&right.captured_at))
+        .then_with(|| left.original_order.cmp(&right.original_order))
 }
 
 /// 函数 `get_manual_preferred_account`
